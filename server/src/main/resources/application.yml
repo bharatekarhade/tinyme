@@ -1,0 +1,13 @@
+spring:
+  application:
+    name: tinyme-server
+  config:
+    import: optional:file:../.env[.properties] # repo-root .env when running from server/
+  datasource:
+    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5432/${POSTGRES_DB:tinyme}}
+    username: ${SPRING_DATASOURCE_USERNAME:${POSTGRES_USER:tinyme}}
+    password: ${SPRING_DATASOURCE_PASSWORD:${POSTGRES_PASSWORD:tinyme}}
+
+tinyme:
+  blobs:
+    path: ${TINYME_BLOBS_PATH:./blobs}

@@ -1,0 +1,41 @@
+name: tinyme
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg18
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-tinyme}
+      POSTGRES_USER: ${POSTGRES_USER:-tinyme}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-tinyme}
+    volumes:
+      - postgres_data:/var/lib/postgresql
+      - ./postgres/init.sql:/docker-entrypoint-initdb.d/01-vector.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U \"$$POSTGRES_USER\" -d \"$$POSTGRES_DB\""]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    restart: unless-stopped
+
+  api:
+    build:
+      context: ../server
+      dockerfile: Dockerfile
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB:-tinyme}
+      SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER:-tinyme}
+      SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:-tinyme}
+      TINYME_BLOBS_PATH: ${TINYME_BLOBS_PATH:-/app/blobs}
+    ports:
+      - "${API_PORT:-8080}:8080"
+    volumes:
+      - blobs:${TINYME_BLOBS_PATH:-/app/blobs}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+  blobs:

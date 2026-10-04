@@ -1,0 +1,249 @@
+name: tinyme-chat
+model: claude-sonnet-5-5          # any model Managed Agents supports; try Haiku later to save cost
+
+system: |
+  You are TinyMe, a personal assistant inside the user's iPhone app. They talk to you
+  by voice or text, often in short, half-finished sentences.
+
+  Filing (one message can contain several of these; handle each):
+  - Something that happened → entries_add. Reuse kinds listed in [context].
+    Broad kind, specific thing in data.type (kind "drink", data.type "coffee").
+    "2 coffees" = one entry with quantity 2. Journal reflections: kind "journal", verbatim text.
+  - If the user states a TOTAL for today ("I had 3 coffees today"), compare it with
+    today's count in [context] and log only the difference, or ask.
+  - A fact about the user (preference, rule, routine) → edit the matching file in me/.
+  - A fact about a person → people_get (people_upsert if new), then edit their memory_path file.
+  - A photo the user sent → photos_attach. Only tag people the user named.
+  - A place they want to visit → places_save.
+
+  Answering:
+  - Never estimate numbers; use entries_aggregate. Use entries_query for the past.
+  - No match means "I don't have a record of that", never "you didn't".
+  - Corrections and deletions: find the entry with entries_query, then entries_update / entries_delete.
+
+  Memory: read me/profile.md, me/preferences.md and me/rules.md at the start of a session.
+  One subject per file, one fact per line. Update lines instead of adding duplicates.
+
+  Style: confirm each action in one short line. Mention a rule only when it matters.
+  Use the time and timezone from [context].
+
+tools:
+  # Built-in tools: only the file tools, so the agent can read and edit memory files
+  - type: agent_toolset_20260401
+    default_config: { enabled: false }
+    configs:
+      - { name: read,  enabled: true }
+      - { name: write, enabled: true }
+      - { name: edit,  enabled: true }
+      - { name: glob,  enabled: true }
+      - { name: grep,  enabled: true }
+
+  # Your tools: one block per tool, all with the same shape
+  - type: custom
+    name: entries_add
+    description: >
+      Record something that happened: a drink, meal, workout, sleep, mood, journal
+      reflection, or anything else. One call per distinct thing. Reuse kinds from
+      [context]. Returns the new id and today's total for this kind.
+    input_schema:
+      type: object
+      required: [kind]
+      properties:
+        kind:     { type: string, pattern: "^[a-z][a-z0-9_]{1,31}$" }
+        quantity: { type: number, exclusiveMinimum: 0, default: 1 }
+        text:     { type: string }
+        data:     { type: object, description: "e.g. {\"type\":\"coffee\"} or {\"hours\":6.5}" }
+        ts:       { type: string, format: date-time, description: "When it happened; omit for now" }
+        people:   { type: array, items: { type: string }, description: "Person slugs from people_get" }
+
+  # ── Entries ────────────────────────────────────────────────────────────
+  - type: custom
+    name: entries_query
+    description: >
+      Find past entries to answer "did I…", "when did I last…" or "what did I write
+      about…". Filter by kind, people, date range and/or words in the text. Returns
+      at most `limit` entries, newest first, each with its id, time, kind, quantity,
+      text and data. Also use it to find the id of an entry before updating or
+      deleting it. If nothing matches, say there is no record; never claim it didn't happen.
+    input_schema:
+      type: object
+      properties:
+        kind:   { type: string }
+        text:   { type: string, description: "Words to search for" }
+        people: { type: array, items: { type: string }, description: "Person slugs" }
+        from:   { type: string, format: date }
+        to:     { type: string, format: date }
+        limit:  { type: integer, minimum: 1, maximum: 20, default: 10 }
+
+  - type: custom
+    name: entries_aggregate
+    description: >
+      Compute numbers over entries. ALWAYS use this for any count, total or average
+      ("how many beers this week", "average sleep this month"); never estimate.
+      metric "count" adds up quantity (2 coffees in one entry count as 2) and needs no
+      field. sum/avg/min/max need `field`, a numeric key inside data such as "hours".
+      `where` filters on exact data values, e.g. {"type":"beer"}. group_by returns one
+      value per day, week or month.
+    input_schema:
+      type: object
+      required: [kind, metric]
+      properties:
+        kind:     { type: string }
+        metric:   { type: string, enum: [count, sum, avg, min, max] }
+        field:    { type: string, description: "Numeric key in data, e.g. hours, km" }
+        where:    { type: object, description: "Exact-match filters on data, e.g. {\"type\":\"beer\"}" }
+        from:     { type: string, format: date }
+        to:       { type: string, format: date }
+        group_by: { type: string, enum: [none, day, week, month], default: none }
+
+  - type: custom
+    name: entries_update
+    description: >
+      Correct an existing entry ("no, that was tea", "it was 3, not 2", "that was last
+      night"). Find the id with entries_query first. Send only the fields that change;
+      `data` replaces the whole data object, so include the fields you want to keep.
+      Returns the updated entry.
+    input_schema:
+      type: object
+      required: [id]
+      properties:
+        id:       { type: string }
+        kind:     { type: string, pattern: "^[a-z][a-z0-9_]{1,31}$" }
+        quantity: { type: number, exclusiveMinimum: 0 }
+        text:     { type: string }
+        data:     { type: object }
+        ts:       { type: string, format: date-time }
+
+  - type: custom
+    name: entries_delete
+    description: >
+      Delete an entry the user wants removed ("delete that last coffee"). Find the id
+      with entries_query first. The entry is hidden, not destroyed, so it can be
+      restored if the user says "undo". Returns what was deleted so you can confirm it
+      in words.
+    input_schema:
+      type: object
+      required: [id]
+      properties:
+        id: { type: string }
+
+  # ── People ─────────────────────────────────────────────────────────────
+  - type: custom
+    name: people_get
+    description: >
+      Look up a person by name or nickname; matching is fuzzy, so "Ken" or a misheard
+      "Kenzie" can still find Kenji. Call this before writing anything about a person.
+      Returns up to 5 matches with slug, name, aliases, relationship, memory_path (the
+      file in your memory where facts about them live) and when they last appeared in
+      an entry. If several match, ask which one. If none match and the user is
+      introducing someone, call people_upsert.
+    input_schema:
+      type: object
+      required: [query]
+      properties:
+        query: { type: string, minLength: 1 }
+
+  - type: custom
+    name: people_upsert
+    description: >
+      Create a person, or update their name, nicknames or relationship (pass slug to
+      update). Use relationship to tell people with the same name apart ("friend from
+      work" vs "cousin"). Facts and stories do NOT go here: write those to the memory
+      file at the returned memory_path. Returns slug and memory_path.
+    input_schema:
+      type: object
+      required: [display_name]
+      properties:
+        slug:         { type: string, description: "Existing slug to update; omit to create" }
+        display_name: { type: string }
+        aliases:      { type: array, items: { type: string } }
+        relationship: { type: string }
+
+  # ── Photos ─────────────────────────────────────────────────────────────
+  - type: custom
+    name: photos_attach
+    description: >
+      Save a photo the user sent with this message; its upload_id is listed under
+      attachments in [context]. Add a caption in the user's words and tag people by
+      slug, but only people the user named: never guess who is in a photo from how it
+      looks. Optionally link it to an entry created in this turn (e.g. "lunch today" +
+      photo). Returns the photo id.
+    input_schema:
+      type: object
+      required: [upload_id]
+      properties:
+        upload_id: { type: string }
+        caption:   { type: string }
+        people:    { type: array, items: { type: string }, description: "Person slugs" }
+        entry_id:  { type: string, description: "Entry to attach the photo to" }
+
+  - type: custom
+    name: photos_find
+    description: >
+      Find saved photos by people, words in the caption, or date range. The matching
+      photos are shown to the user in the app automatically, so describe them briefly
+      by caption and date and don't list ids. Returns how many matched plus caption,
+      date and people for each.
+    input_schema:
+      type: object
+      properties:
+        people: { type: array, items: { type: string } }
+        text:   { type: string }
+        from:   { type: string, format: date }
+        to:     { type: string, format: date }
+        limit:  { type: integer, minimum: 1, maximum: 20, default: 12 }
+
+  # ── Places to visit ────────────────────────────────────────────────────
+  - type: custom
+    name: places_save
+    description: >
+      Save a specific named place the user wants to visit ("I want to visit Blue Bottle
+      in Shibuya"). Coordinates must come from the place candidates the app provides in
+      [context]; never guess or invent coordinates. If there are several candidates, ask
+      which one; if there are none, tell the user the place couldn't be found. Saving
+      the same place twice returns the existing one.
+    input_schema:
+      type: object
+      required: [name, lat, lng]
+      properties:
+        name:              { type: string }
+        address:           { type: string }
+        lat:               { type: number, minimum: -90,  maximum: 90 }
+        lng:               { type: number, minimum: -180, maximum: 180 }
+        note:              { type: string, description: "Why they want to go, e.g. 'for the pour-over'" }
+        provider_place_id: { type: string, description: "The map service's id from the candidate" }
+
+  - type: custom
+    name: places_near
+    description: >
+      Answer "is there anything I wanted to visit around here?". Use the user's
+      current location from [context]; if no location is there, tell them to turn on
+      location for TinyMe. Returns saved places within radius_m, nearest first, each
+      with its distance in metres and note.
+    input_schema:
+      type: object
+      required: [lat, lng]
+      properties:
+        lat:      { type: number, minimum: -90,  maximum: 90 }
+        lng:      { type: number, minimum: -180, maximum: 180 }
+        radius_m: { type: integer, minimum: 50, maximum: 20000, default: 1000 }
+
+  - type: custom
+    name: places_list
+    description: >
+      List all places the user has saved to visit ("what places do I want to visit?").
+      Returns name, address and note for each, newest first.
+    input_schema:
+      type: object
+      properties: {}
+
+  - type: custom
+    name: places_remove
+    description: >
+      Remove a place from the visit list ("take Blue Bottle off my list"). Find its id
+      with places_list first. Returns the removed place so you can confirm it.
+    input_schema:
+      type: object
+      required: [id]
+      properties:
+        id: { type: string }
