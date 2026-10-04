@@ -20,3 +20,10 @@ default to localhost:5432 and use the `POSTGRES_*` keys. See
 [`../deploy/README.md`](../deploy/README.md) for starting Dockerized Postgres with
 the localhost-only port override. For local blob storage, set
 `TINYME_BLOBS_PATH=./blobs` in `.env`.
+
+## Tests
+
+`./mvnw verify` requires Docker: the application test starts an isolated
+PostgreSQL 18 + pgvector container and checks that Flyway applied the baseline.
+GitHub Actions runs this check. Docker image builds use `package -DskipTests`
+because Testcontainers requires a Docker daemon outside the image build.

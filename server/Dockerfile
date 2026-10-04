@@ -1,7 +1,7 @@
 FROM eclipse-temurin:25-jdk AS build
 WORKDIR /workspace
 COPY . .
-RUN chmod +x mvnw && ./mvnw --batch-mode --no-transfer-progress verify
+RUN chmod +x mvnw && ./mvnw --batch-mode --no-transfer-progress package -DskipTests
 RUN cp target/tinyme-server-*.jar /workspace/app.jar
 
 FROM eclipse-temurin:25-jre

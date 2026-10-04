@@ -13,8 +13,8 @@ system: |
     today's count in [context] and log only the difference, or ask.
   - A fact about the user (preference, rule, routine) → edit the matching file in me/.
   - A fact about a person → people_get (people_upsert if new), then edit their memory_path file.
-  - A photo the user sent → photos_attach. Only tag people the user named.
-  - A place they want to visit → places_save.
+  - Photo storage and saved places are not available yet. Tell the user when asked;
+    do not claim to save photos or places.
 
   Answering:
   - Never estimate numbers; use entries_aggregate. Use entries_query for the past.
@@ -159,91 +159,92 @@ tools:
         aliases:      { type: array, items: { type: string } }
         relationship: { type: string }
 
-  # ── Photos ─────────────────────────────────────────────────────────────
-  - type: custom
-    name: photos_attach
-    description: >
-      Save a photo the user sent with this message; its upload_id is listed under
-      attachments in [context]. Add a caption in the user's words and tag people by
-      slug, but only people the user named: never guess who is in a photo from how it
-      looks. Optionally link it to an entry created in this turn (e.g. "lunch today" +
-      photo). Returns the photo id.
-    input_schema:
-      type: object
-      required: [upload_id]
-      properties:
-        upload_id: { type: string }
-        caption:   { type: string }
-        people:    { type: array, items: { type: string }, description: "Person slugs" }
-        entry_id:  { type: string, description: "Entry to attach the photo to" }
-
-  - type: custom
-    name: photos_find
-    description: >
-      Find saved photos by people, words in the caption, or date range. The matching
-      photos are shown to the user in the app automatically, so describe them briefly
-      by caption and date and don't list ids. Returns how many matched plus caption,
-      date and people for each.
-    input_schema:
-      type: object
-      properties:
-        people: { type: array, items: { type: string } }
-        text:   { type: string }
-        from:   { type: string, format: date }
-        to:     { type: string, format: date }
-        limit:  { type: integer, minimum: 1, maximum: 20, default: 12 }
-
-  # ── Places to visit ────────────────────────────────────────────────────
-  - type: custom
-    name: places_save
-    description: >
-      Save a specific named place the user wants to visit ("I want to visit Blue Bottle
-      in Shibuya"). Coordinates must come from the place candidates the app provides in
-      [context]; never guess or invent coordinates. If there are several candidates, ask
-      which one; if there are none, tell the user the place couldn't be found. Saving
-      the same place twice returns the existing one.
-    input_schema:
-      type: object
-      required: [name, lat, lng]
-      properties:
-        name:              { type: string }
-        address:           { type: string }
-        lat:               { type: number, minimum: -90,  maximum: 90 }
-        lng:               { type: number, minimum: -180, maximum: 180 }
-        note:              { type: string, description: "Why they want to go, e.g. 'for the pour-over'" }
-        provider_place_id: { type: string, description: "The map service's id from the candidate" }
-
-  - type: custom
-    name: places_near
-    description: >
-      Answer "is there anything I wanted to visit around here?". Use the user's
-      current location from [context]; if no location is there, tell them to turn on
-      location for TinyMe. Returns saved places within radius_m, nearest first, each
-      with its distance in metres and note.
-    input_schema:
-      type: object
-      required: [lat, lng]
-      properties:
-        lat:      { type: number, minimum: -90,  maximum: 90 }
-        lng:      { type: number, minimum: -180, maximum: 180 }
-        radius_m: { type: integer, minimum: 50, maximum: 20000, default: 1000 }
-
-  - type: custom
-    name: places_list
-    description: >
-      List all places the user has saved to visit ("what places do I want to visit?").
-      Returns name, address and note for each, newest first.
-    input_schema:
-      type: object
-      properties: {}
-
-  - type: custom
-    name: places_remove
-    description: >
-      Remove a place from the visit list ("take Blue Bottle off my list"). Find its id
-      with places_list first. Returns the removed place so you can confirm it.
-    input_schema:
-      type: object
-      required: [id]
-      properties:
-        id: { type: string }
+  # Deferred until handlers exist and place search is decided.
+  #   # ── Photos ─────────────────────────────────────────────────────────────
+  #   - type: custom
+  #     name: photos_attach
+  #     description: >
+  #       Save a photo the user sent with this message; its upload_id is listed under
+  #       attachments in [context]. Add a caption in the user's words and tag people by
+  #       slug, but only people the user named: never guess who is in a photo from how it
+  #       looks. Optionally link it to an entry created in this turn (e.g. "lunch today" +
+  #       photo). Returns the photo id.
+  #     input_schema:
+  #       type: object
+  #       required: [upload_id]
+  #       properties:
+  #         upload_id: { type: string }
+  #         caption:   { type: string }
+  #         people:    { type: array, items: { type: string }, description: "Person slugs" }
+  #         entry_id:  { type: string, description: "Entry to attach the photo to" }
+  #
+  #   - type: custom
+  #     name: photos_find
+  #     description: >
+  #       Find saved photos by people, words in the caption, or date range. The matching
+  #       photos are shown to the user in the app automatically, so describe them briefly
+  #       by caption and date and don't list ids. Returns how many matched plus caption,
+  #       date and people for each.
+  #     input_schema:
+  #       type: object
+  #       properties:
+  #         people: { type: array, items: { type: string } }
+  #         text:   { type: string }
+  #         from:   { type: string, format: date }
+  #         to:     { type: string, format: date }
+  #         limit:  { type: integer, minimum: 1, maximum: 20, default: 12 }
+  #
+  #   # ── Places to visit ────────────────────────────────────────────────────
+  #   - type: custom
+  #     name: places_save
+  #     description: >
+  #       Save a specific named place the user wants to visit ("I want to visit Blue Bottle
+  #       in Shibuya"). Coordinates must come from the place candidates the app provides in
+  #       [context]; never guess or invent coordinates. If there are several candidates, ask
+  #       which one; if there are none, tell the user the place couldn't be found. Saving
+  #       the same place twice returns the existing one.
+  #     input_schema:
+  #       type: object
+  #       required: [name, lat, lng]
+  #       properties:
+  #         name:              { type: string }
+  #         address:           { type: string }
+  #         lat:               { type: number, minimum: -90,  maximum: 90 }
+  #         lng:               { type: number, minimum: -180, maximum: 180 }
+  #         note:              { type: string, description: "Why they want to go, e.g. 'for the pour-over'" }
+  #         provider_place_id: { type: string, description: "The map service's id from the candidate" }
+  #
+  #   - type: custom
+  #     name: places_near
+  #     description: >
+  #       Answer "is there anything I wanted to visit around here?". Use the user's
+  #       current location from [context]; if no location is there, tell them to turn on
+  #       location for TinyMe. Returns saved places within radius_m, nearest first, each
+  #       with its distance in metres and note.
+  #     input_schema:
+  #       type: object
+  #       required: [lat, lng]
+  #       properties:
+  #         lat:      { type: number, minimum: -90,  maximum: 90 }
+  #         lng:      { type: number, minimum: -180, maximum: 180 }
+  #         radius_m: { type: integer, minimum: 50, maximum: 20000, default: 1000 }
+  #
+  #   - type: custom
+  #     name: places_list
+  #     description: >
+  #       List all places the user has saved to visit ("what places do I want to visit?").
+  #       Returns name, address and note for each, newest first.
+  #     input_schema:
+  #       type: object
+  #       properties: {}
+  #
+  #   - type: custom
+  #     name: places_remove
+  #     description: >
+  #       Remove a place from the visit list ("take Blue Bottle off my list"). Find its id
+  #       with places_list first. Returns the removed place so you can confirm it.
+  #     input_schema:
+  #       type: object
+  #       required: [id]
+  #       properties:
+  #         id: { type: string }
