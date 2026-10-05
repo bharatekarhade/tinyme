@@ -1,5 +1,7 @@
 package com.tinyme;
 
+
+
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -13,7 +15,10 @@ import org.testcontainers.utility.DockerImageName;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-@SpringBootTest(properties = "tinyme.agent.setup-enabled=false")
+@SpringBootTest(properties = {
+        "tinyme.agent.setup-enabled=false",
+        "tinyme.tools.allow-missing-handlers=true"
+})
 @Import(TinymeApplicationTests.DatabaseConfiguration.class)
 class TinymeApplicationTests {
     @Autowired

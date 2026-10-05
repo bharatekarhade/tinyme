@@ -1,5 +1,7 @@
 package com.tinyme.agent;
 
+
+
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -22,7 +24,10 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
-@SpringBootTest(properties = "tinyme.agent.setup-enabled=false")
+@SpringBootTest(properties = {
+        "tinyme.agent.setup-enabled=false",
+        "tinyme.tools.allow-missing-handlers=true"
+})
 @Import(AgentProvisionerTests.DatabaseConfiguration.class)
 class AgentProvisionerTests {
     @Autowired DataSource datasource;

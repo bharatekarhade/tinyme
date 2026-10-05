@@ -1,0 +1,8 @@
+tools:
+  - type: custom
+    name: same
+    input_schema: { type: object }
+  - type: agent_toolset_20260401
+  - type: custom
+    name: same
+    input_schema: { type: object }

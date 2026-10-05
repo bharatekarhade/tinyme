@@ -10,8 +10,15 @@ spring:
     url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5432/${POSTGRES_DB:tinyme}}
     username: ${SPRING_DATASOURCE_USERNAME:${POSTGRES_USER:tinyme}}
     password: ${SPRING_DATASOURCE_PASSWORD:${POSTGRES_PASSWORD:tinyme}}
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: none
 
 tinyme:
+  tools:
+    allow-missing-handlers: ${TINYME_ALLOW_MISSING_HANDLERS:false}
+
   blobs:
     path: ${TINYME_BLOBS_PATH:./blobs}
 
