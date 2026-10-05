@@ -1,33 +1,47 @@
-# Agent setup
+# Agent startup setup
 
-Install Python 3 and PyYAML in a virtual environment, then fill in
-`ANTHROPIC_API_KEY` in the project-root `.env`:
+Seeds are packaged in the application JAR under `seed/`. Supply
+`ANTHROPIC_API_KEY` in the root `.env` or process environment and start the
+application. Setup is enabled by default; `TINYME_AGENT_SETUP_ENABLED=false`
+disables it for offline work. Tests explicitly disable live setup.
 
-```sh
-python3 -m venv .venv
-. .venv/bin/activate
-python3 -m pip install -r bin/requirements.txt
-./bin/setup.sh --dry-run
-./bin/setup.sh
-```
+After Flyway, the startup runner reconciles the environment and agent from YAML
+and seeds `/me/<filename>` from `memories/*.md`. It does not invoke the model or
+start an agent session. Canonical JSON with sorted map keys is hashed with SHA-256:
+only a changed seed causes an update. Agent updates include the current remote
+version for optimistic concurrency; environments have no version.
 
-Setup creates the cloud environment and chat agent from their YAML seeds,
-creates a memory store, and saves `ANTHROPIC_ENVIRONMENT_ID`, `ANTHROPIC_AGENT_ID`
-and `ANTHROPIC_MEMORY_STORE_ID` to `.env` after each successful creation.
-Existing IDs are verified and reused; reruns do not update agent/environment
-configuration. If a create request has an ambiguous network failure, check the
-Console for the resource and set its ID before rerunning to avoid duplicates.
-The script does not start a session or invoke the model.
+PostgreSQL settings store resource records under `env.default`, `agent.chat` and
+`memory.main`. Config records contain `id` and `seedHash`; agents also contain
+`version`. Legacy JSON-string IDs are adopted and reconciled without creating
+duplicates. Each record is saved immediately, under a PostgreSQL advisory lock.
 
-Templates in `` are seeded at `/me/<filename>` inside the store.
-Existing memory paths are preserved, including user edits. API keys are never
-uploaded to memory. Runtime code must attach the saved memory store in the
-session's resources and use the returned `mount_path` as the base for `me/` and
-`people/` paths; it is not the sandbox working directory.
+Optional `ANTHROPIC_ENVIRONMENT_ID`, `ANTHROPIC_AGENT_ID` and
+`ANTHROPIC_MEMORY_STORE_ID` configuration values are used only if that setting
+is absent. Saved database IDs always take precedence; conflicting configured
+IDs produce a warning. The application never writes `.env`.
 
-Photo and place tools remain commented out until handlers exist and the source
-of place-search candidates is decided. Entries and people definitions remain
-implementation contracts; their Java handlers and ToolRegistry are still needed.
+Missing or archived agents and environments are recreated. A missing or archived
+memory store fails startup with recovery instructions. Set
+`TINYME_ALLOW_NEW_MEMORY_STORE=true` explicitly to create a replacement seeded
+store; this does not recover previous memories. Restore the original store/ID
+instead if you need that data. Turn the replacement flag off after recovery.
 
-API references: [Managed Agents](https://platform.claude.com/docs/en/managed-agents/quickstart)
+Existing memory files are never overwritten. Seeding currently runs on each
+startup and treats only memory-path conflicts as already seeded. Runtime session
+creation must attach `memory.main` as a memory-store resource and use its
+returned `mount_path` as the base for `me/` and `people/`.
+
+Transient GET failures (network errors, 429, 5xx) get up to four attempts with
+backoff. POSTs are never automatically retried. A lost creation response can
+leave an unrecorded remote resource: recover its ID from the Anthropic Console
+before retrying. If a setting already exists, repair it in the database;
+configuration IDs cannot override saved settings.
+
+Enabled setup failures fail startup. `ManagedAgentApi` is the single API layer;
+future session/event calls should extend it rather than add another HTTP stack.
+Photo/place tools remain disabled; entries/people handlers and ToolRegistry are
+still required before the agent can be used end to end.
+
+References: [Managed Agents](https://platform.claude.com/docs/en/managed-agents/quickstart)
 and [memory stores](https://platform.claude.com/docs/en/managed-agents/memory).

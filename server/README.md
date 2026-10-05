@@ -15,7 +15,8 @@ Install JDK 25 and set `JAVA_HOME` to its installation directory, then run from 
 
 The server listens on port 8080 by default.
 
-`spring-boot:run` reads `../.env` automatically when run from `server/`. Database settings
+The application reads `.env` from the working directory or its parent, supporting
+IntelliJ from the project root and `spring-boot:run` from `server/`. Database settings
 default to localhost:5432 and use the `POSTGRES_*` keys. See
 [`../deploy/README.md`](../deploy/README.md) for starting Dockerized Postgres with
 the localhost-only port override. For local blob storage, set
@@ -27,3 +28,12 @@ the localhost-only port override. For local blob storage, set
 PostgreSQL 18 + pgvector container and checks that Flyway applied the baseline.
 GitHub Actions runs this check. Docker image builds use `package -DskipTests`
 because Testcontainers requires a Docker daemon outside the image build.
+
+## Managed Agents setup
+
+Set `ANTHROPIC_API_KEY` in the root `.env`. Setup is enabled by default and runs
+after Flyway, loading packaged seeds from `src/main/resources/seed`. Changed
+agent/environment seeds are updated; IDs, versions and hashes persist in
+PostgreSQL settings. `.env` is never rewritten. Use
+`TINYME_AGENT_SETUP_ENABLED=false` to disable live setup. See
+[seed/README.md](src/main/resources/seed/README.md) for restart and recovery behavior.

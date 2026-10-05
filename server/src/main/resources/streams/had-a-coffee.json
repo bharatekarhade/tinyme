@@ -1,0 +1,297 @@
+[
+  {
+    "id": "sevt_01VPWeLpEqTvWPJRtD6VtG5e",
+    "processed_at": "2026-10-05T03:40:01.844119Z",
+    "type": "session.status_running"
+  },
+  {
+    "agent_name": "tinyme-chat",
+    "id": "sevt_018q5sQf3YQx6zPDR4oS1oCc",
+    "processed_at": "2026-10-05T03:40:01.844120Z",
+    "session_thread_id": "sthr_016doBG5x1ZmyjgdiAwSj1eC",
+    "type": "session.thread_status_running"
+  },
+  {
+    "content": [
+      {
+        "text": "I had a coffee",
+        "type": "text"
+      }
+    ],
+    "id": "sevt_01TJ7MFx8sTZ1vGR1Vvo7GKQ",
+    "processed_at": "2026-10-05T03:40:01.890731Z",
+    "type": "user.message"
+  },
+  {
+    "id": "sevt_01SW6xaAFaX31AkwJPR2Dzr1",
+    "processed_at": "2026-10-05T03:40:01.890732Z",
+    "type": "span.model_request_start"
+  },
+  {
+    "evaluated_permission": "allow",
+    "evaluation": {
+      "type": "always_allow"
+    },
+    "id": "sevt_0121oe6XZkRmCYSUborkmPNt",
+    "input": {
+      "file_path": "/mnt/memory/tinyme-memory/me/profile.md"
+    },
+    "name": "read",
+    "processed_at": "2026-10-05T03:40:03.941775Z",
+    "type": "agent.tool_use"
+  },
+  {
+    "evaluated_permission": "allow",
+    "evaluation": {
+      "type": "always_allow"
+    },
+    "id": "sevt_01N54w6BCP9oc7gXGyGCMnd9",
+    "input": {
+      "file_path": "/mnt/memory/tinyme-memory/me/preferences.md"
+    },
+    "name": "read",
+    "processed_at": "2026-10-05T03:40:03.941776Z",
+    "type": "agent.tool_use"
+  },
+  {
+    "evaluated_permission": "allow",
+    "evaluation": {
+      "type": "always_allow"
+    },
+    "id": "sevt_01PGScm1tXX3GwkgbGYDcwW6",
+    "input": {
+      "file_path": "/mnt/memory/tinyme-memory/me/rules.md"
+    },
+    "name": "read",
+    "processed_at": "2026-10-05T03:40:03.941777Z",
+    "type": "agent.tool_use"
+  },
+  {
+    "id": "sevt_014453gdj2BWe1c4t9bzaNCN",
+    "is_error": false,
+    "model_request_start_id": "sevt_01SW6xaAFaX31AkwJPR2Dzr1",
+    "model_usage": {
+      "cache_creation_input_tokens": 7945,
+      "cache_read_input_tokens": 0,
+      "input_tokens": 4,
+      "output_tokens": 199
+    },
+    "processed_at": "2026-10-05T03:40:03.941778Z",
+    "type": "span.model_request_end"
+  },
+  {
+    "content": [
+      {
+        "text": "1\t# Profile\n2\tWho the user is: name, where they live, work, languages. One fact per line.\n3\t<!-- example: - Lives in Yokohama, works in Tokyo -->\n",
+        "type": "text"
+      }
+    ],
+    "id": "sevt_01VLV8UTQPAzhSzvmtyXpXiY",
+    "is_error": false,
+    "processed_at": "2026-10-05T03:40:04.938486Z",
+    "tool_use_id": "sevt_0121oe6XZkRmCYSUborkmPNt",
+    "type": "agent.tool_result"
+  },
+  {
+    "content": [
+      {
+        "text": "1\t# Preferences\n2\tLikes, dislikes, and how the user wants replies. One per line.\n3\t<!-- example: - Keep answers short -->\n",
+        "type": "text"
+      }
+    ],
+    "id": "sevt_01PXhJgdoNiA89PVZmnZbnAr",
+    "is_error": false,
+    "processed_at": "2026-10-05T03:40:04.938487Z",
+    "tool_use_id": "sevt_01N54w6BCP9oc7gXGyGCMnd9",
+    "type": "agent.tool_result"
+  },
+  {
+    "content": [
+      {
+        "text": "1\t# Rules\n2\tLimits and personal rules to check when logging. Say how to count each one.\n3\t<!-- example: - Max 2 caffeine drinks per day (kind drink, data.caffeine true) -->\n",
+        "type": "text"
+      }
+    ],
+    "id": "sevt_01D1LhBrS8wz3DNfADkhF7wb",
+    "is_error": false,
+    "processed_at": "2026-10-05T03:40:04.938488Z",
+    "tool_use_id": "sevt_01PGScm1tXX3GwkgbGYDcwW6",
+    "type": "agent.tool_result"
+  },
+  {
+    "id": "sevt_01Vxpbhdj5cD7EArJz2HYSTs",
+    "processed_at": "2026-10-05T03:40:04.978834Z",
+    "type": "span.model_request_start"
+  },
+  {
+    "id": "sevt_01Ro4EGedPdApqvzLYQgRDK1",
+    "input": {
+      "data": {
+        "type": "coffee"
+      },
+      "kind": "drink"
+    },
+    "name": "entries_add",
+    "processed_at": "2026-10-05T03:40:06.053992Z",
+    "type": "agent.custom_tool_use"
+  },
+  {
+    "id": "sevt_016Dw3PZhi7ErAthRof7iHQn",
+    "is_error": false,
+    "model_request_start_id": "sevt_01Vxpbhdj5cD7EArJz2HYSTs",
+    "model_usage": {
+      "cache_creation_input_tokens": 461,
+      "cache_read_input_tokens": 7945,
+      "input_tokens": 2,
+      "output_tokens": 80
+    },
+    "processed_at": "2026-10-05T03:40:06.053993Z",
+    "type": "span.model_request_end"
+  },
+  {
+    "agent_name": "tinyme-chat",
+    "id": "sevt_013a8Gzzzb5zniLBzHvddRXh",
+    "processed_at": "2026-10-05T03:40:06.161368Z",
+    "session_thread_id": "sthr_016doBG5x1ZmyjgdiAwSj1eC",
+    "stop_details": null,
+    "stop_reason": {
+      "event_ids": [
+        "sevt_01Ro4EGedPdApqvzLYQgRDK1"
+      ],
+      "type": "requires_action"
+    },
+    "type": "session.thread_status_idle"
+  },
+  {
+    "id": "sevt_01XysL8NuvnriyoTcreA4Z7e",
+    "processed_at": "2026-10-05T03:40:06.161369Z",
+    "type": "session.usage",
+    "usage": {
+      "active_seconds": 4.429,
+      "cache_creation": {
+        "ephemeral_1h_input_tokens": 0,
+        "ephemeral_5m_input_tokens": 8406
+      },
+      "cache_read_input_tokens": 7945,
+      "input_tokens": 6,
+      "list_cost": {
+        "amount": "3",
+        "currency": "USD"
+      },
+      "output_tokens": 279,
+      "server_tool_use": {
+        "web_fetch_requests": 0,
+        "web_search_requests": 0
+      }
+    }
+  },
+  {
+    "id": "sevt_017CQ6zdoVEoQHjzxRZC5xFV",
+    "processed_at": "2026-10-05T03:40:06.161370Z",
+    "stop_details": null,
+    "stop_reason": {
+      "event_ids": [
+        "sevt_01Ro4EGedPdApqvzLYQgRDK1"
+      ],
+      "type": "requires_action"
+    },
+    "type": "session.status_idle"
+  },
+  {
+    "content": [
+      {
+        "text": "{\"ok\":true,\"data\":{\"id\":\"e1\",\"kind\":\"drink\",\"today_total\":1}}",
+        "type": "text"
+      }
+    ],
+    "custom_tool_use_id": "sevt_01Ro4EGedPdApqvzLYQgRDK1",
+    "id": "sevt_01SDi4KckejSMjdQYF4PFFjJ",
+    "is_error": false,
+    "processed_at": "2026-10-05T03:52:09.291977Z",
+    "type": "user.custom_tool_result"
+  },
+  {
+    "id": "sevt_011ii4yTauqEMeRKDCY2vKS1",
+    "processed_at": "2026-10-05T03:52:09.388548Z",
+    "type": "session.status_running"
+  },
+  {
+    "agent_name": "tinyme-chat",
+    "id": "sevt_01EP5fPz5vP9kEqLzzaPnbaF",
+    "processed_at": "2026-10-05T03:52:09.388549Z",
+    "session_thread_id": "sthr_016doBG5x1ZmyjgdiAwSj1eC",
+    "type": "session.thread_status_running"
+  },
+  {
+    "id": "sevt_01UjUrHFoT6GNiUaHJXcyNSQ",
+    "processed_at": "2026-10-05T03:52:09.455361Z",
+    "type": "span.model_request_start"
+  },
+  {
+    "content": [
+      {
+        "text": "Logged: coffee (1 drink today).",
+        "type": "text"
+      }
+    ],
+    "id": "sevt_01UiNZgPp646m4o8QeDG4kdo",
+    "processed_at": "2026-10-05T03:52:10.292548Z",
+    "type": "agent.message"
+  },
+  {
+    "id": "sevt_01LHDtAbYL1hBxV57wftmAEB",
+    "is_error": false,
+    "model_request_start_id": "sevt_01UjUrHFoT6GNiUaHJXcyNSQ",
+    "model_usage": {
+      "cache_creation_input_tokens": 8523,
+      "cache_read_input_tokens": 0,
+      "input_tokens": 2,
+      "output_tokens": 16
+    },
+    "processed_at": "2026-10-05T03:52:10.292549Z",
+    "type": "span.model_request_end"
+  },
+  {
+    "agent_name": "tinyme-chat",
+    "id": "sevt_016uh7aAdrJfy915j7ErmQXc",
+    "processed_at": "2026-10-05T03:52:10.389833Z",
+    "session_thread_id": "sthr_016doBG5x1ZmyjgdiAwSj1eC",
+    "stop_details": null,
+    "stop_reason": {
+      "type": "end_turn"
+    },
+    "type": "session.thread_status_idle"
+  },
+  {
+    "id": "sevt_01YTZar4XAqWXQmESpDC1eaP",
+    "processed_at": "2026-10-05T03:52:10.389834Z",
+    "type": "session.usage",
+    "usage": {
+      "active_seconds": 5.74,
+      "cache_creation": {
+        "ephemeral_1h_input_tokens": 0,
+        "ephemeral_5m_input_tokens": 16929
+      },
+      "cache_read_input_tokens": 7945,
+      "input_tokens": 8,
+      "list_cost": {
+        "amount": "5",
+        "currency": "USD"
+      },
+      "output_tokens": 295,
+      "server_tool_use": {
+        "web_fetch_requests": 0,
+        "web_search_requests": 0
+      }
+    }
+  },
+  {
+    "id": "sevt_01MHBtS6XeDD41UfhFTxsExh",
+    "processed_at": "2026-10-05T03:52:10.389835Z",
+    "stop_details": null,
+    "stop_reason": {
+      "type": "end_turn"
+    },
+    "type": "session.status_idle"
+  }
+]

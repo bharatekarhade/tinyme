@@ -13,7 +13,7 @@ import org.testcontainers.utility.DockerImageName;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-@SpringBootTest
+@SpringBootTest(properties = "tinyme.agent.setup-enabled=false")
 @Import(TinymeApplicationTests.DatabaseConfiguration.class)
 class TinymeApplicationTests {
     @Autowired

@@ -1,4 +1,6 @@
 FROM eclipse-temurin:25-jdk AS build
+RUN apt-get update && apt-get install -y --no-install-recommends unzip \
+    && rm -rf /var/lib/apt/lists/*
 WORKDIR /workspace
 COPY . .
 RUN chmod +x mvnw && ./mvnw --batch-mode --no-transfer-progress package -DskipTests

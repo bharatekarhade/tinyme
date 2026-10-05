@@ -2,7 +2,10 @@ spring:
   application:
     name: tinyme-server
   config:
-    import: optional:file:../.env[.properties] # repo-root .env when running from server/
+    # Support IntelliJ from the project root and Maven from server/.
+    import:
+      - optional:file:.env[.properties]
+      - optional:file:../.env[.properties]
   datasource:
     url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5432/${POSTGRES_DB:tinyme}}
     username: ${SPRING_DATASOURCE_USERNAME:${POSTGRES_USER:tinyme}}
@@ -11,3 +14,11 @@ spring:
 tinyme:
   blobs:
     path: ${TINYME_BLOBS_PATH:./blobs}
+
+  agent:
+    setup-enabled: ${TINYME_AGENT_SETUP_ENABLED:true}
+    api-key: ${ANTHROPIC_API_KEY:}
+    environment-id: ${ANTHROPIC_ENVIRONMENT_ID:}
+    agent-id: ${ANTHROPIC_AGENT_ID:}
+    memory-store-id: ${ANTHROPIC_MEMORY_STORE_ID:}
+    allow-new-memory-store: ${TINYME_ALLOW_NEW_MEMORY_STORE:false}
