@@ -74,7 +74,7 @@ public class ToolDispatcher {
 
         List<String> errors = validator.validate(toolName, input);
         if (!errors.isEmpty()) {
-            return finishError(toolCallId, toolName, eventId, "invalid_input",
+            return finishError(toolCallId, toolName, eventId, "validation_error",
                     errors.stream().limit(5).collect(Collectors.joining("; ")));
         }
 
@@ -83,6 +83,8 @@ public class ToolDispatcher {
             result = Objects.requireNonNull(registered.toolHandler().handle(input, context),
                     "Tool handler returned null");
         } catch (Exception exception) {
+            log.error("Tool execution failed tool={} eventId={} code=internal_error",
+                    toolName, eventId, exception);
             return finish(toolCallId, toolName, eventId,
                     new ToolResult.Err("internal_error", "Tool execution failed"));
         }

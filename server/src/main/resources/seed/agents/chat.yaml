@@ -50,13 +50,13 @@ tools:
     input_schema:
       type: object
       required: [kind]
+      additionalProperties: false
       properties:
         kind:     { type: string, pattern: "^[a-z][a-z0-9_]{1,31}$" }
         quantity: { type: number, exclusiveMinimum: 0, default: 1 }
         text:     { type: string }
         data:     { type: object, description: "e.g. {\"type\":\"coffee\"} or {\"hours\":6.5}" }
         ts:       { type: string, format: date-time, description: "When it happened; omit for now" }
-        people:   { type: array, items: { type: string }, description: "Person slugs from people_get" }
 
   # ── Entries ────────────────────────────────────────────────────────────
   - type: custom

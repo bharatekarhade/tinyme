@@ -62,7 +62,7 @@ class EntriesAddToolTests {
         returns("drink", TODAY, "1.5", "2.00");
         ToolResult.Ok ok = (ToolResult.Ok) tool.handle(JSON.readTree("""
                 {"kind":"beverage","quantity":1.5,"text":"coffee with Kenji",
-                 "data":{"type":"coffee","hours":6.5,"extra":null},"people":["kenji"]}
+                 "data":{"type":"coffee","hours":6.5,"extra":null}}
                 """), CTX);
 
         AddCommand command = capturedCommand();

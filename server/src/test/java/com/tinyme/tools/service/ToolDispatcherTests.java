@@ -9,8 +9,15 @@ import com.tinyme.tools.model.ToolResult;
 import com.tinyme.tools.model.ToolSpec;
 import com.tinyme.tools.repository.ToolCallRepository;
 
+import ch.qos.logback.classic.Level;
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.classic.spi.ThrowableProxy;
+import ch.qos.logback.core.read.ListAppender;
+
 
 import org.junit.jupiter.api.Test;
+import org.slf4j.LoggerFactory;
 import org.springframework.dao.DuplicateKeyException;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
@@ -112,7 +119,7 @@ class ToolDispatcherTests {
     @Test
     void duplicateInsertReturnsFinishedRowResult() {
         Fixture fixture = new Fixture();
-        JsonNode savedResult = JSON.readTree("{\"ok\":false,\"error\":{\"code\":\"invalid_input\",\"message\":\"bad\"}}");
+        JsonNode savedResult = JSON.readTree("{\"ok\":false,\"error\":{\"code\":\"validation_error\",\"message\":\"bad\"}}");
         when(fixture.calls.findByEventId(fixture.eventId)).thenReturn(
                 Optional.empty(), Optional.of(storedCall("done", savedResult, true)));
         when(fixture.calls.insertRunning(fixture.base.sessionRowId(), fixture.eventId,
@@ -164,7 +171,7 @@ class ToolDispatcherTests {
                 fixture.eventId, "entries_add", fixture.input, fixture.base);
 
         JsonNode envelope = JSON.readTree(outcome.resultJson());
-        assertThat(envelope.get("error").get("code").stringValue()).isEqualTo("invalid_input");
+        assertThat(envelope.get("error").get("code").stringValue()).isEqualTo("validation_error");
         assertThat(envelope.get("error").get("message").stringValue()).isEqualTo("e1; e2; e3; e4; e5");
         verify(fixture.handler, never()).handle(any(), any());
         verify(fixture.calls).finish(eq(fixture.callId), any(JsonNode.class), eq(true), eq("done"));
@@ -177,11 +184,28 @@ class ToolDispatcherTests {
         RegisteredTool registration = new RegisteredTool(spec(), fixture.handler);
         when(fixture.registry.find("entries_add")).thenReturn(Optional.of(registration));
         when(fixture.validator.validate("entries_add", fixture.input)).thenReturn(List.of());
-        when(fixture.handler.handle(eq(fixture.input), any(ToolContext.class)))
-                .thenThrow(new IllegalStateException("sensitive handler detail"));
+        var failure = new IllegalStateException("sensitive handler detail");
+        when(fixture.handler.handle(eq(fixture.input), any(ToolContext.class))).thenThrow(failure);
 
-        DispatchOutcome outcome = fixture.dispatcher().dispatch(
-                fixture.eventId, "entries_add", fixture.input, fixture.base);
+        Logger logger = (Logger) LoggerFactory.getLogger(ToolDispatcher.class);
+        var appender = new ListAppender<ILoggingEvent>();
+        appender.start();
+        logger.addAppender(appender);
+        DispatchOutcome outcome;
+        try {
+            outcome = fixture.dispatcher().dispatch(
+                    fixture.eventId, "entries_add", fixture.input, fixture.base);
+            assertThat(appender.list).filteredOn(event -> event.getLevel() == Level.ERROR)
+                    .singleElement().satisfies(event -> {
+                        assertThat(event.getFormattedMessage())
+                                .contains("tool=entries_add", "eventId=" + fixture.eventId, "code=internal_error")
+                                .doesNotContain(fixture.input.toString());
+                        assertThat(((ThrowableProxy) event.getThrowableProxy()).getThrowable()).isSameAs(failure);
+                    });
+        } finally {
+            logger.detachAppender(appender);
+            appender.stop();
+        }
 
         assertError(outcome, "internal_error");
         assertThat(outcome.resultJson()).doesNotContain("sensitive handler detail");

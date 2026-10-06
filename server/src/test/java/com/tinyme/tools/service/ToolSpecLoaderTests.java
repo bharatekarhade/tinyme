@@ -22,6 +22,7 @@ class ToolSpecLoaderTests {
                 assertThat(spec.inputSchema().get("type").stringValue()).isEqualTo("object"));
         assertThat(strings(specs.get("entries_add").inputSchema().get("required")))
                 .containsExactly("kind");
+        assertThat(specs.get("entries_add").inputSchema().get("properties").has("people")).isFalse();
     }
 
     @Test

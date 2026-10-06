@@ -31,6 +31,10 @@ class ToolValidatorTests {
                 .anySatisfy(message -> assertThat(message).contains("required"));
         assertThat(validator.validate("entries_add", YAML.readTree("{kind: 'Drink!'}")))
                 .anySatisfy(message -> assertThat(message).contains("pattern"));
+        assertThat(validator.validate("entries_add", YAML.readTree("{kind: drink, people: [kenji]}")))
+                .anySatisfy(message -> assertThat(message).contains("people"));
+        assertThat(validator.validate("entries_add", YAML.readTree("{kind: drink, data: {type: coffee}}")))
+                .isEmpty();
     }
 
     @Test

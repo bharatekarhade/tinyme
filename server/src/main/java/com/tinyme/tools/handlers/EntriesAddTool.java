@@ -86,7 +86,7 @@ public class EntriesAddTool implements ToolHandler {
         }
         String text = textNode == null ? null : textNode.stringValue();
 
-        // People links are deferred. EntryService derives local_day from ts and this zone.
+        // EntryService derives local_day from ts and this zone.
         AddResult result = entries.add(new AddCommand(kind, quantity, text, data, List.of(), ts, ctx.zone(), "chat"));
         String label = result.kind();
         if (data.get("type") instanceof String type) {

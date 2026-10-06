@@ -25,7 +25,7 @@ public class ToolCallRepository {
 
     private final ToolCallJpaRepository repository;
 
-    public ToolCallRepository(ToolCallJpaRepository repository) {
+    ToolCallRepository(ToolCallJpaRepository repository) {
         this.repository = repository;
     }
 

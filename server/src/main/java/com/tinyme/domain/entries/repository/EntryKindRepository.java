@@ -14,7 +14,7 @@ public class EntryKindRepository {
 
     private final EntryKindJpaRepository kinds;
 
-    public EntryKindRepository(EntryKindJpaRepository kinds) {
+    EntryKindRepository(EntryKindJpaRepository kinds) {
         this.kinds = Objects.requireNonNull(kinds, "kinds");
     }
 
