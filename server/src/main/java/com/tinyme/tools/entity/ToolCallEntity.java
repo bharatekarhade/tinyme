@@ -1,4 +1,4 @@
-package com.tinyme.tools.model;
+package com.tinyme.tools.entity;
 
 
 

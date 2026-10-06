@@ -1,0 +1,179 @@
+package com.tinyme.domain.entries.service;
+
+import com.tinyme.domain.entries.model.AddCommand;
+import com.tinyme.domain.entries.model.AddResult;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.test.context.TestConfiguration;
+import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Import;
+import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.jdbc.core.JdbcTemplate;
+import org.testcontainers.postgresql.PostgreSQLContainer;
+import org.testcontainers.utility.DockerImageName;
+
+import java.math.BigDecimal;
+import java.time.Instant;
+import java.time.LocalDate;
+import java.time.ZoneId;
+import java.util.List;
+import java.util.Map;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+
+@SpringBootTest(properties = {
+        "tinyme.agent.setup-enabled=false",
+        "tinyme.tools.allow-missing-handlers=true"
+})
+@Import(EntryServiceTests.DatabaseConfiguration.class)
+class EntryServiceTests {
+    private static final ZoneId TOKYO = ZoneId.of("Asia/Tokyo");
+    private static final Instant TS = Instant.parse("2026-10-06T00:30:00Z");
+
+    @Autowired
+    EntryService service;
+
+    @Autowired
+    JdbcTemplate jdbc;
+
+    @AfterEach
+    void cleanup() {
+        jdbc.update("DELETE FROM entries WHERE kind IN ('drink', 'beverage', 'piano_practice')");
+        jdbc.update("UPDATE entry_kinds SET merged_into = NULL WHERE kind IN ('drink', 'beverage', 'piano_practice')");
+        jdbc.update("DELETE FROM entry_kinds WHERE kind IN ('drink', 'beverage', 'piano_practice')");
+    }
+
+    @Test
+    void firstCoffeeTotalsOneAndSecondTotalsTwo() {
+        AddResult first = service.add(drink("coffee", null));
+        AddResult second = service.add(drink("coffee", null));
+
+        assertThat(first.id()).isNotNull();
+        assertThat(second.id()).isNotEqualTo(first.id());
+        assertThat(first.kind()).isEqualTo("drink");
+        assertThat(first.localDay()).isEqualTo(LocalDate.of(2026, 10, 6));
+        assertThat(first.quantity()).isEqualByComparingTo("1");
+        assertThat(first.todayTotal()).isEqualByComparingTo("1");
+        assertThat(second.todayTotal()).isEqualByComparingTo("2");
+        assertThat(jdbc.queryForObject("SELECT use_count FROM entry_kinds WHERE kind = 'drink'", Integer.class))
+                .isEqualTo(2);
+    }
+
+    @Test
+    void quantityTwoTotalsTwo() {
+        AddResult result = service.add(drink("coffee", new BigDecimal("2")));
+        assertThat(result.quantity()).isEqualByComparingTo("2");
+        assertThat(result.todayTotal()).isEqualByComparingTo("2");
+    }
+
+    @Test
+    void coffeeAndTeaHaveSeparateTotals() {
+        service.add(drink("coffee", new BigDecimal("2")));
+        AddResult tea = service.add(drink("tea", null));
+        AddResult coffee = service.add(drink("coffee", null));
+        assertThat(tea.todayTotal()).isEqualByComparingTo("1");
+        assertThat(coffee.todayTotal()).isEqualByComparingTo("3");
+    }
+
+    @Test
+    void createsNewKind() {
+        AddResult result = service.add(new AddCommand("piano_practice", null, null, null, null, TS, TOKYO, "chat"));
+        assertThat(result.kind()).isEqualTo("piano_practice");
+        assertThat(result.todayTotal()).isEqualByComparingTo("1");
+        assertThat(jdbc.queryForObject(
+                "SELECT use_count FROM entry_kinds WHERE kind = 'piano_practice'", Integer.class)).isEqualTo(1);
+    }
+
+    @Test
+    void savesMergedBeverageAsDrink() {
+        jdbc.update("INSERT INTO entry_kinds (kind) VALUES ('drink')");
+        jdbc.update("INSERT INTO entry_kinds (kind, merged_into) VALUES ('beverage', 'drink')");
+
+        AddResult result = service.add(new AddCommand("beverage", null, "coffee", Map.of("type", "coffee"),
+                List.of(), TS, TOKYO, "chat"));
+
+        assertThat(result.kind()).isEqualTo("drink");
+        assertThat(result.todayTotal()).isEqualByComparingTo("1");
+        assertThat(jdbc.queryForObject("SELECT kind FROM entries WHERE id = ?", String.class, result.id()))
+                .isEqualTo("drink");
+        assertThat(jdbc.queryForObject("SELECT use_count FROM entry_kinds WHERE kind = 'beverage'", Integer.class))
+                .isEqualTo(1);
+        assertThat(jdbc.queryForObject("SELECT use_count FROM entry_kinds WHERE kind = 'drink'", Integer.class))
+                .isZero();
+    }
+
+    @Test
+    void excludesSoftDeletedEntriesFromTotal() {
+        AddResult first = service.add(drink("coffee", null));
+        jdbc.update("UPDATE entries SET deleted_at = now() WHERE id = ?", first.id());
+        AddResult second = service.add(drink("coffee", null));
+        assertThat(second.todayTotal()).isEqualByComparingTo("1");
+    }
+
+    @Test
+    void usesEventDayInTokyoForLateNightAndAcrossUtcMidnight() {
+        LocalDate yesterday = LocalDate.now(TOKYO).minusDays(1);
+        Instant lateNight = yesterday.atTime(23, 30).atZone(TOKYO).toInstant();
+        AddResult result = service.add(new AddCommand("drink", null, null, Map.of("type", "coffee"),
+                List.of(), lateNight, TOKYO, "chat"));
+        assertThat(result.localDay()).isEqualTo(yesterday);
+        assertThat(jdbc.queryForObject("SELECT local_day::text FROM entries WHERE id = ?", String.class, result.id()))
+                .isEqualTo(yesterday.toString());
+
+        // Tokyo's early morning belongs to the preceding date in UTC.
+        Instant earlyMorning = yesterday.atTime(0, 30).atZone(TOKYO).toInstant();
+        AddResult morning = service.add(new AddCommand("drink", null, null, Map.of("type", "coffee"),
+                List.of(), earlyMorning, TOKYO, "chat"));
+        assertThat(morning.localDay()).isEqualTo(yesterday);
+        assertThat(morning.todayTotal()).isEqualByComparingTo("2");
+        AddResult today = service.add(new AddCommand("drink", null, null, Map.of("type", "coffee"),
+                List.of(), yesterday.plusDays(1).atStartOfDay(TOKYO).toInstant(), TOKYO, "chat"));
+        assertThat(today.todayTotal()).isEqualByComparingTo("1");
+    }
+
+    @Test
+    void persistsSuppliedSourceTextDataAndTags() {
+        AddResult result = service.add(new AddCommand("drink", null, "morning coffee", Map.of("type", "coffee"),
+                List.of("morning"), TS, TOKYO, "app"));
+        var row = jdbc.queryForMap("SELECT source, text, data->>'type' AS type, tags[1] AS tag FROM entries WHERE id = ?",
+                result.id());
+        assertThat(row).containsEntry("source", "app").containsEntry("text", "morning coffee")
+                .containsEntry("type", "coffee").containsEntry("tag", "morning");
+    }
+
+    @Test
+    void nonStringTypeUsesWholeKindTotal() {
+        service.add(drink("coffee", null));
+        AddResult result = service.add(new AddCommand("drink", null, null, Map.of("type", 42),
+                List.of(), TS, TOKYO, "chat"));
+        assertThat(result.todayTotal()).isEqualByComparingTo("2");
+    }
+
+    @Test
+    void failedInsertRollsBackKindCreation() {
+        assertThatThrownBy(() -> service.add(new AddCommand("piano_practice", null, null, Map.of(),
+                List.of(), TS, TOKYO, "invalid"))).isInstanceOf(DataIntegrityViolationException.class);
+        assertThat(jdbc.queryForObject(
+                "SELECT count(*) FROM entry_kinds WHERE kind = 'piano_practice'", Integer.class)).isZero();
+        assertThat(jdbc.queryForObject(
+                "SELECT count(*) FROM entries WHERE kind = 'piano_practice'", Integer.class)).isZero();
+    }
+
+    private AddCommand drink(String type, BigDecimal quantity) {
+        return new AddCommand("drink", quantity, null, Map.of("type", type), List.of(), TS, TOKYO, "chat");
+    }
+
+    @TestConfiguration(proxyBeanMethods = false)
+    static class DatabaseConfiguration {
+        @Bean
+        @ServiceConnection
+        PostgreSQLContainer postgres() {
+            return new PostgreSQLContainer(DockerImageName.parse("pgvector/pgvector:pg18")
+                    .asCompatibleSubstituteFor("postgres"));
+        }
+    }
+}

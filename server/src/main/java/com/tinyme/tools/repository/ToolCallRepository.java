@@ -1,7 +1,7 @@
 package com.tinyme.tools.repository;
 
 import com.tinyme.tools.model.StoredCall;
-import com.tinyme.tools.model.ToolCallEntity;
+import com.tinyme.tools.entity.ToolCallEntity;
 
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.dao.DuplicateKeyException;
