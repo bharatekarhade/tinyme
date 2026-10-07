@@ -4,11 +4,15 @@ import com.tinyme.agent.client.EventStream;
 import com.tinyme.agent.client.ManagedAgentApi;
 import com.tinyme.agent.model.SessionRef;
 import com.tinyme.agent.model.TurnResult;
+import com.tinyme.agent.model.MessageRole;
+import com.tinyme.agent.repository.MessageRepository;
+import com.tinyme.tools.model.DispatchOutcome;
 import com.tinyme.tools.model.ToolContext;
 import com.tinyme.tools.service.ToolDispatcher;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.json.JsonMapper;
 
 import java.io.IOException;
 import java.net.http.HttpTimeoutException;
@@ -20,6 +24,8 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.ArrayList;
+
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.FutureTask;
 import java.util.concurrent.TimeUnit;
@@ -27,20 +33,23 @@ import java.util.concurrent.TimeoutException;
 
 @Service
 public class TurnRunner {
+    private static final JsonMapper JSON = JsonMapper.builder().build();
     private final SessionManager sessions;
     private final ContextPrefixBuilder contextPrefix;
     private final ManagedAgentApi api;
     private final ToolDispatcher dispatcher;
+    private final MessageRepository messages;
     private final Clock clock;
     private final Duration timeout;
 
     TurnRunner(SessionManager sessions, ContextPrefixBuilder contextPrefix, ManagedAgentApi api,
-               ToolDispatcher dispatcher, Clock clock,
+               ToolDispatcher dispatcher, MessageRepository messages, Clock clock,
                @Value("${tinyme.agent.turn-timeout:120s}") Duration timeout) {
         this.sessions = sessions;
         this.contextPrefix = contextPrefix;
         this.api = api;
         this.dispatcher = dispatcher;
+        this.messages = messages;
         this.clock = clock;
         if (timeout.isZero() || timeout.isNegative()) {
             throw new IllegalArgumentException("Turn timeout must be positive");
@@ -98,11 +107,13 @@ public class TurnRunner {
         try (var stream = api.openStream(session.anthropicSessionId())) {
             state.stream = stream;
             state.checkCancelled();
+            messages.insert(session.sessionRowId(), MessageRole.USER, text);
             api.sendEvents(session.anthropicSessionId(), List.of(Map.of(
                     "type", "user.message", "content", List.of(textBlock(prefix), textBlock(text)))));
 
             var seen = new HashSet<String>();
             var reply = new StringBuilder();
+            var actions = new ArrayList<Map<String, Object>>();
             int toolCalls = 0;
             for (;;) {
                 state.checkCancelled();
@@ -124,6 +135,8 @@ public class TurnRunner {
                         // EventStream already supplies Jackson 3 nodes, matching the dispatcher.
                         var result = dispatcher.dispatch(id, name, input, context);
                         toolCalls++;
+                        actions.add(Map.of("tool", name, "summary", actionSummary(result),
+                                "isError", result.isError()));
                         state.checkCancelled();
                         api.sendEvents(session.anthropicSessionId(), List.of(Map.of(
                                 "type", "user.custom_tool_result", "custom_tool_use_id", id,
@@ -132,7 +145,13 @@ public class TurnRunner {
                     case "agent.message" -> appendText(reply, event);
                     case "session.status_idle" -> {
                         String reason = requiredText(event.path("stop_reason"), "type");
-                        if (reason.equals("end_turn")) return new TurnResult(reply.toString(), toolCalls);
+                        if (reason.equals("end_turn")) {
+                            if (!reply.isEmpty() || !actions.isEmpty()) {
+                                messages.insert(session.sessionRowId(), MessageRole.ASSISTANT,
+                                        reply.toString(), actions);
+                            }
+                            return new TurnResult(reply.toString(), toolCalls);
+                        }
                         if (!reason.equals("requires_action")) {
                             throw new IOException("Managed Agents session stopped without end_turn");
                         }
@@ -158,6 +177,16 @@ public class TurnRunner {
 
     private static Map<String, String> textBlock(String text) {
         return Map.of("type", "text", "text", text);
+    }
+
+    private static String actionSummary(DispatchOutcome result) {
+        try {
+            JsonNode envelope = JSON.readTree(result.resultJson());
+            JsonNode summary = result.isError() ? envelope.path("error").path("message") : envelope.path("summary");
+            return summary.isString() ? summary.stringValue() : "Tool completed";
+        } catch (RuntimeException malformedResult) {
+            return "Tool completed";
+        }
     }
 
     private static String requiredText(JsonNode node, String field) throws IOException {
