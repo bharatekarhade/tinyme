@@ -1,6 +1,4 @@
-package com.tinyme.agent;
-
-
+package com.tinyme.agent.client;
 
 import com.sun.net.httpserver.HttpServer;
 import org.junit.jupiter.api.Test;

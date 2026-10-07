@@ -1,7 +1,6 @@
-package com.tinyme.agent;
+package com.tinyme.agent.bootstrap;
 
-
-
+import com.tinyme.agent.client.ManagedAgentApi;
 import org.springframework.core.io.support.PathMatchingResourcePatternResolver;
 import tools.jackson.dataformat.yaml.YAMLMapper;
 import tools.jackson.databind.SerializationFeature;
@@ -73,7 +72,7 @@ final class AgentProvisioner {
                     api.request("POST", "/v1/memory_stores/" + store + "/memories",
                             Map.of("path", memory.getKey(), "content", memory.getValue()), true);
                 } catch (ManagedAgentApi.ApiException error) {
-                    if (error.status != 409 || !error.type.equals("memory_path_conflict_error")) throw error;
+                    if (error.status() != 409 || !error.type().equals("memory_path_conflict_error")) throw error;
                     // Never overwrite existing user memory on startup.
                 }
             }
@@ -112,7 +111,7 @@ final class AgentProvisioner {
             try {
                 remote = api.request("GET", endpoint + "/" + id, null, memory);
             } catch (ManagedAgentApi.ApiException error) {
-                if (error.status != 404) throw error;
+                if (error.status() != 404) throw error;
             }
             if (remote == null || remote.get("archived_at") != null) {
                 if (memory && !allowNewMemoryStore) {

@@ -1,18 +1,13 @@
-package com.tinyme.agent;
+package com.tinyme.agent.bootstrap;
 
-
-
+import com.tinyme.agent.client.ManagedAgentApi;
+import com.tinyme.agent.support.AgentDatabaseConfiguration;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.boot.test.context.TestConfiguration;
-import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
-import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Import;
 import org.springframework.jdbc.core.JdbcTemplate;
-import org.testcontainers.postgresql.PostgreSQLContainer;
-import org.testcontainers.utility.DockerImageName;
 
 import javax.sql.DataSource;
 import java.io.IOException;
@@ -28,7 +23,7 @@ import static org.mockito.Mockito.*;
         "tinyme.agent.setup-enabled=false",
         "tinyme.tools.allow-missing-handlers=true"
 })
-@Import(AgentProvisionerTests.DatabaseConfiguration.class)
+@Import(AgentDatabaseConfiguration.class)
 class AgentProvisionerTests {
     @Autowired DataSource datasource;
     @Autowired JdbcTemplate jdbc;
@@ -217,13 +212,4 @@ class AgentProvisionerTests {
         assertThat(AgentProvisioner.seedHash(first)).isNotEqualTo(AgentProvisioner.seedHash(second));
     }
 
-    @TestConfiguration(proxyBeanMethods = false)
-    static class DatabaseConfiguration {
-        @Bean
-        @ServiceConnection
-        PostgreSQLContainer postgres() {
-            return new PostgreSQLContainer(DockerImageName.parse("pgvector/pgvector:pg18")
-                    .asCompatibleSubstituteFor("postgres"));
-        }
-    }
 }
