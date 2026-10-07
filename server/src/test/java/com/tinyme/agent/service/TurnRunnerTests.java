@@ -4,6 +4,8 @@ import com.tinyme.agent.client.EventStream;
 import com.tinyme.agent.client.ManagedAgentApi;
 import com.tinyme.agent.model.SessionRef;
 import com.tinyme.agent.model.TurnResult;
+import com.tinyme.agent.model.MessageRole;
+import com.tinyme.agent.repository.MessageRepository;
 import com.tinyme.tools.model.DispatchOutcome;
 import com.tinyme.tools.model.ToolContext;
 import com.tinyme.tools.service.ToolDispatcher;
@@ -47,12 +49,14 @@ class TurnRunnerTests {
     private final ContextPrefixBuilder prefix = mock(ContextPrefixBuilder.class);
     private final ManagedAgentApi api = mock(ManagedAgentApi.class);
     private final ToolDispatcher dispatcher = mock(ToolDispatcher.class);
+    private final MessageRepository messages = mock(MessageRepository.class);
     private final SessionRef session = new SessionRef(UUID.randomUUID(), "sesn_test");
 
     private TurnRunner runner(Duration timeout) throws Exception {
         when(sessions.todaySession(ZONE)).thenReturn(session);
         when(prefix.build(ZONE)).thenReturn("[context]\ntz: Asia/Tokyo\n[/context]");
-        return new TurnRunner(sessions, prefix, api, dispatcher, Clock.fixed(NOW, ZoneOffset.UTC), timeout);
+        return new TurnRunner(sessions, prefix, api, dispatcher, messages,
+                Clock.fixed(NOW, ZoneOffset.UTC), timeout);
     }
 
     @Test
@@ -77,6 +81,9 @@ class TurnRunnerTests {
         order.verify(api).sendEvents("sesn_test", List.of(Map.of("type", "user.message", "content", List.of(
                 Map.of("type", "text", "text", "[context]\ntz: Asia/Tokyo\n[/context]"),
                 Map.of("type", "text", "text", "hello")))));
+        verify(messages).insert(session.sessionRowId(), MessageRole.USER, "hello");
+        verify(messages).insert(session.sessionRowId(), MessageRole.ASSISTANT,
+                "Hello there. Welcome!", List.of());
         verifyNoMoreInteractions(api);
         verifyNoInteractions(dispatcher);
         verify(body).close();
@@ -94,7 +101,9 @@ class TurnRunnerTests {
                 "{\"type\":\"session.thread_status_idle\",\"id\":\"thread_end\",\"stop_reason\":{\"type\":\"end_turn\"}}",
                 END);
         when(api.openStream("sesn_test")).thenReturn(new EventStream(body));
-        String resultJson = isError ? "{\"ok\":false}" : "{\"ok\":true}";
+        String resultJson = isError
+                ? "{\"ok\":false,\"error\":{\"message\":\"Tool had an error\"}}"
+                : "{\"ok\":true,\"summary\":\"Logged coffee\"}";
         var expectedContext = new ToolContext(session.sessionRowId(), null, ZONE, LocalDate.of(2026, 10, 6), NOW);
         JsonNode input = JSON.readTree("{\"kind\":\"drink\"}");
         when(dispatcher.dispatch("tool1", "entries_add", input, expectedContext))
@@ -102,13 +111,17 @@ class TurnRunnerTests {
 
         assertThat(runner.run("coffee", ZONE)).isEqualTo(new TurnResult("", 1));
 
-        var order = inOrder(api, dispatcher);
+        var order = inOrder(api, dispatcher, messages);
         order.verify(api).openStream("sesn_test");
+        order.verify(messages).insert(session.sessionRowId(), MessageRole.USER, "coffee");
         order.verify(api).sendEvents(eq("sesn_test"), anyList());
         order.verify(dispatcher).dispatch("tool1", "entries_add", input, expectedContext);
         order.verify(api).sendEvents("sesn_test", List.of(Map.of(
                 "type", "user.custom_tool_result", "custom_tool_use_id", "tool1", "is_error", isError,
                 "content", List.of(Map.of("type", "text", "text", resultJson)))));
+        order.verify(messages).insert(session.sessionRowId(), MessageRole.ASSISTANT, "",
+                List.of(Map.of("tool", "entries_add",
+                        "summary", isError ? "Tool had an error" : "Logged coffee", "isError", isError)));
         verifyNoMoreInteractions(api, dispatcher);
         verify(body).close();
     }
@@ -133,11 +146,14 @@ class TurnRunnerTests {
         var body = events(frames.toArray(String[]::new));
         when(api.openStream("sesn_test")).thenReturn(new EventStream(body));
         when(dispatcher.dispatch(anyString(), eq("entries_add"), any(), any()))
-                .thenReturn(new DispatchOutcome("{\"ok\":true}", false));
+                .thenReturn(new DispatchOutcome("{\"ok\":true,\"summary\":\"Logged drink\"}", false));
 
         assertThat(runner.run("had a coffee", ZONE)).isEqualTo(new TurnResult(expectedReply.toString(), 1));
         assertThat(expectedReply).isNotEmpty();
         verify(dispatcher).dispatch(anyString(), eq("entries_add"), any(), any());
+        verify(messages).insert(session.sessionRowId(), MessageRole.USER, "had a coffee");
+        verify(messages).insert(eq(session.sessionRowId()), eq(MessageRole.ASSISTANT),
+                eq(expectedReply.toString()), anyList());
         verify(body).close();
     }
 
@@ -176,6 +192,9 @@ class TurnRunnerTests {
         doThrow(new IOException("send failed")).when(api).sendEvents(anyString(), anyList());
         assertThatThrownBy(() -> runner.run("hello", ZONE)).isInstanceOf(IOException.class)
                 .hasMessage("send failed");
+        var order = inOrder(messages, api);
+        order.verify(messages).insert(session.sessionRowId(), MessageRole.USER, "hello");
+        order.verify(api).sendEvents(anyString(), anyList());
         verify(api).sendEvents(anyString(), anyList());
         verify(body).close();
     }
