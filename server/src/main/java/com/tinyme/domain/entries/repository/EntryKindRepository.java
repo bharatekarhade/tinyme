@@ -1,10 +1,12 @@
 package com.tinyme.domain.entries.repository;
 
 import com.tinyme.domain.entries.entity.EntryKindEntity;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.HashSet;
+import java.util.List;
 import java.util.Objects;
 import java.util.Set;
 
@@ -16,6 +18,16 @@ public class EntryKindRepository {
 
     EntryKindRepository(EntryKindJpaRepository kinds) {
         this.kinds = Objects.requireNonNull(kinds, "kinds");
+    }
+
+    /** Returns canonical kinds by usage, with alphabetical ordering for ties. */
+    @Transactional(readOnly = true)
+    public List<String> topKinds(int limit) {
+        if (limit <= 0) {
+            throw new IllegalArgumentException("limit must be positive");
+        }
+        return kinds.findByMergedIntoIsNullOrderByUseCountDescKindAsc(PageRequest.of(0, limit))
+                .stream().map(EntryKindEntity::getKind).toList();
     }
 
     /**

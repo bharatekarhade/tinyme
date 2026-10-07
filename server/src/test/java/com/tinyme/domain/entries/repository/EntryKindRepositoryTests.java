@@ -48,6 +48,21 @@ class EntryKindRepositoryTests {
     }
 
     @Test
+    void topKindsLimitsAndRanksCanonicalKindsWithStableTies() {
+        var expected = new ArrayList<String>();
+        for (int i = 0; i < 35; i++) {
+            String kind = prefix + String.format(java.util.Locale.ROOT, "%02d", i);
+            jdbc.update("INSERT INTO entry_kinds (kind, use_count) VALUES (?, ?)",
+                    kind, 10000 - i / 2);
+            if (i < 30) expected.add(kind);
+        }
+        jdbc.update("INSERT INTO entry_kinds (kind, use_count, merged_into) VALUES (?, ?, ?)",
+                prefix + "alias", 20000, expected.getFirst());
+
+        assertThat(kinds.topKinds(30)).containsExactlyElementsOf(expected);
+    }
+
+    @Test
     void simultaneousFirstUsesCreateOneKindAndCountEveryUse() throws Exception {
         String kind = prefix + "drink";
         int callers = 6;
