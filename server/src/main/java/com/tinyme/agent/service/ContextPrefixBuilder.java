@@ -25,6 +25,16 @@ public class ContextPrefixBuilder {
         this.clock = clock;
     }
 
+    /**
+     * This is context builder when sending message to the agnet.
+     * [context]
+     * now: 2026-10-07 Wednesday 12:29:41 +09:00
+     * tz: Asia/Tokyo
+     * known_kinds: drink, meal, sleep
+     * [/context]
+     * @param zone
+     * @return String
+     */
     public String build(ZoneId zone) {
         Objects.requireNonNull(zone, "zone");
         var lines = new ArrayList<String>();
