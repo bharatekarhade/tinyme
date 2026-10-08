@@ -2,6 +2,8 @@ package com.tinyme.domain.entries.service;
 
 import com.tinyme.domain.entries.model.AddCommand;
 import com.tinyme.domain.entries.model.AddResult;
+import com.tinyme.domain.entries.model.AggregateQuery;
+import com.tinyme.domain.entries.model.AggregateResult;
 import com.tinyme.domain.entries.model.NewEntry;
 import com.tinyme.domain.entries.repository.EntryKindRepository;
 import com.tinyme.domain.entries.repository.EntryRepository;
@@ -11,6 +13,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.UUID;
 
 @Service
@@ -34,5 +37,16 @@ public class EntryService {
         String type = cmd.data().get("type") instanceof String value ? value : null;
         BigDecimal total = entries.totalForDay(kind, localDay, type);
         return new AddResult(id, kind, localDay, quantity, total);
+    }
+
+    @Transactional(readOnly = true)
+    public AggregateResult aggregate(AggregateQuery query) {
+        Objects.requireNonNull(query, "query");
+        Optional<String> resolved = entryKinds.resolveExisting(query.kind());
+        AggregateQuery resolvedQuery = query.withKind(resolved.orElse(query.kind()));
+        AggregateResult result = entries.aggregate(resolvedQuery);
+        return new AggregateResult(result.kind(), resolved.isPresent(), result.metric(), result.field(),
+                result.where(), result.from(), result.to(), result.groupBy(), result.value(),
+                result.entries(), result.buckets());
     }
 }

@@ -85,16 +85,20 @@ tools:
       Compute numbers over entries. ALWAYS use this for any count, total or average
       ("how many beers this week", "average sleep this month"); never estimate.
       metric "count" adds up quantity (2 coffees in one entry count as 2) and needs no
-      field. sum/avg/min/max need `field`, a numeric key inside data such as "hours".
+      field; any field sent with count is ignored. sum/avg/min/max need `field`, a
+      numeric key inside data such as "hours". These metrics read the field once per
+      entry, regardless of quantity, and skip entries where it is missing or not a number.
       `where` filters on exact data values, e.g. {"type":"beer"}. group_by returns one
-      value per day, week or month.
+      value per day, week or month; weeks start Monday. Dates are inclusive and use
+      local_day. Omit from and to for all time. For today, pass today's date from
+      [context] as both from and to. Averages are rounded to 2 decimal places.
     input_schema:
       type: object
       required: [kind, metric]
       properties:
         kind:     { type: string }
         metric:   { type: string, enum: [count, sum, avg, min, max] }
-        field:    { type: string, description: "Numeric key in data, e.g. hours, km" }
+        field:    { type: string, pattern: "^[a-z][a-z0-9_]{0,31}$", description: "Numeric key in data, e.g. hours, km" }
         where:    { type: object, description: "Exact-match filters on data, e.g. {\"type\":\"beer\"}" }
         from:     { type: string, format: date }
         to:       { type: string, format: date }

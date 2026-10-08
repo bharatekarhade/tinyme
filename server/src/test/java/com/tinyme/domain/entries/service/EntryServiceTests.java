@@ -2,6 +2,9 @@ package com.tinyme.domain.entries.service;
 
 import com.tinyme.domain.entries.model.AddCommand;
 import com.tinyme.domain.entries.model.AddResult;
+import com.tinyme.domain.entries.model.AggregateMetric;
+import com.tinyme.domain.entries.model.AggregateQuery;
+import com.tinyme.domain.entries.model.GroupBy;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -151,6 +154,41 @@ class EntryServiceTests {
         AddResult result = service.add(new AddCommand("drink", null, null, Map.of("type", 42),
                 List.of(), TS, TOKYO, "chat"));
         assertThat(result.todayTotal()).isEqualByComparingTo("2");
+    }
+
+    @Test
+    void aggregateFollowsMergedKindWithoutIncrementingUsage() {
+        jdbc.update("INSERT INTO entry_kinds (kind) VALUES ('drink')");
+        jdbc.update("INSERT INTO entry_kinds (kind, merged_into) VALUES ('beverage', 'drink')");
+        service.add(drink("coffee", new BigDecimal("2")));
+        int drinkUseCount = jdbc.queryForObject(
+                "SELECT use_count FROM entry_kinds WHERE kind = 'drink'", Integer.class);
+        int beverageUseCount = jdbc.queryForObject(
+                "SELECT use_count FROM entry_kinds WHERE kind = 'beverage'", Integer.class);
+
+        var result = service.aggregate(new AggregateQuery("beverage", AggregateMetric.COUNT, null,
+                Map.of("type", "coffee"), LocalDate.of(2026, 10, 6), LocalDate.of(2026, 10, 6), GroupBy.NONE));
+
+        assertThat(result.kind()).isEqualTo("drink");
+        assertThat(result.kindKnown()).isTrue();
+        assertThat(result.value()).isEqualByComparingTo("2");
+        assertThat(jdbc.queryForObject(
+                "SELECT use_count FROM entry_kinds WHERE kind = 'drink'", Integer.class)).isEqualTo(drinkUseCount);
+        assertThat(jdbc.queryForObject(
+                "SELECT use_count FROM entry_kinds WHERE kind = 'beverage'", Integer.class)).isEqualTo(beverageUseCount);
+    }
+
+    @Test
+    void unknownKindReturnsEmptyAggregateInsteadOfCreatingKind() {
+        var result = service.aggregate(new AggregateQuery("unknown_kind", AggregateMetric.COUNT,
+                null, Map.of(), null, null, GroupBy.NONE));
+
+        assertThat(result.kindKnown()).isFalse();
+        assertThat(result.kind()).isEqualTo("unknown_kind");
+        assertThat(result.value()).isEqualByComparingTo("0");
+        assertThat(result.entries()).isZero();
+        assertThat(jdbc.queryForObject(
+                "SELECT count(*) FROM entry_kinds WHERE kind = 'unknown_kind'", Integer.class)).isZero();
     }
 
     @Test

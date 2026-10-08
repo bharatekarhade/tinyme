@@ -8,6 +8,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.Set;
 
 @Repository
@@ -43,10 +44,14 @@ public class EntryKindRepository {
 
         kinds.upsertAndIncrement(kind);
 
-        return resolve(kind);
+        return resolveExisting(kind).orElseThrow(() -> new IllegalStateException(
+                "Entry kind '" + kind + "' disappeared while resolving it"));
     }
 
-    private String resolve(String kind) {
+    /** Resolves a kind without creating it or changing its usage count. */
+    @Transactional(readOnly = true)
+    public Optional<String> resolveExisting(String kind) {
+        Objects.requireNonNull(kind, "kind");
         String current = kind;
         Set<String> visited = new HashSet<>();
         visited.add(current);
@@ -54,12 +59,12 @@ public class EntryKindRepository {
         for (int hop = 0; hop <= MAX_MERGE_HOPS; hop++) {
             EntryKindEntity entryKind = kinds.findById(current).orElse(null);
             if (entryKind == null) {
-                throw new IllegalStateException(
-                        "Entry kind merge target '" + current + "' does not exist");
+                if (hop == 0) return Optional.empty();
+                throw new IllegalStateException("Entry kind merge target '" + current + "' does not exist");
             }
             String target = entryKind.mergedIntoKind();
             if (target == null) {
-                return current;
+                return Optional.of(current);
             }
             if (!visited.add(target)) {
                 throw new IllegalStateException("Cycle in entry kind merges at '" + target + "'");
@@ -70,7 +75,7 @@ public class EntryKindRepository {
             current = target;
         }
 
-        throw new IllegalStateException("Entry kind merge chain for '" + kind
-                + "' exceeds " + MAX_MERGE_HOPS + " hops");
+        throw new IllegalStateException("Entry kind merge chain for '" + kind + "' exceeds "
+                + MAX_MERGE_HOPS + " hops");
     }
 }
