@@ -1,13 +1,18 @@
 package com.tinyme.agent.service;
 
+import com.tinyme.domain.entries.model.TodayTotal;
 import com.tinyme.domain.entries.repository.EntryKindRepository;
+import com.tinyme.domain.entries.repository.EntryRepository;
 import org.springframework.stereotype.Component;
 
+import java.math.BigDecimal;
 import java.time.Clock;
+import java.time.LocalDate;
 import java.time.ZoneId;
 import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
+import java.util.List;
 import java.util.Locale;
 import java.util.Objects;
 
@@ -18,10 +23,12 @@ public class ContextPrefixBuilder {
     private static final int KIND_LIMIT = 30;
 
     private final EntryKindRepository entryKinds;
+    private final EntryRepository entries;
     private final Clock clock;
 
-    public ContextPrefixBuilder(EntryKindRepository entryKinds, Clock clock) {
+    public ContextPrefixBuilder(EntryKindRepository entryKinds, EntryRepository entries, Clock clock) {
         this.entryKinds = entryKinds;
+        this.entries = entries;
         this.clock = clock;
     }
 
@@ -45,7 +52,22 @@ public class ContextPrefixBuilder {
         if (!kinds.isEmpty()) {
             lines.add("known_kinds: " + String.join(", ", kinds));
         }
+        LocalDate today = LocalDate.now(clock.withZone(zone));
+        List<TodayTotal> totals = entries.todayTotals(today);
+        if (!totals.isEmpty()) {
+            lines.add("today: " + totals.stream().map(ContextPrefixBuilder::formatTotal)
+                    .collect(java.util.stream.Collectors.joining(", ")));
+        }
         lines.add("[/context]");
         return String.join("\n", lines);
+    }
+
+    private static String formatTotal(TodayTotal total) {
+        String label = total.kind();
+        if (total.type() != null) {
+            label += " (" + total.type() + ")";
+        }
+        BigDecimal quantity = total.quantity().stripTrailingZeros();
+        return label + "=" + quantity.toPlainString();
     }
 }

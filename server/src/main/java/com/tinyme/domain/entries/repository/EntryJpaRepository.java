@@ -7,6 +7,7 @@ import org.springframework.data.repository.query.Param;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.util.List;
 import java.util.UUID;
 
 interface EntryJpaRepository extends JpaRepository<EntryEntity, UUID> {
@@ -21,4 +22,22 @@ interface EntryJpaRepository extends JpaRepository<EntryEntity, UUID> {
     BigDecimal totalForDay(@Param("kind") String kind,
                            @Param("day") LocalDate day,
                            @Param("typeOrNull") String typeOrNull);
+
+    @Query(value = """
+            SELECT kind AS kind, data ->> 'type' AS type, SUM(quantity) AS quantity
+            FROM entries
+            WHERE local_day = :day
+              AND deleted_at IS NULL
+            GROUP BY kind, data ->> 'type'
+            ORDER BY kind, data ->> 'type' NULLS FIRST
+            """, nativeQuery = true)
+    List<TodayTotalProjection> todayTotals(@Param("day") LocalDate day);
+}
+
+interface TodayTotalProjection {
+    String getKind();
+
+    String getType();
+
+    BigDecimal getQuantity();
 }

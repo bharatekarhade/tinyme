@@ -1,10 +1,14 @@
 package com.tinyme.agent.service;
 
+import com.tinyme.domain.entries.model.TodayTotal;
 import com.tinyme.domain.entries.repository.EntryKindRepository;
+import com.tinyme.domain.entries.repository.EntryRepository;
 import org.junit.jupiter.api.Test;
 
+import java.math.BigDecimal;
 import java.time.Clock;
 import java.time.Instant;
+import java.time.LocalDate;
 import java.time.ZoneId;
 import java.time.ZoneOffset;
 import java.util.List;
@@ -16,20 +20,27 @@ import static org.mockito.Mockito.when;
 
 class ContextPrefixBuilderTests {
     private final EntryKindRepository kinds = mock(EntryKindRepository.class);
+    private final EntryRepository entries = mock(EntryRepository.class);
     private final Clock clock = Clock.fixed(Instant.parse("2026-10-05T15:30:00Z"), ZoneOffset.UTC);
-    private final ContextPrefixBuilder builder = new ContextPrefixBuilder(kinds, clock);
+    private final ContextPrefixBuilder builder = new ContextPrefixBuilder(kinds, entries, clock);
 
     @Test
     void usesLocalDateAndWeekdayAndPreservesKindRanking() {
         when(kinds.topKinds(30)).thenReturn(List.of("drink", "meal", "journal"));
+        when(entries.todayTotals(LocalDate.of(2026, 10, 6))).thenReturn(List.of(
+                new TodayTotal("drink", "coffee", new BigDecimal("2")),
+                new TodayTotal("drink", "tea", new BigDecimal("1.50")),
+                new TodayTotal("sleep", null, new BigDecimal("7"))));
 
         assertThat(builder.build(ZoneId.of("Asia/Tokyo"))).isEqualTo("""
                 [context]
                 now: 2026-10-06 Tuesday 00:30:00 +09:00
                 tz: Asia/Tokyo
                 known_kinds: drink, meal, journal
+                today: drink (coffee)=2, drink (tea)=1.5, sleep=7
                 [/context]""");
         verify(kinds).topKinds(30);
+        verify(entries).todayTotals(LocalDate.of(2026, 10, 6));
     }
 
     @Test

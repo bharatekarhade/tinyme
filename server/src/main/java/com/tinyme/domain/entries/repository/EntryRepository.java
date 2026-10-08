@@ -1,12 +1,14 @@
 package com.tinyme.domain.entries.repository;
 
 import com.tinyme.domain.entries.model.NewEntry;
+import com.tinyme.domain.entries.model.TodayTotal;
 import com.tinyme.domain.entries.entity.EntryEntity;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.util.List;
 import java.util.Objects;
 import java.util.UUID;
 
@@ -45,5 +47,13 @@ public class EntryRepository {
         Objects.requireNonNull(kind, "kind");
         Objects.requireNonNull(day, "day");
         return entries.totalForDay(kind, day, typeOrNull);
+    }
+
+    @Transactional(readOnly = true)
+    public List<TodayTotal> todayTotals(LocalDate day) {
+        Objects.requireNonNull(day, "day");
+        return entries.todayTotals(day).stream()
+                .map(row -> new TodayTotal(row.getKind(), row.getType(), row.getQuantity()))
+                .toList();
     }
 }

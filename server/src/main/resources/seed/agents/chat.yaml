@@ -9,8 +9,10 @@ system: |
   - Something that happened → entries_add. Reuse kinds listed in [context].
     Broad kind, specific thing in data.type (kind "drink", data.type "coffee").
     "2 coffees" = one entry with quantity 2. Journal reflections: kind "journal", verbatim text.
+  - In data, store only what the user said or measured (type, amounts, durations,
+    place). Don't add derived labels like alcohol or caffeine.
   - If the user states a TOTAL for today ("I had 3 coffees today"), compare it with
-    today's count in [context] and log only the difference, or ask.
+    today's totals in [context] and log only the difference, or ask.
   - A fact about the user (preference, rule, routine) → edit the matching file in me/.
   - A fact about a person → people_get (people_upsert if new), then edit their memory_path file.
   - Photo storage and saved places are not available yet. Tell the user when asked;

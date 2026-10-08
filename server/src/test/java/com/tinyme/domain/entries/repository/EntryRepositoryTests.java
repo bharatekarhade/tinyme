@@ -1,6 +1,7 @@
 package com.tinyme.domain.entries.repository;
 
 import com.tinyme.domain.entries.model.NewEntry;
+import com.tinyme.domain.entries.model.TodayTotal;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -39,12 +40,15 @@ class EntryRepositoryTests {
         LocalDate day = LocalDate.of(2026, 10, 6);
         UUID coffeeId = null;
         UUID teaId = null;
+        UUID untypedId = null;
         try {
             jdbc.update("INSERT INTO entry_kinds (kind) VALUES (?)", kind);
             coffeeId = entries.insert(new NewEntry(kind, new BigDecimal("2"), "two coffees",
                     Map.of("type", "coffee"), List.of("morning"), Instant.parse("2026-10-06T00:30:00Z"), day, "chat"));
             teaId = entries.insert(new NewEntry(kind, new BigDecimal("3"), "three teas",
                     Map.of("type", "tea"), List.of(), Instant.parse("2026-10-06T02:30:00Z"), day, "chat"));
+            untypedId = entries.insert(new NewEntry(kind, new BigDecimal("4"), "four servings",
+                    Map.of(), List.of(), Instant.parse("2026-10-06T04:30:00Z"), day, "chat"));
 
             assertThat(coffeeId).isNotNull();
             assertThat(coffeeId.version()).isEqualTo(7);
@@ -55,16 +59,24 @@ class EntryRepositoryTests {
                     "SELECT tags[1] FROM entries WHERE id = ?", String.class, coffeeId))
                     .isEqualTo("morning");
 
-            assertThat(entries.totalForDay(kind, day, null)).isEqualByComparingTo("5");
+            assertThat(entries.totalForDay(kind, day, null)).isEqualByComparingTo("9");
             assertThat(entries.totalForDay(kind, day, "coffee")).isEqualByComparingTo("2");
             assertThat(entries.totalForDay(kind, day, "tea")).isEqualByComparingTo("3");
+            assertThat(entries.todayTotals(day)).containsExactly(
+                    new TodayTotal(kind, null, new BigDecimal("4")),
+                    new TodayTotal(kind, "coffee", new BigDecimal("2")),
+                    new TodayTotal(kind, "tea", new BigDecimal("3")));
 
             jdbc.update("UPDATE entries SET deleted_at = now() WHERE id = ?", coffeeId);
             assertThat(entries.totalForDay(kind, day, "coffee")).isEqualByComparingTo("0");
-            assertThat(entries.totalForDay(kind, day, null)).isEqualByComparingTo("3");
+            assertThat(entries.totalForDay(kind, day, null)).isEqualByComparingTo("7");
+            assertThat(entries.todayTotals(day)).containsExactly(
+                    new TodayTotal(kind, null, new BigDecimal("4")),
+                    new TodayTotal(kind, "tea", new BigDecimal("3")));
         } finally {
             if (coffeeId != null) jdbc.update("DELETE FROM entries WHERE id = ?", coffeeId);
             if (teaId != null) jdbc.update("DELETE FROM entries WHERE id = ?", teaId);
+            if (untypedId != null) jdbc.update("DELETE FROM entries WHERE id = ?", untypedId);
             jdbc.update("DELETE FROM entry_kinds WHERE kind = ?", kind);
         }
     }
