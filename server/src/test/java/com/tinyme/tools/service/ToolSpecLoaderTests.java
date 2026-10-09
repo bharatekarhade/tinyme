@@ -23,6 +23,8 @@ class ToolSpecLoaderTests {
         assertThat(strings(specs.get("entries_add").inputSchema().get("required")))
                 .containsExactly("kind");
         assertThat(specs.get("entries_add").inputSchema().get("properties").has("people")).isFalse();
+        assertThat(specs.get("entries_query").inputSchema().get("properties").has("where")).isTrue();
+        assertThat(specs.get("entries_query").inputSchema().get("properties").has("people")).isFalse();
     }
 
     @Test

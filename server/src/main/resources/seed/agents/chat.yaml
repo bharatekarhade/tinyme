@@ -65,7 +65,7 @@ tools:
     name: entries_query
     description: >
       Find past entries to answer "did I…", "when did I last…" or "what did I write
-      about…". Filter by kind, people, date range and/or words in the text. Returns
+      about…". Filter by kind, exact-match data values, date range and/or words in the text. Returns
       at most `limit` entries, newest first, each with its id, time, kind, quantity,
       text and data. Also use it to find the id of an entry before updating or
       deleting it. If nothing matches, say there is no record; never claim it didn't happen.
@@ -74,7 +74,7 @@ tools:
       properties:
         kind:   { type: string }
         text:   { type: string, description: "Words to search for" }
-        people: { type: array, items: { type: string }, description: "Person slugs" }
+        where:  { type: object, description: "Exact-match filters on data, e.g. {\"type\":\"beer\"}" }
         from:   { type: string, format: date }
         to:     { type: string, format: date }
         limit:  { type: integer, minimum: 1, maximum: 20, default: 10 }
