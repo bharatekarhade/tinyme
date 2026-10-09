@@ -38,6 +38,17 @@ class ToolValidatorTests {
     }
 
     @Test
+    void validatesPeopleGetQueryLengthAndRejectsUnknownProperties() throws Exception {
+        ToolValidator validator = new ToolValidator(new ToolSpecLoader());
+
+        assertThat(validator.validate("people_get", YAML.readTree("{query: Ken}"))).isEmpty();
+        assertThat(validator.validate("people_get", YAML.readTree("{query: Ken, extra: true}")))
+                .anySatisfy(message -> assertThat(message).contains("extra"));
+        assertThat(validator.validate("people_get", YAML.readTree("{query: '" + "x".repeat(81) + "'}")))
+                .anySatisfy(message -> assertThat(message).contains("80 characters"));
+    }
+
+    @Test
     void acceptsValidInputAndDoesNotApplySchemaDefaults() throws Exception {
         JsonNode schema = YAML.readTree("""
                 type: object

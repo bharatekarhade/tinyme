@@ -25,6 +25,9 @@ class ToolSpecLoaderTests {
         assertThat(specs.get("entries_add").inputSchema().get("properties").has("people")).isFalse();
         assertThat(specs.get("entries_query").inputSchema().get("properties").has("where")).isTrue();
         assertThat(specs.get("entries_query").inputSchema().get("properties").has("people")).isFalse();
+        assertThat(specs.get("people_get").inputSchema().get("additionalProperties").booleanValue()).isFalse();
+        assertThat(specs.get("people_get").inputSchema().get("properties").get("query").get("maxLength").intValue())
+                .isEqualTo(80);
     }
 
     @Test
