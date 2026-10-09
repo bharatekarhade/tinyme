@@ -93,6 +93,34 @@ class EntryRepositoryTests {
     }
 
     @Test
+    void updatesEntryAndReturnsPersistedSnapshot() {
+        String kind = createKind();
+        LocalDate originalDay = LocalDate.of(2026, 10, 8);
+        UUID id = null;
+        try {
+            id = entries.insert(new NewEntry(kind, new BigDecimal("2"), "two coffees",
+                    Map.of("type", "coffee"), List.of(), Instant.parse("2026-10-08T10:00:00Z"),
+                    originalDay, "chat"));
+            LocalDate updatedDay = originalDay.minusDays(1);
+            Instant updatedTs = Instant.parse("2026-10-07T14:30:00Z");
+
+            EntrySnapshot updated = entries.update(id, kind, new BigDecimal("3"), "three teas",
+                    Map.of("type", "tea"), updatedTs, updatedDay);
+
+            assertThat(updated.id()).isEqualTo(id);
+            assertThat(updated.quantity()).isEqualByComparingTo("3");
+            assertThat(updated.text()).isEqualTo("three teas");
+            assertThat(updated.data()).containsEntry("type", "tea");
+            assertThat(updated.ts()).isEqualTo(updatedTs);
+            assertThat(updated.localDay()).isEqualTo(updatedDay);
+            assertThat(jdbc.queryForObject("SELECT updated_at > created_at FROM entries WHERE id = ?",
+                    Boolean.class, id)).isTrue();
+        } finally {
+            cleanup(kind, id == null ? List.of() : List.of(id));
+        }
+    }
+
+    @Test
     void aggregateCountUsesQuantityWhereAndExcludesSoftDeletedRows() {
         String kind = createKind();
         LocalDate day = LocalDate.of(2026, 10, 8);

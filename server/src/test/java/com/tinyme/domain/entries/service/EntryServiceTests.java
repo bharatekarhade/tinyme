@@ -2,10 +2,12 @@ package com.tinyme.domain.entries.service;
 
 import com.tinyme.domain.entries.model.add.AddCommand;
 import com.tinyme.domain.entries.model.add.AddResult;
+import com.tinyme.domain.entries.model.EntryWriteResult;
 import com.tinyme.domain.entries.model.aggregate.AggregateMetric;
 import com.tinyme.domain.entries.model.aggregate.AggregateQuery;
 import com.tinyme.domain.entries.model.aggregate.GroupBy;
 import com.tinyme.domain.entries.model.query.EntryQuery;
+import com.tinyme.domain.entries.model.update.EntryPatch;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -234,6 +236,106 @@ class EntryServiceTests {
                 "SELECT count(*) FROM entry_kinds WHERE kind = 'piano_practice'", Integer.class)).isZero();
         assertThat(jdbc.queryForObject(
                 "SELECT count(*) FROM entries WHERE kind = 'piano_practice'", Integer.class)).isZero();
+    }
+
+    @Test
+    void updateQuantityReturnsNewDayTotalAndKeepsOneRow() {
+        AddResult added = service.add(drink("coffee", new BigDecimal("2")));
+
+        EntryWriteResult updated = service.update(new EntryPatch(added.id(), null,
+                new BigDecimal("3"), null, null, null), TOKYO).orElseThrow();
+
+        assertThat(updated.entry().quantity()).isEqualByComparingTo("3");
+        assertThat(updated.dayTotal()).isEqualByComparingTo("3");
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM entries WHERE id = ?", Integer.class, added.id()))
+                .isEqualTo(1);
+    }
+
+    @Test
+    void updateDataMovesTotalFromCoffeeToTea() {
+        AddResult added = service.add(drink("coffee", null));
+
+        EntryWriteResult updated = service.update(new EntryPatch(added.id(), null,
+                null, null, Map.of("type", "tea"), null), TOKYO).orElseThrow();
+
+        assertThat(updated.entry().data()).containsEntry("type", "tea");
+        assertThat(updated.dayTotal()).isEqualByComparingTo("1");
+        assertThat(jdbc.queryForObject("SELECT COALESCE(SUM(quantity), 0) FROM entries "
+                + "WHERE kind = 'drink' AND local_day = ? AND data->>'type' = 'coffee' AND deleted_at IS NULL",
+                BigDecimal.class, added.localDay())).isEqualByComparingTo("0");
+        assertThat(jdbc.queryForObject("SELECT COALESCE(SUM(quantity), 0) FROM entries "
+                + "WHERE kind = 'drink' AND local_day = ? AND data->>'type' = 'tea' AND deleted_at IS NULL",
+                BigDecimal.class, added.localDay())).isEqualByComparingTo("1");
+    }
+
+    @Test
+    void updateTimestampRecalculatesLocalDayInContextZone() {
+        AddResult added = service.add(drink("coffee", null));
+        LocalDate yesterday = LocalDate.of(2026, 10, 5);
+        Instant lastNight = yesterday.atTime(23, 30).atZone(TOKYO).toInstant();
+
+        EntryWriteResult updated = service.update(new EntryPatch(added.id(), null,
+                null, null, null, lastNight), TOKYO).orElseThrow();
+
+        assertThat(updated.entry().ts()).isEqualTo(lastNight);
+        assertThat(updated.entry().localDay()).isEqualTo(yesterday);
+        assertThat(jdbc.queryForObject("SELECT local_day::text FROM entries WHERE id = ?", String.class, added.id()))
+                .isEqualTo(yesterday.toString());
+    }
+
+    @Test
+    void updateBlankTextStoresNull() {
+        AddResult added = service.add(new AddCommand("drink", null, "original text", Map.of("type", "coffee"),
+                List.of(), TS, TOKYO, "chat"));
+
+        EntryWriteResult updated = service.update(new EntryPatch(added.id(), null,
+                null, "", null, null), TOKYO).orElseThrow();
+
+        assertThat(updated.entry().text()).isNull();
+        assertThat(jdbc.queryForObject("SELECT text FROM entries WHERE id = ?", String.class, added.id())).isNull();
+    }
+
+    @Test
+    void updateResolvesMergedKindToCanonicalKind() {
+        jdbc.update("INSERT INTO entry_kinds (kind) VALUES ('drink')");
+        jdbc.update("INSERT INTO entry_kinds (kind, merged_into) VALUES ('beverage', 'drink')");
+        AddResult added = service.add(drink("coffee", null));
+
+        EntryWriteResult updated = service.update(new EntryPatch(added.id(), "beverage",
+                null, null, null, null), TOKYO).orElseThrow();
+
+        assertThat(updated.entry().kind()).isEqualTo("drink");
+        assertThat(jdbc.queryForObject("SELECT kind FROM entries WHERE id = ?", String.class, added.id()))
+                .isEqualTo("drink");
+        assertThat(jdbc.queryForObject("SELECT use_count FROM entry_kinds WHERE kind = 'beverage'", Integer.class))
+                .isEqualTo(1);
+    }
+
+    @Test
+    void updateOfSoftDeletedEntryReturnsEmptyWithoutCreatingKindOrIncrementingUseCount() {
+        AddResult added = service.add(drink("coffee", null));
+        jdbc.update("UPDATE entries SET deleted_at = now() WHERE id = ?", added.id());
+        int useCountBefore = jdbc.queryForObject("SELECT use_count FROM entry_kinds WHERE kind = 'drink'", Integer.class);
+
+        var updated = service.update(new EntryPatch(added.id(), "piano_practice",
+                null, null, null, null), TOKYO);
+
+        assertThat(updated).isEmpty();
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM entry_kinds WHERE kind = 'piano_practice'", Integer.class))
+                .isZero();
+        assertThat(jdbc.queryForObject("SELECT use_count FROM entry_kinds WHERE kind = 'drink'", Integer.class))
+                .isEqualTo(useCountBefore);
+    }
+
+    @Test
+    void updateAdvancesUpdatedAt() {
+        AddResult added = service.add(drink("coffee", null));
+
+        service.update(new EntryPatch(added.id(), null, new BigDecimal("2"),
+                null, null, null), TOKYO).orElseThrow();
+
+        assertThat(jdbc.queryForObject("SELECT updated_at > created_at FROM entries WHERE id = ?",
+                Boolean.class, added.id())).isTrue();
     }
 
     private AddCommand drink(String type, BigDecimal quantity) {
