@@ -202,8 +202,21 @@ public class EntryRepository {
         entry.setText(text);
         entry.setLocalDay(localDay);
         entry.setTs(ts);
-        entries.save(entry);
         return toSnapshot(entry);
+    }
+
+    @Transactional
+    public Optional<EntrySnapshot> softDelete(UUID id, Instant now) {
+        Objects.requireNonNull(id, "id");
+        Objects.requireNonNull(now, "now");
+        Optional<EntryEntity> found = entries.findLockedById(id);
+        if (found.isEmpty()) return Optional.empty();
+
+        EntryEntity entry = found.get();
+        if (entry.getDeletedAt() == null) {
+            entry.setDeletedAt(now);
+        }
+        return Optional.of(toSnapshot(entry));
     }
 
     private static EntrySnapshot toSnapshot(EntryEntity entry) {

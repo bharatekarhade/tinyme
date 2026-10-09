@@ -338,6 +338,53 @@ class EntryServiceTests {
                 Boolean.class, added.id())).isTrue();
     }
 
+    @Test
+    void deleteHidesEntryFromAggregateAndQueryButKeepsTheRow() {
+        AddResult added = service.add(drink("coffee", null));
+        Instant deletedAt = Instant.parse("2026-10-09T00:00:00Z");
+
+        EntryWriteResult deleted = service.delete(added.id(), deletedAt).orElseThrow();
+
+        assertThat(deleted.entry().id()).isEqualTo(added.id());
+        assertThat(deleted.dayTotal()).isEqualByComparingTo("0");
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM entries WHERE id = ?", Integer.class, added.id()))
+                .isEqualTo(1);
+        assertThat(jdbc.queryForObject("SELECT deleted_at = CAST(? AS timestamptz) FROM entries WHERE id = ?",
+                Boolean.class, deletedAt.toString(), added.id())).isTrue();
+
+        var aggregate = service.aggregate(new AggregateQuery("drink", AggregateMetric.COUNT, null,
+                Map.of("type", "coffee"), added.localDay(), added.localDay(), GroupBy.NONE));
+        var query = service.query(new EntryQuery("drink", null, Map.of("type", "coffee"),
+                added.localDay(), added.localDay(), null));
+        assertThat(aggregate.value()).isEqualByComparingTo("0");
+        assertThat(query.entries()).isEmpty();
+    }
+
+    @Test
+    void secondDeleteReturnsSameSnapshotAndKeepsFirstDeletedAt() {
+        AddResult added = service.add(drink("coffee", null));
+        Instant firstTime = Instant.parse("2026-10-09T00:00:00Z");
+        Instant secondTime = firstTime.plusSeconds(60);
+
+        EntryWriteResult first = service.delete(added.id(), firstTime).orElseThrow();
+        BigDecimal deletedAtAfterFirst = jdbc.queryForObject(
+                "SELECT EXTRACT(EPOCH FROM deleted_at)::numeric FROM entries WHERE id = ?",
+                BigDecimal.class, added.id());
+        EntryWriteResult second = service.delete(added.id(), secondTime).orElseThrow();
+        BigDecimal deletedAtAfterSecond = jdbc.queryForObject(
+                "SELECT EXTRACT(EPOCH FROM deleted_at)::numeric FROM entries WHERE id = ?",
+                BigDecimal.class, added.id());
+
+        assertThat(second.entry()).isEqualTo(first.entry());
+        assertThat(deletedAtAfterSecond).isEqualByComparingTo(deletedAtAfterFirst);
+    }
+
+    @Test
+    void deleteUnknownIdReturnsEmpty() {
+        assertThat(service.delete(java.util.UUID.randomUUID(), Instant.parse("2026-10-09T00:00:00Z")))
+                .isEmpty();
+    }
+
     private AddCommand drink(String type, BigDecimal quantity) {
         return new AddCommand("drink", quantity, null, Map.of("type", type), List.of(), TS, TOKYO, "chat");
     }

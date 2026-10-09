@@ -129,9 +129,8 @@ tools:
     name: entries_delete
     description: >
       Delete an entry the user wants removed ("delete that last coffee"). Find the id
-      with entries_query first. The entry is hidden, not destroyed, so it can be
-      restored if the user says "undo". Returns what was deleted so you can confirm it
-      in words.
+      with entries_query first. The entry is hidden from counts and searches, but stays
+      in storage. Returns what was deleted so you can confirm it in words.
     input_schema:
       type: object
       required: [id]

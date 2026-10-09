@@ -1,7 +1,9 @@
 package com.tinyme.domain.entries.repository;
 
 import com.tinyme.domain.entries.entity.EntryEntity;
+import jakarta.persistence.LockModeType;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
@@ -35,6 +37,10 @@ interface EntryJpaRepository extends JpaRepository<EntryEntity, UUID> {
     List<TodayTotalProjection> todayTotals(@Param("day") LocalDate day);
 
     Optional<EntryEntity> findByIdAndDeletedAtIsNull(UUID id);
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select entry from EntryEntity entry where entry.id = :id")
+    Optional<EntryEntity> findLockedById(@Param("id") UUID id);
 }
 
 interface TodayTotalProjection {

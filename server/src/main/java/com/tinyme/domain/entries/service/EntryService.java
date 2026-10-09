@@ -16,6 +16,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
+import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneId;
 import java.util.Objects;
@@ -91,5 +92,19 @@ public class EntryService {
         String type = data.get("type") instanceof String value ? value : null;
         BigDecimal dayTotal = entries.totalForDay(kind, localDay, type);
         return Optional.of(new EntryWriteResult(updated, dayTotal));
+    }
+
+    @Transactional
+    public Optional<EntryWriteResult> delete(UUID id, Instant now) {
+        Objects.requireNonNull(id, "id");
+        Objects.requireNonNull(now, "now");
+
+        Optional<EntrySnapshot> deleted = entries.softDelete(id, now);
+        if (deleted.isEmpty()) return Optional.empty();
+
+        EntrySnapshot entry = deleted.get();
+        String type = entry.data().get("type") instanceof String value ? value : null;
+        BigDecimal dayTotal = entries.totalForDay(entry.kind(), entry.localDay(), type);
+        return Optional.of(new EntryWriteResult(entry, dayTotal));
     }
 }

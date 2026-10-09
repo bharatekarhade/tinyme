@@ -121,6 +121,33 @@ class EntryRepositoryTests {
     }
 
     @Test
+    void softDeleteIsIdempotentAndReturnsEmptyForUnknownId() {
+        String kind = createKind();
+        LocalDate day = LocalDate.of(2026, 10, 8);
+        UUID id = null;
+        try {
+            id = entries.insert(new NewEntry(kind, BigDecimal.ONE, "coffee", Map.of("type", "coffee"),
+                    List.of(), Instant.parse("2026-10-08T08:15:00Z"), day, "chat"));
+            Instant firstDeletedAt = Instant.parse("2026-10-09T00:00:00Z");
+
+            EntrySnapshot first = entries.softDelete(id, firstDeletedAt).orElseThrow();
+            BigDecimal persistedDeletedAt = jdbc.queryForObject(
+                    "SELECT EXTRACT(EPOCH FROM deleted_at)::numeric FROM entries WHERE id = ?",
+                    BigDecimal.class, id);
+            EntrySnapshot second = entries.softDelete(id, firstDeletedAt.plusSeconds(60)).orElseThrow();
+            BigDecimal persistedAfterSecond = jdbc.queryForObject(
+                    "SELECT EXTRACT(EPOCH FROM deleted_at)::numeric FROM entries WHERE id = ?",
+                    BigDecimal.class, id);
+
+            assertThat(second).isEqualTo(first);
+            assertThat(persistedAfterSecond).isEqualByComparingTo(persistedDeletedAt);
+            assertThat(entries.softDelete(UUID.randomUUID(), firstDeletedAt)).isEmpty();
+        } finally {
+            cleanup(kind, id == null ? List.of() : List.of(id));
+        }
+    }
+
+    @Test
     void aggregateCountUsesQuantityWhereAndExcludesSoftDeletedRows() {
         String kind = createKind();
         LocalDate day = LocalDate.of(2026, 10, 8);
