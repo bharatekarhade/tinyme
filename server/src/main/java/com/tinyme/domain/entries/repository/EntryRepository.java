@@ -5,16 +5,23 @@ import com.tinyme.domain.entries.model.aggregate.TodayTotal;
 import com.tinyme.domain.entries.model.aggregate.AggregateQuery;
 import com.tinyme.domain.entries.model.aggregate.AggregateResult;
 import com.tinyme.domain.entries.model.aggregate.Bucket;
+import com.tinyme.domain.entries.model.EntrySnapshot;
+import com.tinyme.domain.entries.model.query.EntryQuery;
+import com.tinyme.domain.entries.model.query.EntryQueryResult;
 import com.tinyme.domain.entries.entity.EntryEntity;
 import org.springframework.stereotype.Repository;
 import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 import org.springframework.transaction.annotation.Transactional;
 import tools.jackson.databind.json.JsonMapper;
+import tools.jackson.core.type.TypeReference;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.sql.Date;
+import java.time.OffsetDateTime;
+import java.util.ArrayList;
+import java.util.Map;
 import java.util.List;
 import java.util.Objects;
 import java.util.UUID;
@@ -22,6 +29,7 @@ import java.util.UUID;
 @Repository
 public class EntryRepository {
     private static final JsonMapper JSON = JsonMapper.builder().build();
+    private static final TypeReference<Map<String, Object>> DATA_TYPE = new TypeReference<>() {};
     private static final int MAX_UNBOUNDED_BUCKETS_QUERY = AggregateQuery.MAX_BUCKETS + 1;
 
     private final EntryJpaRepository entries;
@@ -68,6 +76,52 @@ public class EntryRepository {
         return entries.todayTotals(day).stream()
                 .map(row -> new TodayTotal(row.getKind(), row.getType(), row.getQuantity()))
                 .toList();
+    }
+
+    @Transactional(readOnly = true)
+    public EntryQueryResult find(EntryQuery query) {
+        Objects.requireNonNull(query, "query");
+        MapSqlParameterSource parameters = new MapSqlParameterSource()
+                .addValue("fetch", query.limit() + 1);
+        StringBuilder sql = new StringBuilder("SELECT e.id, e.ts, e.local_day, e.kind, e.quantity, ")
+                .append("left(e.text, 280) AS text, e.data::text AS data FROM entries e ")
+                .append("WHERE e.deleted_at IS NULL");
+
+        if (query.kind() != null) {
+            sql.append(" AND e.kind = :kind");
+            parameters.addValue("kind", query.kind());
+        }
+        if (query.from() != null) {
+            sql.append(" AND e.local_day >= :from");
+            parameters.addValue("from", query.from());
+        }
+        if (query.to() != null) {
+            sql.append(" AND e.local_day <= :to");
+            parameters.addValue("to", query.to());
+        }
+        if (!query.where().isEmpty()) {
+            sql.append(" AND e.data @> CAST(:where AS jsonb)");
+            parameters.addValue("where", JSON.writeValueAsString(query.where()));
+        }
+        if (query.text() != null) {
+            sql.append(" AND (e.search @@ websearch_to_tsquery('simple', :text) OR e.text % :text)");
+            parameters.addValue("text", query.text());
+        }
+        sql.append(" ORDER BY e.ts DESC, e.id DESC LIMIT :fetch");
+
+        List<EntrySnapshot> fetched = jdbc.query(sql.toString(), parameters, (result, row) ->
+                new EntrySnapshot(result.getObject("id", UUID.class),
+                        result.getObject("ts", OffsetDateTime.class).toInstant(),
+                        result.getObject("local_day", LocalDate.class),
+                        result.getString("kind"),
+                        result.getObject("quantity", BigDecimal.class),
+                        result.getString("text"),
+                        JSON.readValue(result.getString("data"), DATA_TYPE)));
+        boolean truncated = fetched.size() > query.limit();
+        List<EntrySnapshot> visible = truncated
+                ? new ArrayList<>(fetched.subList(0, query.limit()))
+                : fetched;
+        return new EntryQueryResult(true, visible, truncated);
     }
 
     @Transactional(readOnly = true)

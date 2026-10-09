@@ -4,6 +4,8 @@ import com.tinyme.domain.entries.model.add.AddCommand;
 import com.tinyme.domain.entries.model.add.AddResult;
 import com.tinyme.domain.entries.model.aggregate.AggregateQuery;
 import com.tinyme.domain.entries.model.aggregate.AggregateResult;
+import com.tinyme.domain.entries.model.query.EntryQuery;
+import com.tinyme.domain.entries.model.query.EntryQueryResult;
 import com.tinyme.domain.entries.model.add.NewEntry;
 import com.tinyme.domain.entries.repository.EntryKindRepository;
 import com.tinyme.domain.entries.repository.EntryRepository;
@@ -48,5 +50,15 @@ public class EntryService {
         return new AggregateResult(result.kind(), resolved.isPresent(), result.metric(), result.field(),
                 result.where(), result.from(), result.to(), result.groupBy(), result.value(),
                 result.entries(), result.buckets());
+    }
+
+    @Transactional(readOnly = true)
+    public EntryQueryResult query(EntryQuery query) {
+        Objects.requireNonNull(query, "query");
+        if (query.kind() == null) return entries.find(query);
+
+        Optional<String> resolved = entryKinds.resolveExisting(query.kind());
+        if (resolved.isEmpty()) return new EntryQueryResult(false, java.util.List.of(), false);
+        return entries.find(query.withKind(resolved.get()));
     }
 }

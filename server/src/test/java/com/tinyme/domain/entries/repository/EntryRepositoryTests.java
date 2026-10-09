@@ -1,12 +1,15 @@
 package com.tinyme.domain.entries.repository;
 
 import com.tinyme.domain.entries.model.add.NewEntry;
+import com.tinyme.domain.entries.model.EntrySnapshot;
 import com.tinyme.domain.entries.model.aggregate.TodayTotal;
 import com.tinyme.domain.entries.model.aggregate.AggregateMetric;
 import com.tinyme.domain.entries.model.aggregate.AggregateQuery;
 import com.tinyme.domain.entries.model.aggregate.AggregateResult;
 import com.tinyme.domain.entries.model.aggregate.Bucket;
 import com.tinyme.domain.entries.model.aggregate.GroupBy;
+import com.tinyme.domain.entries.model.query.EntryQuery;
+import com.tinyme.domain.entries.model.query.EntryQueryResult;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -179,6 +182,62 @@ class EntryRepositoryTests {
         } finally {
             cleanup(kind, ids);
         }
+    }
+
+    @Test
+    void findsNewestEntriesAppliesFiltersAndReportsTruncation() {
+        String kind = createKind();
+        LocalDate day = LocalDate.of(2026, 10, 8);
+        List<UUID> ids = new ArrayList<>();
+        try {
+            ids.add(insertQueryEntry(kind, day, "2026-10-08T08:00:00Z", "Had a coffee", Map.of("type", "coffee")));
+            ids.add(insertQueryEntry(kind, day, "2026-10-08T23:30:00Z", "Had a beer", Map.of("type", "beer")));
+            ids.add(insertQueryEntry(kind, day.plusDays(1), "2026-10-09T09:00:00Z", "Had another beer", Map.of("type", "beer")));
+            jdbc.update("UPDATE entries SET deleted_at = now() WHERE id = ?", ids.get(2));
+
+            EntryQueryResult beer = entries.find(new EntryQuery(kind, null, Map.of("type", "beer"),
+                    day, day, 1));
+            assertThat(beer.kindKnown()).isTrue();
+            assertThat(beer.entries()).hasSize(1);
+            assertThat(beer.entries().getFirst().id()).isEqualTo(ids.get(1));
+            assertThat(beer.entries().getFirst().ts()).isEqualTo(Instant.parse("2026-10-08T23:30:00Z"));
+            assertThat(beer.truncated()).isFalse();
+
+            EntryQueryResult all = entries.find(new EntryQuery(kind, null, Map.of(), null, null, 1));
+            assertThat(all.entries()).extracting(EntrySnapshot::id).containsExactly(ids.get(1));
+            assertThat(all.truncated()).isTrue();
+        } finally {
+            cleanup(kind, ids);
+        }
+    }
+
+    @Test
+    void textSearchFindsFullTextAndTrigramMatchesAndTruncatesLongText() {
+        String kind = createKind();
+        LocalDate day = LocalDate.of(2026, 10, 8);
+        List<UUID> ids = new ArrayList<>();
+        try {
+            String longText = "climbing ".repeat(50);
+            ids.add(insertQueryEntry(kind, day, "2026-10-08T10:00:00Z", longText, Map.of()));
+
+            EntryQueryResult fullText = entries.find(new EntryQuery(kind, "climbing", Map.of(), day, day, 10));
+            assertThat(fullText.entries()).hasSize(1);
+            assertThat(fullText.entries().getFirst().text()).hasSize(280);
+
+            EntryQueryResult typo = entries.find(new EntryQuery(kind, "climbng", Map.of(), day, day, 10));
+            assertThat(typo.entries()).hasSize(1);
+
+            EntryQueryResult inclusiveDay = entries.find(new EntryQuery(kind, null, Map.of(), day, day, 10));
+            assertThat(inclusiveDay.entries()).hasSize(1);
+        } finally {
+            cleanup(kind, ids);
+        }
+    }
+
+    private UUID insertQueryEntry(String kind, LocalDate day, String ts, String text,
+                                  Map<String, Object> data) {
+        return entries.insert(new NewEntry(kind, BigDecimal.ONE, text, data, List.of(),
+                Instant.parse(ts), day, "chat"));
     }
 
     private AggregateResult aggregate(String kind, AggregateMetric metric, String field,

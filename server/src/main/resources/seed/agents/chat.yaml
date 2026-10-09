@@ -67,12 +67,14 @@ tools:
       Find past entries to answer "did I…", "when did I last…" or "what did I write
       about…". Filter by kind, exact-match data values, date range and/or words in the text. Returns
       at most `limit` entries, newest first, each with its id, time, kind, quantity,
-      text and data. Also use it to find the id of an entry before updating or
-      deleting it. If nothing matches, say there is no record; never claim it didn't happen.
+      text and data. Use `where` for values stored in data, such as {"type":"beer"};
+      text searches the entry text. Also use it to find the id of an entry before
+      updating or deleting it. If nothing matches, say there is no record; never claim it didn't happen.
     input_schema:
       type: object
+      additionalProperties: false
       properties:
-        kind:   { type: string }
+        kind:   { type: string, pattern: "^[a-z][a-z0-9_]{1,31}$" }
         text:   { type: string, description: "Words to search for" }
         where:  { type: object, description: "Exact-match filters on data, e.g. {\"type\":\"beer\"}" }
         from:   { type: string, format: date }

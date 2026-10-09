@@ -5,6 +5,7 @@ import com.tinyme.domain.entries.model.add.AddResult;
 import com.tinyme.domain.entries.model.aggregate.AggregateMetric;
 import com.tinyme.domain.entries.model.aggregate.AggregateQuery;
 import com.tinyme.domain.entries.model.aggregate.GroupBy;
+import com.tinyme.domain.entries.model.query.EntryQuery;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -187,6 +188,40 @@ class EntryServiceTests {
         assertThat(result.kind()).isEqualTo("unknown_kind");
         assertThat(result.value()).isEqualByComparingTo("0");
         assertThat(result.entries()).isZero();
+        assertThat(jdbc.queryForObject(
+                "SELECT count(*) FROM entry_kinds WHERE kind = 'unknown_kind'", Integer.class)).isZero();
+    }
+
+    @Test
+    void queryFollowsMergedKindWithoutIncrementingUsage() {
+        jdbc.update("INSERT INTO entry_kinds (kind) VALUES ('drink')");
+        jdbc.update("INSERT INTO entry_kinds (kind, merged_into) VALUES ('beverage', 'drink')");
+        service.add(drink("coffee", null));
+        int drinkUseCount = jdbc.queryForObject(
+                "SELECT use_count FROM entry_kinds WHERE kind = 'drink'", Integer.class);
+        int beverageUseCount = jdbc.queryForObject(
+                "SELECT use_count FROM entry_kinds WHERE kind = 'beverage'", Integer.class);
+
+        var result = service.query(new EntryQuery("beverage", null, Map.of("type", "coffee"),
+                LocalDate.of(2026, 10, 6), LocalDate.of(2026, 10, 6), null));
+
+        assertThat(result.kindKnown()).isTrue();
+        assertThat(result.entries()).hasSize(1);
+        assertThat(result.entries().getFirst().kind()).isEqualTo("drink");
+        assertThat(result.truncated()).isFalse();
+        assertThat(jdbc.queryForObject(
+                "SELECT use_count FROM entry_kinds WHERE kind = 'drink'", Integer.class)).isEqualTo(drinkUseCount);
+        assertThat(jdbc.queryForObject(
+                "SELECT use_count FROM entry_kinds WHERE kind = 'beverage'", Integer.class)).isEqualTo(beverageUseCount);
+    }
+
+    @Test
+    void unknownQueryKindReturnsNoEntriesWithoutCreatingIt() {
+        var result = service.query(new EntryQuery("unknown_kind", null, Map.of(), null, null, null));
+
+        assertThat(result.kindKnown()).isFalse();
+        assertThat(result.entries()).isEmpty();
+        assertThat(result.truncated()).isFalse();
         assertThat(jdbc.queryForObject(
                 "SELECT count(*) FROM entry_kinds WHERE kind = 'unknown_kind'", Integer.class)).isZero();
     }
