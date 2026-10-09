@@ -116,8 +116,9 @@ tools:
     input_schema:
       type: object
       required: [id]
+      additionalProperties: false
       properties:
-        id:       { type: string }
+        id:       { type: string, format: uuid }
         kind:     { type: string, pattern: "^[a-z][a-z0-9_]{1,31}$" }
         quantity: { type: number, exclusiveMinimum: 0 }
         text:     { type: string }
@@ -134,8 +135,9 @@ tools:
     input_schema:
       type: object
       required: [id]
+      additionalProperties: false
       properties:
-        id: { type: string }
+        id: { type: string, format: uuid}
 
   # ── People ─────────────────────────────────────────────────────────────
   - type: custom

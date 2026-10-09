@@ -1,5 +1,6 @@
 package com.tinyme.domain.entries.repository;
 
+import com.tinyme.domain.entries.entity.EntryKindEntity;
 import com.tinyme.domain.entries.model.add.NewEntry;
 import com.tinyme.domain.entries.model.aggregate.TodayTotal;
 import com.tinyme.domain.entries.model.aggregate.AggregateQuery;
@@ -16,15 +17,13 @@ import org.springframework.transaction.annotation.Transactional;
 import tools.jackson.databind.json.JsonMapper;
 import tools.jackson.core.type.TypeReference;
 
+import javax.swing.text.html.Option;
 import java.math.BigDecimal;
+import java.time.Instant;
 import java.time.LocalDate;
 import java.sql.Date;
 import java.time.OffsetDateTime;
-import java.util.ArrayList;
-import java.util.Map;
-import java.util.List;
-import java.util.Objects;
-import java.util.UUID;
+import java.util.*;
 
 @Repository
 public class EntryRepository {
@@ -175,6 +174,48 @@ public class EntryRepository {
         String resultField = query.metric().requiresField() ? query.field() : null;
         return new AggregateResult(query.kind(), true, query.metric(), resultField, query.where(),
                 query.from(), query.to(), query.groupBy(), value, rowCount, buckets);
+    }
+
+    @Transactional(readOnly = true)
+    public Optional<EntrySnapshot> findLive(UUID id) {
+        Objects.requireNonNull(id, "id");
+        return entries.findByIdAndDeletedAtIsNull(id)
+                .map(EntryRepository::toSnapshot);
+    }
+
+    @Transactional
+    public EntrySnapshot update(
+            UUID id,
+            String kind,
+            BigDecimal quantity,
+            String text,
+            Map<String, Object> data,
+            Instant ts,
+            LocalDate localDay
+    ){
+        Objects.requireNonNull(id, "id");
+        EntryEntity entry = entries.findByIdAndDeletedAtIsNull(id).orElseThrow();
+        EntryKindEntity entryKind = kinds.findById(kind).orElseThrow();
+        entry.setKind(entryKind);
+        entry.setData(data);
+        entry.setQuantity(quantity);
+        entry.setText(text);
+        entry.setLocalDay(localDay);
+        entry.setTs(ts);
+        entries.save(entry);
+        return toSnapshot(entry);
+    }
+
+    private static EntrySnapshot toSnapshot(EntryEntity entry) {
+        Objects.requireNonNull(entry, "entry");
+        return new EntrySnapshot(
+                entry.getId(),
+                entry.getTs(),
+                entry.getLocalDay(),
+                entry.getKind().getKind(),
+                entry.getQuantity(),
+                entry.getText(),
+                entry.getData());
     }
 
     private String whereFilter(AggregateQuery query, MapSqlParameterSource parameters, String alias) {

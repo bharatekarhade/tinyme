@@ -8,6 +8,7 @@ import org.springframework.data.repository.query.Param;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 
 interface EntryJpaRepository extends JpaRepository<EntryEntity, UUID> {
@@ -32,6 +33,8 @@ interface EntryJpaRepository extends JpaRepository<EntryEntity, UUID> {
             ORDER BY kind, data ->> 'type' NULLS FIRST
             """, nativeQuery = true)
     List<TodayTotalProjection> todayTotals(@Param("day") LocalDate day);
+
+    Optional<EntryEntity> findByIdAndDeletedAtIsNull(UUID id);
 }
 
 interface TodayTotalProjection {

@@ -1,5 +1,7 @@
 package com.tinyme.domain.entries.service;
 
+import com.tinyme.domain.entries.model.EntryWriteResult;
+import com.tinyme.domain.entries.model.EntrySnapshot;
 import com.tinyme.domain.entries.model.add.AddCommand;
 import com.tinyme.domain.entries.model.add.AddResult;
 import com.tinyme.domain.entries.model.aggregate.AggregateQuery;
@@ -7,6 +9,7 @@ import com.tinyme.domain.entries.model.aggregate.AggregateResult;
 import com.tinyme.domain.entries.model.query.EntryQuery;
 import com.tinyme.domain.entries.model.query.EntryQueryResult;
 import com.tinyme.domain.entries.model.add.NewEntry;
+import com.tinyme.domain.entries.model.update.EntryPatch;
 import com.tinyme.domain.entries.repository.EntryKindRepository;
 import com.tinyme.domain.entries.repository.EntryRepository;
 import org.springframework.stereotype.Service;
@@ -14,6 +17,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.time.ZoneId;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
@@ -60,5 +64,32 @@ public class EntryService {
         Optional<String> resolved = entryKinds.resolveExisting(query.kind());
         if (resolved.isEmpty()) return new EntryQueryResult(false, java.util.List.of(), false);
         return entries.find(query.withKind(resolved.get()));
+    }
+
+    @Transactional
+    public Optional<EntryWriteResult> update(EntryPatch patch, ZoneId zone) {
+        Objects.requireNonNull(patch, "patch");
+        Objects.requireNonNull(zone, "zone");
+
+        Optional<EntrySnapshot> found = entries.findLive(patch.id());
+        if (found.isEmpty()) return Optional.empty();
+
+        var current = found.get();
+        String kind = patch.kind() == null
+                ? current.kind()
+                : entryKinds.upsertAndResolve(patch.kind());
+        BigDecimal quantity = patch.quantity() == null ? current.quantity() : patch.quantity();
+        String text = patch.text() == null ? current.text()
+                : patch.text().isBlank() ? null : patch.text();
+        var data = patch.data() == null ? current.data() : patch.data();
+        var ts = patch.ts() == null ? current.ts() : patch.ts();
+        LocalDate localDay = patch.ts() == null
+                ? current.localDay()
+                : LocalDate.ofInstant(ts, zone);
+
+        var updated = entries.update(patch.id(), kind, quantity, text, data, ts, localDay);
+        String type = data.get("type") instanceof String value ? value : null;
+        BigDecimal dayTotal = entries.totalForDay(kind, localDay, type);
+        return Optional.of(new EntryWriteResult(updated, dayTotal));
     }
 }

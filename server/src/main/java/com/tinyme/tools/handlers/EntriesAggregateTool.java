@@ -10,9 +10,7 @@ import com.tinyme.tools.model.ToolContext;
 import com.tinyme.tools.model.ToolHandler;
 import com.tinyme.tools.model.ToolResult;
 import org.springframework.stereotype.Component;
-import tools.jackson.core.type.TypeReference;
 import tools.jackson.databind.JsonNode;
-import tools.jackson.databind.json.JsonMapper;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
@@ -25,8 +23,6 @@ import java.util.Map;
 
 @Component
 public class EntriesAggregateTool implements ToolHandler {
-    private static final JsonMapper JSON = JsonMapper.builder().build();
-    private static final TypeReference<Map<String, Object>> MAP_TYPE = new TypeReference<>() {};
     private static final DateTimeFormatter SHORT_DATE = DateTimeFormatter.ofPattern("d MMM", Locale.ENGLISH);
 
     private final EntryService entries;
@@ -44,26 +40,25 @@ public class EntriesAggregateTool implements ToolHandler {
     public ToolResult handle(JsonNode input, ToolContext context) {
         if (input == null || !input.isObject()) return invalid("Input must be an object");
         try {
-            String kind = requiredString(input, "kind").trim().toLowerCase(Locale.ROOT);
+            String kind = ToolInputs.requiredString(input, "kind").trim().toLowerCase(Locale.ROOT);
             if (!kind.matches("^[a-z][a-z0-9_]{1,31}$")) {
                 return invalid("kind must contain 2–32 lowercase letters, digits or underscores, starting with a letter");
             }
             AggregateMetric metric;
             try {
-                metric = AggregateMetric.valueOf(requiredString(input, "metric").toUpperCase(Locale.ROOT));
+                metric = AggregateMetric.valueOf(ToolInputs.requiredString(input, "metric").toUpperCase(Locale.ROOT));
             } catch (IllegalArgumentException exception) {
                 throw new IllegalArgumentException("metric must be count, sum, avg, min or max");
             }
-            String field = optionalString(input, "field");
-            Map<String, Object> where = readWhere(input.get("where"));
-            LocalDate from = readDate(input, "from");
-            LocalDate to = readDate(input, "to");
-            JsonNode groupNode = input.get("group_by");
+            String field = ToolInputs.optionalString(input, "field");
+            Map<String, Object> where = ToolInputs.optionalObject(input, "where");
+            LocalDate from = ToolInputs.optionalDate(input, "from");
+            LocalDate to = ToolInputs.optionalDate(input, "to");
+            String groupValue = ToolInputs.optionalString(input, "group_by");
             GroupBy groupBy = GroupBy.NONE;
-            if (groupNode != null) {
-                if (!groupNode.isString()) throw new IllegalArgumentException("group_by must be none, day, week or month");
+            if (groupValue != null) {
                 try {
-                    groupBy = GroupBy.valueOf(groupNode.stringValue().toUpperCase(Locale.ROOT));
+                    groupBy = GroupBy.valueOf(groupValue.toUpperCase(Locale.ROOT));
                 } catch (IllegalArgumentException exception) {
                     throw new IllegalArgumentException("group_by must be none, day, week or month");
                 }
@@ -144,37 +139,6 @@ public class EntriesAggregateTool implements ToolHandler {
             return from.getDayOfMonth() + "–" + SHORT_DATE.format(to);
         }
         return SHORT_DATE.format(from) + "–" + SHORT_DATE.format(to);
-    }
-
-    private static String requiredString(JsonNode input, String key) {
-        JsonNode value = input.get(key);
-        if (value == null || !value.isString() || value.stringValue().isBlank()) {
-            throw new IllegalArgumentException(key + " is required");
-        }
-        return value.stringValue();
-    }
-
-    private static String optionalString(JsonNode input, String key) {
-        JsonNode value = input.get(key);
-        if (value == null) return null;
-        if (!value.isString()) throw new IllegalArgumentException(key + " must be a string");
-        return value.stringValue();
-    }
-
-    private static LocalDate readDate(JsonNode input, String key) {
-        String value = optionalString(input, key);
-        if (value == null) return null;
-        try {
-            return LocalDate.parse(value);
-        } catch (RuntimeException exception) {
-            throw new IllegalArgumentException(key + " must be an ISO date");
-        }
-    }
-
-    private static Map<String, Object> readWhere(JsonNode node) {
-        if (node == null) return Map.of();
-        if (!node.isObject()) throw new IllegalArgumentException("where must be an object");
-        return JSON.convertValue(node, MAP_TYPE);
     }
 
     private static ToolResult.Err invalid(String message) {
