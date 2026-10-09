@@ -1,6 +1,6 @@
 package com.tinyme.agent.service;
 
-import com.tinyme.domain.entries.model.TodayTotal;
+import com.tinyme.domain.entries.model.aggregate.TodayTotal;
 import com.tinyme.domain.entries.repository.EntryKindRepository;
 import com.tinyme.domain.entries.repository.EntryRepository;
 import org.junit.jupiter.api.Test;

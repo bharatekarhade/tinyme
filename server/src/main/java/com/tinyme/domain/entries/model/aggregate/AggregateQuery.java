@@ -1,5 +1,6 @@
-package com.tinyme.domain.entries.model;
+package com.tinyme.domain.entries.model.aggregate;
 
+import java.time.DayOfWeek;
 import java.time.LocalDate;
 import java.time.temporal.ChronoUnit;
 import java.util.Collections;
@@ -50,8 +51,8 @@ public record AggregateQuery(
         return switch (groupBy) {
             case NONE -> 0;
             case DAY -> ChronoUnit.DAYS.between(from, to) + 1;
-            case WEEK -> ChronoUnit.WEEKS.between(from.with(java.time.DayOfWeek.MONDAY),
-                    to.with(java.time.DayOfWeek.MONDAY)) + 1;
+            case WEEK -> ChronoUnit.WEEKS.between(from.with(DayOfWeek.MONDAY),
+                    to.with(DayOfWeek.MONDAY)) + 1;
             case MONTH -> ChronoUnit.MONTHS.between(from.withDayOfMonth(1), to.withDayOfMonth(1)) + 1;
         };
     }

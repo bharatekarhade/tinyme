@@ -1,4 +1,4 @@
-package com.tinyme.domain.entries.model;
+package com.tinyme.domain.entries.model.aggregate;
 
 public enum AggregateMetric {
     COUNT(false), SUM(true), AVG(true), MIN(true), MAX(true);

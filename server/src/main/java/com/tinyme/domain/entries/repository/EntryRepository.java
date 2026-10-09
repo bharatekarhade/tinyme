@@ -1,10 +1,10 @@
 package com.tinyme.domain.entries.repository;
 
-import com.tinyme.domain.entries.model.NewEntry;
-import com.tinyme.domain.entries.model.TodayTotal;
-import com.tinyme.domain.entries.model.AggregateQuery;
-import com.tinyme.domain.entries.model.AggregateResult;
-import com.tinyme.domain.entries.model.Bucket;
+import com.tinyme.domain.entries.model.add.NewEntry;
+import com.tinyme.domain.entries.model.aggregate.TodayTotal;
+import com.tinyme.domain.entries.model.aggregate.AggregateQuery;
+import com.tinyme.domain.entries.model.aggregate.AggregateResult;
+import com.tinyme.domain.entries.model.aggregate.Bucket;
 import com.tinyme.domain.entries.entity.EntryEntity;
 import org.springframework.stereotype.Repository;
 import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;

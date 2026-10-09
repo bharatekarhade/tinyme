@@ -1,9 +1,9 @@
 package com.tinyme.tools.handlers;
 
-import com.tinyme.domain.entries.model.AggregateMetric;
-import com.tinyme.domain.entries.model.AggregateResult;
-import com.tinyme.domain.entries.model.Bucket;
-import com.tinyme.domain.entries.model.GroupBy;
+import com.tinyme.domain.entries.model.aggregate.AggregateMetric;
+import com.tinyme.domain.entries.model.aggregate.AggregateResult;
+import com.tinyme.domain.entries.model.aggregate.Bucket;
+import com.tinyme.domain.entries.model.aggregate.GroupBy;
 import com.tinyme.domain.entries.service.EntryService;
 import com.tinyme.tools.model.ToolResult;
 import org.junit.jupiter.api.Test;

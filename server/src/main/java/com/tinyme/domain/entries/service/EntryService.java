@@ -1,10 +1,10 @@
 package com.tinyme.domain.entries.service;
 
-import com.tinyme.domain.entries.model.AddCommand;
-import com.tinyme.domain.entries.model.AddResult;
-import com.tinyme.domain.entries.model.AggregateQuery;
-import com.tinyme.domain.entries.model.AggregateResult;
-import com.tinyme.domain.entries.model.NewEntry;
+import com.tinyme.domain.entries.model.add.AddCommand;
+import com.tinyme.domain.entries.model.add.AddResult;
+import com.tinyme.domain.entries.model.aggregate.AggregateQuery;
+import com.tinyme.domain.entries.model.aggregate.AggregateResult;
+import com.tinyme.domain.entries.model.add.NewEntry;
 import com.tinyme.domain.entries.repository.EntryKindRepository;
 import com.tinyme.domain.entries.repository.EntryRepository;
 import org.springframework.stereotype.Service;

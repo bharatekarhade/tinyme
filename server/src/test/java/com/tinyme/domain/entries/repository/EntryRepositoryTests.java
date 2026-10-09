@@ -1,12 +1,12 @@
 package com.tinyme.domain.entries.repository;
 
-import com.tinyme.domain.entries.model.NewEntry;
-import com.tinyme.domain.entries.model.TodayTotal;
-import com.tinyme.domain.entries.model.AggregateMetric;
-import com.tinyme.domain.entries.model.AggregateQuery;
-import com.tinyme.domain.entries.model.AggregateResult;
-import com.tinyme.domain.entries.model.Bucket;
-import com.tinyme.domain.entries.model.GroupBy;
+import com.tinyme.domain.entries.model.add.NewEntry;
+import com.tinyme.domain.entries.model.aggregate.TodayTotal;
+import com.tinyme.domain.entries.model.aggregate.AggregateMetric;
+import com.tinyme.domain.entries.model.aggregate.AggregateQuery;
+import com.tinyme.domain.entries.model.aggregate.AggregateResult;
+import com.tinyme.domain.entries.model.aggregate.Bucket;
+import com.tinyme.domain.entries.model.aggregate.GroupBy;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;

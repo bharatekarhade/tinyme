@@ -1,4 +1,4 @@
-package com.tinyme.domain.entries.model;
+package com.tinyme.domain.entries.model.aggregate;
 
 public enum GroupBy {
     NONE(null, null), DAY("day", "1 day"), WEEK("week", "1 week"), MONTH("month", "1 month");

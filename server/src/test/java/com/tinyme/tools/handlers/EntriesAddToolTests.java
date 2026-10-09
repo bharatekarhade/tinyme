@@ -1,7 +1,7 @@
 package com.tinyme.tools.handlers;
 
-import com.tinyme.domain.entries.model.AddCommand;
-import com.tinyme.domain.entries.model.AddResult;
+import com.tinyme.domain.entries.model.add.AddCommand;
+import com.tinyme.domain.entries.model.add.AddResult;
 import com.tinyme.domain.entries.service.EntryService;
 import com.tinyme.tools.model.ToolContext;
 import com.tinyme.tools.model.ToolResult;

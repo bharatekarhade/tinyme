@@ -1,4 +1,4 @@
-package com.tinyme.domain.entries.model;
+package com.tinyme.domain.entries.model.add;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;

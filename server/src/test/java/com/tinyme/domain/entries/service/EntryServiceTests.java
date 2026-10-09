@@ -1,10 +1,10 @@
 package com.tinyme.domain.entries.service;
 
-import com.tinyme.domain.entries.model.AddCommand;
-import com.tinyme.domain.entries.model.AddResult;
-import com.tinyme.domain.entries.model.AggregateMetric;
-import com.tinyme.domain.entries.model.AggregateQuery;
-import com.tinyme.domain.entries.model.GroupBy;
+import com.tinyme.domain.entries.model.add.AddCommand;
+import com.tinyme.domain.entries.model.add.AddResult;
+import com.tinyme.domain.entries.model.aggregate.AggregateMetric;
+import com.tinyme.domain.entries.model.aggregate.AggregateQuery;
+import com.tinyme.domain.entries.model.aggregate.GroupBy;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
