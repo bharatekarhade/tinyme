@@ -10,10 +10,16 @@ import java.net.http.HttpHeaders;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.time.Duration;
+import java.time.Instant;
 import java.nio.charset.StandardCharsets;
+import java.net.URLEncoder;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.ArrayList;
+import java.util.HashSet;
+import java.util.Set;
+import tools.jackson.databind.JsonNode;
 
 public final class ManagedAgentApi implements ManagedAgents {
     private final HttpClient client;
@@ -64,6 +70,47 @@ public final class ManagedAgentApi implements ManagedAgents {
         }
         // No automatic reconnect: the caller owns turn state and event replay handling.
         return new EventStream(body);
+    }
+
+    @Override
+    public List<JsonNode> listEvents(String sessionId, Instant after) throws IOException, InterruptedException {
+        String sessionPath = sessionPath(sessionId) + "/events";
+        String filter = "order=asc";
+        if (after != null) {
+            filter += "&" + query("created_at[gt]", after.toString());
+        }
+        String page = null;
+        Set<String> seenPages = new HashSet<>();
+        List<JsonNode> events = new ArrayList<>();
+        do {
+            String path = sessionPath + "?" + filter + (page == null ? "" : "&" + query("page", page));
+            Map<?, ?> response = request("GET", path, null, false);
+            Object data = response.get("data");
+            if (!(data instanceof List<?> rows)) {
+                throw new IOException("Managed Agents event list response is missing data");
+            }
+            for (Object row : rows) {
+                if (!(row instanceof Map<?, ?>)) {
+                    throw new IOException("Managed Agents event list contains an invalid event");
+                }
+                events.add(json.readTree(json.writeValueAsString(row)));
+            }
+            Object next = response.get("next_page");
+            if (next == null) {
+                page = null;
+            } else if (next instanceof String cursor && !cursor.isBlank()) {
+                if (!seenPages.add(cursor)) throw new IOException("Managed Agents event pagination repeated a cursor");
+                page = cursor;
+            } else {
+                throw new IOException("Managed Agents event list response has an invalid next_page");
+            }
+        } while (page != null);
+        return List.copyOf(events);
+    }
+
+    private static String query(String name, String value) {
+        return URLEncoder.encode(name, StandardCharsets.UTF_8) + "="
+                + URLEncoder.encode(value, StandardCharsets.UTF_8);
     }
 
     private static String sessionPath(String sessionId) {

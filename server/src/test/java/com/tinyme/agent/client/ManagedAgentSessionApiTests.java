@@ -18,6 +18,7 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CopyOnWriteArrayList;
@@ -103,6 +104,37 @@ class ManagedAgentSessionApiTests {
             assertThat(accepts).containsExactly("text/event-stream");
         } finally {
             release.countDown();
+            server.stop(0);
+        }
+    }
+
+    @Test
+    void listsEventsAfterProcessedAtInAscendingOrderAndFollowsPages() throws Exception {
+        var queries = new CopyOnWriteArrayList<String>();
+        var server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        server.createContext("/v1/sessions/sesn_test/events", exchange -> {
+            queries.add(exchange.getRequestURI().getRawQuery());
+            String body = exchange.getRequestURI().getRawQuery().contains("page=")
+                    ? "{\"data\":[{\"id\":\"event-2\",\"type\":\"agent.message\"}],\"next_page\":null}"
+                    : "{\"data\":[{\"id\":\"event-1\",\"type\":\"user.message\"}],\"next_page\":\"cursor/2\"}";
+            byte[] bytes = body.getBytes(StandardCharsets.UTF_8);
+            exchange.getResponseHeaders().set("Content-Type", "application/json");
+            exchange.sendResponseHeaders(200, bytes.length);
+            exchange.getResponseBody().write(bytes);
+            exchange.close();
+        });
+        server.start();
+        try {
+            var events = new ManagedAgentApi("test", base(server)).listEvents(
+                    "sesn_test", Instant.parse("2026-10-05T15:30:01Z"));
+
+            assertThat(events).extracting(event -> event.path("id").stringValue())
+                    .containsExactly("event-1", "event-2");
+            assertThat(queries).hasSize(2);
+            assertThat(queries.getFirst()).contains("order=asc", "created_at%5Bgt%5D=2026-10-05T15%3A30%3A01Z");
+            assertThat(queries.get(1)).contains("order=asc", "created_at%5Bgt%5D=2026-10-05T15%3A30%3A01Z",
+                    "page=cursor%2F2");
+        } finally {
             server.stop(0);
         }
     }

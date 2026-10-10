@@ -1,6 +1,5 @@
 package com.tinyme.agent.service;
 
-import com.tinyme.agent.client.EventStream;
 import com.tinyme.agent.client.ManagedAgents;
 import com.tinyme.agent.model.MessageRole;
 import com.tinyme.agent.model.SessionRef;
@@ -12,6 +11,7 @@ import com.tinyme.tools.model.DispatchOutcome;
 import com.tinyme.tools.model.ToolContext;
 import com.tinyme.tools.service.ToolDispatcher;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
@@ -21,7 +21,6 @@ import java.net.http.HttpTimeoutException;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.LocalDate;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.ArrayList;
@@ -44,16 +43,25 @@ public class TurnRunner {
     private final MessageRepository messages;
     private final Clock clock;
     private final Duration timeout;
+    private final ResilientEventSource.Sleeper reconnectSleeper;
 
+    @Autowired
     TurnRunner(ContextPrefixBuilder contextPrefix, ManagedAgents api,
                ToolDispatcher dispatcher, SessionTurnLock sessionTurnLock, MessageRepository messages, Clock clock,
                @Value("${tinyme.agent.turn-timeout:120s}") Duration timeout) {
+        this(contextPrefix, api, dispatcher, sessionTurnLock, messages, clock, timeout, Thread::sleep);
+    }
+
+    TurnRunner(ContextPrefixBuilder contextPrefix, ManagedAgents api,
+               ToolDispatcher dispatcher, SessionTurnLock sessionTurnLock, MessageRepository messages, Clock clock,
+               Duration timeout, ResilientEventSource.Sleeper reconnectSleeper) {
         this.contextPrefix = contextPrefix;
         this.api = api;
         this.dispatcher = dispatcher;
         this.sessionTurnLock = sessionTurnLock;
         this.messages = messages;
         this.clock = clock;
+        this.reconnectSleeper = Objects.requireNonNull(reconnectSleeper, "reconnectSleeper");
         if (timeout.isZero() || timeout.isNegative()) {
             throw new IllegalArgumentException("Turn timeout must be positive");
         }
@@ -136,20 +144,19 @@ public class TurnRunner {
         var context = new ToolContext(session.sessionRowId(), null, zone, LocalDate.ofInstant(now, zone), now);
         String prefix = contextPrefix.build(zone);
         state.checkCancelled();
-        try (var stream = api.openStream(session.anthropicSessionId())) {
-            state.stream = stream;
+        try (var source = new ResilientEventSource(api, session.anthropicSessionId(), reconnectSleeper)) {
+            state.source = source;
             state.checkCancelled();
             api.sendEvents(session.anthropicSessionId(), List.of(Map.of(
                     "type", "user.message",
                     "content", List.of(textBlock(prefix), textBlock(text)))));
 
-            var seen = new HashSet<String>();
             var reply = new StringBuilder();
             var actions = new ArrayList<Map<String, Object>>();
             int toolCalls = 0;
             for (;;) {
                 state.checkCancelled();
-                JsonNode event = stream.next();
+                JsonNode event = source.next();
                 state.checkCancelled();
                 if (event == null) throw new IOException("Managed Agents stream ended before end_turn");
                 String type = requiredText(event, "type");
@@ -157,8 +164,6 @@ public class TurnRunner {
                 if (!List.of("agent.custom_tool_use", "agent.message", "session.status_idle", "session.error")
                         .contains(type)) continue;
                 String id = requiredText(event, "id");
-                if (!seen.add(id)) continue;
-
                 switch (type) {
                     case "agent.custom_tool_use" -> {
                         String name = requiredText(event, "name");
@@ -234,6 +239,8 @@ public class TurnRunner {
         TurnEvent.Failed event = switch (failure) {
             case TurnFailure turnFailure -> new TurnEvent.Failed(
                     turnFailure.code, turnFailure.getMessage(), turnFailure.retryable);
+            case ResilientEventSource.StreamLostException lost -> new TurnEvent.Failed(
+                    "stream_lost", "The agent event stream could not be recovered", true);
             case HttpTimeoutException timeout -> new TurnEvent.Failed("turn_timeout", timeout.getMessage(), true);
             case InterruptedException ignored -> new TurnEvent.Failed("interrupted", "Turn was interrupted", false);
             case IOException ignored -> new TurnEvent.Failed("turn_failed", "The agent turn failed", true);
@@ -266,10 +273,10 @@ public class TurnRunner {
     private static void cancel(FutureTask<?> task, TurnState state, Exception failure) {
         state.cancelled = true;
         task.cancel(true);
-        EventStream stream = state.stream;
-        if (stream != null) {
+        ResilientEventSource source = state.source;
+        if (source != null) {
             try {
-                stream.close();
+                source.close();
             } catch (IOException closeFailure) {
                 failure.addSuppressed(closeFailure);
             }
@@ -278,7 +285,7 @@ public class TurnRunner {
 
     private static final class TurnState {
         volatile SessionRef session;
-        volatile EventStream stream;
+        volatile ResilientEventSource source;
         volatile boolean cancelled;
         volatile boolean lockAcquired;
         final CompletableFuture<Boolean> lockAcquiredSignal = new CompletableFuture<>();

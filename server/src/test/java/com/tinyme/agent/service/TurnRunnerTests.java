@@ -69,6 +69,13 @@ class TurnRunnerTests {
                 Clock.fixed(NOW, ZoneOffset.UTC), timeout);
     }
 
+    private TurnRunner runner(Duration timeout, ManagedAgents agents, ResilientEventSource.Sleeper sleeper)
+            throws Exception {
+        when(prefix.build(ZONE)).thenReturn("[context]\ntz: Asia/Tokyo\n[/context]");
+        return new TurnRunner(prefix, agents, dispatcher, sessionTurnLock, messages,
+                Clock.fixed(NOW, ZoneOffset.UTC), timeout, sleeper);
+    }
+
     private TurnRequest request(String text) {
         return new TurnRequest(session, USER_MESSAGE_ID, text, ZONE);
     }
@@ -280,14 +287,57 @@ class TurnRunnerTests {
     }
 
     @Test
-    void droppedStreamFailsWithoutReturningPartialReplyOrReconnecting() throws Exception {
-        var runner = runner(Duration.ofSeconds(5));
-        var body = events("{\"type\":\"agent.message\",\"id\":\"partial\",\"content\":[{\"type\":\"text\",\"text\":\"partial\"}]}");
-        when(api.openStream("sesn_test")).thenReturn(new EventStream(body));
-        assertThatThrownBy(() -> runner.run(request("hello"), TurnListener.NONE)).isInstanceOf(IOException.class)
-                .hasMessageContaining("before end_turn");
-        verify(api).openStream("sesn_test");
-        verify(body).close();
+    void droppedStreamCatchesUpAndReturnsTheSameTurnResultWithoutRepeatingToolCalls() throws Exception {
+        String tool = """
+                {"id":"tool1","processed_at":"2026-10-05T15:30:01Z","type":"agent.custom_tool_use",
+                 "name":"entries_add","input":{"kind":"drink"}}
+                """;
+        String reply = """
+                {"id":"message1","processed_at":"2026-10-05T15:30:02Z","type":"agent.message",
+                 "content":[{"type":"text","text":"Logged coffee."}]}
+                """;
+        String end = """
+                {"id":"end1","processed_at":"2026-10-05T15:30:03Z","type":"session.status_idle",
+                 "stop_reason":{"type":"end_turn"}}
+                """;
+        JsonNode toolNode = JSON.readTree(tool);
+        JsonNode replyNode = JSON.readTree(reply);
+        JsonNode endNode = JSON.readTree(end);
+        var fake = FakeManagedAgents.scripted(
+                List.of(List.of(JSON.writeValueAsString(toolNode)),
+                        List.of(JSON.writeValueAsString(replyNode), JSON.writeValueAsString(endNode))),
+                List.of(List.of(toolNode, replyNode, endNode)));
+        when(dispatcher.dispatch(anyString(), eq("entries_add"), any(), any()))
+                .thenReturn(new DispatchOutcome("{\"ok\":true,\"summary\":\"Logged coffee\"}", false));
+        var runner = runner(Duration.ofSeconds(5), fake, ignored -> { });
+        var observed = new ArrayList<TurnEvent>();
+
+        assertThat(runner.run(request("had a coffee"), observed::add)).isEqualTo(new TurnResult("Logged coffee.", 1));
+
+        assertThat(fake.openCount()).isEqualTo(2);
+        assertThat(fake.listAfterValues()).containsExactly(Instant.parse("2026-10-05T15:30:01Z"));
+        assertThat(fake.operations()).containsSubsequence("open:1", "open:2", "list:1");
+        assertThat(observed).containsExactly(
+                new TurnEvent.ActionDone("entries_add", "Logged coffee", false),
+                new TurnEvent.Text("Logged coffee."));
+        verify(dispatcher, times(1)).dispatch(anyString(), eq("entries_add"), any(), any());
+    }
+
+    @Test
+    void emitsStreamLostAfterThreeFailedReconnectAttempts() throws Exception {
+        var fake = FakeManagedAgents.scripted(List.of(List.of()), List.of());
+        var delays = new ArrayList<Duration>();
+        var runner = runner(Duration.ofSeconds(2), fake, delays::add);
+        var observed = new ArrayList<TurnEvent>();
+
+        assertThatThrownBy(() -> runner.run(request("hello"), observed::add))
+                .isInstanceOf(ResilientEventSource.StreamLostException.class);
+
+        assertThat(observed).containsExactly(new TurnEvent.Failed(
+                "stream_lost", "The agent event stream could not be recovered", true));
+        assertThat(fake.openCount()).isEqualTo(4); // initial connection plus three reconnect attempts
+        assertThat(fake.listAfterValues()).hasSize(3);
+        assertThat(delays).containsExactly(Duration.ofMillis(500), Duration.ofSeconds(1), Duration.ofSeconds(2));
     }
 
     @Test
