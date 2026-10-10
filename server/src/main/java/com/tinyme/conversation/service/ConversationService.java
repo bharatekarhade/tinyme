@@ -4,16 +4,22 @@ import com.tinyme.agent.model.SessionRef;
 import com.tinyme.agent.model.TurnRequest;
 import com.tinyme.agent.model.TurnResult;
 import com.tinyme.agent.repository.AgentSettingsRepository;
+import com.tinyme.agent.repository.AgentSessionRepository;
 import com.tinyme.agent.repository.MessageRepository;
 import com.tinyme.agent.service.SessionManager;
 import com.tinyme.agent.service.TurnListener;
 import com.tinyme.agent.service.TurnRunner;
 import com.tinyme.conversation.model.ConversationMessageRequest;
+import com.tinyme.conversation.model.ConversationHistory;
+import com.tinyme.conversation.model.ConversationHistoryMessage;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.stereotype.Service;
 
 import java.io.IOException;
 import java.time.DateTimeException;
 import java.time.ZoneId;
+import java.time.Clock;
+import java.time.LocalDate;
 import java.util.Objects;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
@@ -26,13 +32,31 @@ public class ConversationService implements ConversationOperations {
     private final MessageRepository messages;
     private final AgentSettingsRepository settings;
     private final TurnRunner turns;
+    private final AgentSessionRepository agentSessions;
+    private final Clock clock;
 
     public ConversationService(SessionManager sessions, MessageRepository messages,
-                               AgentSettingsRepository settings, TurnRunner turns) {
+                               AgentSettingsRepository settings, TurnRunner turns,
+                               AgentSessionRepository agentSessions, Clock clock) {
         this.sessions = Objects.requireNonNull(sessions, "sessions");
         this.messages = Objects.requireNonNull(messages, "messages");
         this.settings = Objects.requireNonNull(settings, "settings");
         this.turns = Objects.requireNonNull(turns, "turns");
+        this.agentSessions = Objects.requireNonNull(agentSessions, "agentSessions");
+        this.clock = Objects.requireNonNull(clock, "clock");
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public ConversationHistory history(LocalDate requestedDay) {
+        ZoneId zone = resolveZone(null);
+        LocalDate day = requestedDay == null ? LocalDate.now(clock.withZone(zone)) : requestedDay;
+        var sessionIds = agentSessions.findChatSessionIds(day);
+        var rows = messages.findForSessions(sessionIds);
+        return new ConversationHistory(rows.stream()
+                .map(row -> new ConversationHistoryMessage(row.id(), row.role().name(), row.content(),
+                        row.actions(), row.createdAt()))
+                .toList());
     }
 
     @Override

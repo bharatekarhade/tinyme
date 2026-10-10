@@ -1,6 +1,7 @@
 package com.tinyme.conversation.controller;
 
 import com.tinyme.conversation.model.ConversationMessageRequest;
+import com.tinyme.conversation.model.ConversationHistory;
 import com.tinyme.conversation.service.ConversationOperations;
 import com.tinyme.conversation.service.ConversationService;
 import jakarta.validation.Valid;
@@ -11,6 +12,8 @@ import org.springframework.http.MediaType;
 import org.springframework.http.ProblemDetail;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
@@ -21,6 +24,7 @@ import java.io.IOException;
 import java.time.DateTimeException;
 import java.time.Duration;
 import java.time.ZoneId;
+import java.time.LocalDate;
 import java.util.Objects;
 
 @RestController
@@ -61,7 +65,7 @@ public class ConversationController {
         }
 
         var accepted = (ConversationService.Accepted) acceptance;
-        var emitter = new SseEmitter(emitterTimeoutMillis);
+        var emitter = createEmitter();
         var sink = new SseTurnSink(emitter);
         sink.start(accepted.userMessageId());
         try {
@@ -70,6 +74,15 @@ public class ConversationController {
             sink.complete(null, failure);
         }
         return ResponseEntity.ok().contentType(MediaType.TEXT_EVENT_STREAM).body(emitter);
+    }
+
+    protected SseEmitter createEmitter() {
+        return new SseEmitter(emitterTimeoutMillis);
+    }
+
+    @GetMapping
+    public ConversationHistory history(@RequestParam(required = false) LocalDate day) {
+        return conversations.history(day);
     }
 
     private static void validateClientZone(ConversationMessageRequest request) {

@@ -96,6 +96,39 @@ class MessageRepositoryTests {
     }
 
     @Test
+    void historyReadReturnsLowercaseConvertibleRolesAndActionsAcrossSessionIds() {
+        var actions = List.of(Map.<String, Object>of(
+                "tool", "entries_add", "summary", "Logged drink", "isError", false));
+        UUID userId = messages.insertUser(sessionId, UUID.randomUUID(), "had a coffee");
+        UUID assistantId = messages.insert(sessionId, MessageRole.ASSISTANT, "Logged coffee.", actions);
+
+        var history = messages.findForSessions(List.of(sessionId));
+
+        assertThat(history).extracting(MessageRepository.MessageRecord::id)
+                .containsExactly(userId, assistantId);
+        assertThat(history).extracting(row -> row.role().name().toLowerCase(java.util.Locale.ROOT))
+                .containsExactly("user", "assistant");
+        assertThat(history.get(1).actions()).isEqualTo(actions);
+        assertThat(messages.findForSessions(List.of())).isEmpty();
+    }
+
+    @Test
+    void historyUsesUuidAsTieBreakerWhenCreatedAtMatches() {
+        UUID first = messages.insert(sessionId, MessageRole.USER, "first");
+        UUID second = messages.insert(sessionId, MessageRole.ASSISTANT, "second");
+        jdbc.update("UPDATE messages SET created_at = TIMESTAMPTZ '2026-10-10 00:00:00+00' WHERE id IN (?, ?)",
+                first, second);
+
+        List<UUID> databaseOrder = jdbc.queryForList(
+                "SELECT id FROM messages WHERE id IN (?, ?) ORDER BY created_at ASC, id ASC", UUID.class, first, second);
+        List<UUID> historyOrder = messages.findForSessions(List.of(sessionId)).stream()
+                .filter(message -> message.id().equals(first) || message.id().equals(second))
+                .map(MessageRepository.MessageRecord::id).toList();
+
+        assertThat(historyOrder).containsExactlyElementsOf(databaseOrder);
+    }
+
+    @Test
     void databaseRoleCheckRejectsUnknownRoles() {
         assertThatThrownBy(() -> jdbc.update("""
                 INSERT INTO messages (session_id, role, content) VALUES (?, 'SYSTEM', 'invalid role')

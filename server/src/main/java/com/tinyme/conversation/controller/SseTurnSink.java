@@ -29,6 +29,7 @@ public final class SseTurnSink implements TurnListener {
     private ScheduledFuture<?> heartbeat;
     private boolean closed;
     private boolean failed;
+    private UUID partialAssistantMessageId;
 
     public SseTurnSink(SseEmitter emitter) {
         this.emitter = emitter;
@@ -52,6 +53,7 @@ public final class SseTurnSink implements TurnListener {
             case TurnEvent.Text text -> sendJson(Map.of("type", "text", "text", text.text()));
             case TurnEvent.Failed failure -> {
                 failed = true;
+                partialAssistantMessageId = failure.assistantMessageId();
                 sendJson(Map.of("type", "failed", "code", failure.code(), "message", failure.message(),
                         "retryable", failure.retryable()));
             }
@@ -76,7 +78,11 @@ public final class SseTurnSink implements TurnListener {
             event.put("tool_calls", result.toolCalls());
             if (result.assistantMessageId() != null) {
                 event.put("assistant_message_id", result.assistantMessageId());
+            } else if (partialAssistantMessageId != null) {
+                event.put("assistant_message_id", partialAssistantMessageId);
             }
+        } else if (partialAssistantMessageId != null) {
+            event.put("assistant_message_id", partialAssistantMessageId);
         }
         sendJson(event);
     }

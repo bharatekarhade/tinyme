@@ -8,6 +8,8 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDate;
 import java.util.Optional;
+import java.util.List;
+import java.util.UUID;
 
 @Repository
 public class AgentSessionRepository {
@@ -21,6 +23,13 @@ public class AgentSessionRepository {
     public Optional<SessionRef> findActiveChat(LocalDate day) {
         return sessions.findByKindAndStatusAndLocalDay("chat", "active", day)
                 .map(AgentSessionRepository::reference);
+    }
+
+    @Transactional(readOnly = true)
+    public List<UUID> findChatSessionIds(LocalDate day) {
+        return sessions.findByKindAndLocalDayAndStatusNotOrderByIdAsc("chat", day, "deleted").stream()
+                .map(AgentSessionEntity::getId)
+                .toList();
     }
 
     // A duplicate insert must finish rolling back before the caller reads the winning row.

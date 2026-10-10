@@ -139,7 +139,7 @@ class TurnRunnerTests {
                 "content", List.of(Map.of("type", "text", "text", resultJson)))));
         order.verify(messages).insert(session.sessionRowId(), MessageRole.ASSISTANT, "",
                 List.of(Map.of("tool", "entries_add",
-                        "summary", isError ? "Tool had an error" : "Logged coffee", "isError", isError)));
+                        "summary", isError ? "Tool had an error" : "Logged coffee", "is_error", isError)));
         verifyNoMoreInteractions(api, dispatcher);
         verify(body).close();
     }
@@ -325,6 +325,30 @@ class TurnRunnerTests {
     }
 
     @Test
+    void failureStoresPartialReplyAndActionsForHistory() throws Exception {
+        var runner = runner(Duration.ofSeconds(5));
+        var body = events(
+                "{\"type\":\"agent.custom_tool_use\",\"id\":\"tool-partial\",\"name\":\"entries_add\",\"input\":{\"kind\":\"drink\"}}",
+                "{\"type\":\"agent.message\",\"id\":\"partial\",\"content\":[{\"type\":\"text\",\"text\":\"Coffee logged.\"}]}",
+                "{\"type\":\"session.error\",\"id\":\"error\",\"error\":{\"message\":\"private content\"}}");
+        when(api.openStream("sesn_test")).thenReturn(new EventStream(body));
+        when(dispatcher.dispatch(eq("tool-partial"), eq("entries_add"), any(), any()))
+                .thenReturn(new DispatchOutcome("{\"ok\":true,\"summary\":\"Logged drink\"}", false));
+        var observed = new ArrayList<TurnEvent>();
+
+        assertThatThrownBy(() -> runner.run(request("had a coffee"), observed::add))
+                .isInstanceOf(IOException.class);
+
+        assertThat(observed).containsExactly(
+                new TurnEvent.ActionDone("entries_add", "Logged drink", false),
+                new TurnEvent.Text("Coffee logged."),
+                new TurnEvent.Failed("agent_error", "Managed Agents session reported an error", true));
+        verify(messages).insert(session.sessionRowId(), MessageRole.ASSISTANT, "Coffee logged.",
+                List.of(Map.of("tool", "entries_add", "summary", "Logged drink", "is_error", false)));
+        verify(body).close();
+    }
+
+    @Test
     void skipsTextEventsWithoutTextBlocks() throws Exception {
         var runner = runner(Duration.ofSeconds(5));
         var body = events(
@@ -497,6 +521,28 @@ class TurnRunnerTests {
     }
 
     @Test
+    void timeoutStoresReplyReceivedBeforeTheStreamWasInterrupted() throws Exception {
+        var runner = runner(Duration.ofMillis(500));
+        var body = new PartialBlockingInput("""
+                {"type":"agent.message","id":"partial","content":[{"type":"text","text":"Partial reply"}]}
+                """);
+        when(api.openStream("sesn_test")).thenReturn(new EventStream(body));
+        var observed = new ArrayList<TurnEvent>();
+        UUID partialId = UUID.randomUUID();
+        when(messages.insert(session.sessionRowId(), MessageRole.ASSISTANT, "Partial reply", List.of()))
+                .thenReturn(partialId);
+
+        assertTimeoutPreemptively(Duration.ofSeconds(5), () -> {
+            assertThatThrownBy(() -> runner.run(request("hello"), observed::add))
+                    .isInstanceOf(HttpTimeoutException.class);
+            assertThat(body.readStarted.getCount()).isZero();
+            verify(messages).insert(session.sessionRowId(), MessageRole.ASSISTANT, "Partial reply", List.of());
+        });
+        assertThat(observed).containsExactly(new TurnEvent.Text("Partial reply"),
+                new TurnEvent.Failed("turn_timeout", "Managed Agents turn timed out after PT0.5S", true, partialId));
+    }
+
+    @Test
     void timeoutAlsoCoversOpeningTheStream() throws Exception {
         var runner = runner(Duration.ofMillis(500));
         var stopped = new CountDownLatch(1);
@@ -539,6 +585,45 @@ class TurnRunnerTests {
                 } catch (InterruptedException ignored) { }
             }
             throw new IOException("closed");
+        }
+
+        @Override
+        public void close() {
+            closed.countDown();
+        }
+    }
+
+    private static final class PartialBlockingInput extends InputStream {
+        private final ByteArrayInputStream prefix;
+        final CountDownLatch readStarted = new CountDownLatch(1);
+        private final CountDownLatch closed = new CountDownLatch(1);
+
+        private PartialBlockingInput(String event) throws Exception {
+            prefix = new ByteArrayInputStream(("data: " + JSON.writeValueAsString(JSON.readTree(event)) + "\n\n")
+                    .getBytes(StandardCharsets.UTF_8));
+        }
+
+        @Override
+        public int read() throws IOException {
+            byte[] one = new byte[1];
+            int count = read(one, 0, 1);
+            return count < 0 ? -1 : Byte.toUnsignedInt(one[0]);
+        }
+
+        @Override
+        public int read(byte[] buffer, int offset, int length) throws IOException {
+            int count = prefix.read(buffer, offset, length);
+            if (count >= 0) return count;
+            readStarted.countDown();
+            while (closed.getCount() != 0) {
+                try {
+                    Thread.sleep(10);
+                } catch (InterruptedException interrupted) {
+                    Thread.currentThread().interrupt();
+                    throw new IOException("blocked stream read interrupted", interrupted);
+                }
+            }
+            throw new IOException("stream closed");
         }
 
         @Override

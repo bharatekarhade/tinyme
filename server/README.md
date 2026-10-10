@@ -88,3 +88,9 @@ The timezone defaults to your computer's timezone. To override it, include
 `--tinyme.dev.zone=Asia/Tokyo` in `spring-boot.run.arguments` along with the message.
 Spring `--name=value` options are excluded from the message. A missing message or
 a failed turn fails the command; application resources are still closed.
+
+## Conversation timestamps
+
+Conversation history returns `created_at` as an ISO-8601 UTC instant (ending in `Z`).
+The client formats it in the phone's local timezone. Times sent to the agent in
+tool results remain in the user's configured timezone.

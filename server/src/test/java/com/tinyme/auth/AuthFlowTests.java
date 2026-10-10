@@ -98,6 +98,8 @@ class AuthFlowTests {
         mvc.perform(get("/actuator/health")).andExpect(status().isOk());
         mvc.perform(get("/actuator/info")).andExpect(status().isUnauthorized())
                 .andExpect(content().contentType("application/problem+json"));
+        mvc.perform(get("/conversations")).andExpect(status().isUnauthorized())
+                .andExpect(content().contentType("application/problem+json"));
         mvc.perform(post("/auth/logout").header("Authorization", "Basic dXNlcjpwYXNz"))
                 .andExpect(status().isUnauthorized());
         mvc.perform(post("/auth/logout").header("Authorization", "Bearer "))

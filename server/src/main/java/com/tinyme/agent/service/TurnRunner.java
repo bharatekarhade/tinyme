@@ -28,6 +28,7 @@ import java.util.ArrayList;
 import java.util.Objects;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CountDownLatch;
 
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.FutureTask;
@@ -85,7 +86,13 @@ public class TurnRunner {
         var state = new TurnState();
         state.session = request.session();
         var task = new FutureTask<>(() -> execute(request, listener, rawEventObserver, state));
-        Thread.ofVirtual().name("tinyme-turn").start(task);
+        Thread.ofVirtual().name("tinyme-turn").start(() -> {
+            try {
+                task.run();
+            } finally {
+                state.workerFinished.countDown();
+            }
+        });
         try {
             state.lockAcquiredSignal.get(timeout.toNanos(), TimeUnit.NANOSECONDS);
             return task.get(timeout.toNanos(), TimeUnit.NANOSECONDS);
@@ -98,6 +105,7 @@ public class TurnRunner {
             }
             var failure = new HttpTimeoutException("Managed Agents turn timed out after " + timeout);
             cancel(task, state, failure);
+            awaitWorkerFinish(state, failure);
             if (state.session != null && state.lockAcquired) {
                 try {
                     api.sendEvents(state.session.anthropicSessionId(), List.of(Map.of("type", "user.interrupt")));
@@ -108,14 +116,15 @@ public class TurnRunner {
                     failure.addSuppressed(interruptFailure);
                 }
             }
-            listener.on(new TurnEvent.Failed("turn_timeout", failure.getMessage(), true));
+            listener.on(failedEvent("turn_timeout", failure.getMessage(), true, state.partialResult));
             throw failure;
         } catch (InterruptedException interrupted) {
             cancel(task, state, interrupted);
-            listener.on(new TurnEvent.Failed("interrupted", "Turn was interrupted", false));
+            awaitWorkerFinish(state, interrupted);
+            listener.on(failedEvent("interrupted", "Turn was interrupted", false, state.partialResult));
             throw interrupted;
         } catch (ExecutionException failed) {
-            notifyFailure(listener, failed.getCause());
+            notifyFailure(listener, failed.getCause(), state.partialResult);
             switch (failed.getCause()) {
                 case IOException error -> throw error;
                 case InterruptedException error -> throw error;
@@ -165,65 +174,83 @@ public class TurnRunner {
             var reply = new StringBuilder();
             var actions = new ArrayList<Map<String, Object>>();
             int toolCalls = 0;
-            for (;;) {
-                state.checkCancelled();
-                JsonNode event = source.next();
-                state.checkCancelled();
-                if (event == null) throw new IOException("Managed Agents stream ended before end_turn");
-                String type = requiredText(event, "type");
-                // Ignore built-in tool activity, usage, thread status and any preview events.
-                if (!List.of("agent.custom_tool_use", "agent.message", "session.status_idle", "session.error")
-                        .contains(type)) continue;
-                String id = requiredText(event, "id");
-                switch (type) {
-                    case "agent.custom_tool_use" -> {
-                        String name = requiredText(event, "name");
-                        JsonNode input = event.get("input");
-                        if (input == null) throw new IOException("Custom tool event is missing input");
-                        // EventStream already supplies Jackson 3 nodes, matching the dispatcher.
-                        var result = dispatcher.dispatch(id, name, input, context);
-                        toolCalls++;
-                        String summary = actionSummary(result);
-                        actions.add(Map.of("tool", name, "summary", summary,
-                                "isError", result.isError()));
-                        listener.on(new TurnEvent.ActionDone(name, summary, result.isError()));
-                        state.checkCancelled();
-                        api.sendEvents(session.anthropicSessionId(), List.of(Map.of(
-                                "type", "user.custom_tool_result", "custom_tool_use_id", id,
-                                "content", List.of(textBlock(result.resultJson())), "is_error", result.isError())));
-                    }
-                    case "agent.message" -> {
-                        String textEvent = messageText(event);
-                        reply.append(textEvent);
-                        if (!textEvent.isEmpty()) listener.on(new TurnEvent.Text(textEvent));
-                    }
-                    case "session.status_idle" -> {
-                        String reason = requiredText(event.path("stop_reason"), "type");
-                        if (reason.equals("end_turn")) {
-                            UUID assistantMessageId = null;
-                            if (!reply.isEmpty() || !actions.isEmpty()) {
-                                assistantMessageId = messages.insert(session.sessionRowId(), MessageRole.ASSISTANT,
-                                        reply.toString(), actions);
-                            }
-                            return new TurnResult(reply.toString(), toolCalls, assistantMessageId);
+            boolean savingAssistant = false;
+            try {
+                for (;;) {
+                    state.checkCancelled();
+                    JsonNode event = source.next();
+                    state.checkCancelled();
+                    if (event == null) throw new IOException("Managed Agents stream ended before end_turn");
+                    String type = requiredText(event, "type");
+                    // Ignore built-in tool activity, usage, thread status and any preview events.
+                    if (!List.of("agent.custom_tool_use", "agent.message", "session.status_idle", "session.error")
+                            .contains(type)) continue;
+                    String id = requiredText(event, "id");
+                    switch (type) {
+                        case "agent.custom_tool_use" -> {
+                            String name = requiredText(event, "name");
+                            JsonNode input = event.get("input");
+                            if (input == null) throw new IOException("Custom tool event is missing input");
+                            // EventStream already supplies Jackson 3 nodes, matching the dispatcher.
+                            var result = dispatcher.dispatch(id, name, input, context);
+                            toolCalls++;
+                            String summary = actionSummary(result);
+                            actions.add(Map.of("tool", name, "summary", summary,
+                                    "is_error", result.isError()));
+                            listener.on(new TurnEvent.ActionDone(name, summary, result.isError()));
+                            state.checkCancelled();
+                            api.sendEvents(session.anthropicSessionId(), List.of(Map.of(
+                                    "type", "user.custom_tool_result", "custom_tool_use_id", id,
+                                    "content", List.of(textBlock(result.resultJson())), "is_error", result.isError())));
                         }
-                        if (reason.equals("requires_action")) continue;
-                        if (reason.equals("budget_reached")) {
-                            UUID assistantMessageId = null;
-                            if (!reply.isEmpty() || !actions.isEmpty()) {
-                                assistantMessageId = messages.insert(session.sessionRowId(), MessageRole.ASSISTANT,
-                                        reply.toString(), actions);
-                            }
-                            listener.on(new TurnEvent.Failed(
-                                    "budget_reached", "Today's session hit its budget", false));
-                            return new TurnResult(reply.toString(), toolCalls, assistantMessageId);
+                        case "agent.message" -> {
+                            String textEvent = messageText(event);
+                            reply.append(textEvent);
+                            if (!textEvent.isEmpty()) listener.on(new TurnEvent.Text(textEvent));
                         }
-                        throw new TurnFailure("unexpected_stop", reason, true);
+                        case "session.status_idle" -> {
+                            String reason = requiredText(event.path("stop_reason"), "type");
+                            if (reason.equals("end_turn")) {
+                                UUID assistantMessageId = null;
+                                if (!reply.isEmpty() || !actions.isEmpty()) {
+                                    savingAssistant = true;
+                                    assistantMessageId = messages.insert(session.sessionRowId(), MessageRole.ASSISTANT,
+                                            reply.toString(), actions);
+                                    savingAssistant = false;
+                                }
+                                return new TurnResult(reply.toString(), toolCalls, assistantMessageId);
+                            }
+                            if (reason.equals("requires_action")) continue;
+                            if (reason.equals("budget_reached")) {
+                                UUID assistantMessageId = null;
+                                if (!reply.isEmpty() || !actions.isEmpty()) {
+                                    savingAssistant = true;
+                                    assistantMessageId = messages.insert(session.sessionRowId(), MessageRole.ASSISTANT,
+                                            reply.toString(), actions);
+                                    savingAssistant = false;
+                                }
+                                listener.on(new TurnEvent.Failed(
+                                        "budget_reached", "Today's session hit its budget", false));
+                                return new TurnResult(reply.toString(), toolCalls, assistantMessageId);
+                            }
+                            throw new TurnFailure("unexpected_stop", reason, true);
+                        }
+                        case "session.error" -> throw new TurnFailure(
+                                "agent_error", "Managed Agents session reported an error", true);
+                        default -> { }
                     }
-                    case "session.error" -> throw new TurnFailure(
-                            "agent_error", "Managed Agents session reported an error", true);
-                    default -> { }
                 }
+            } catch (IOException | InterruptedException | RuntimeException | Error failure) {
+                if (!savingAssistant && (!reply.isEmpty() || !actions.isEmpty())) {
+                    try {
+                        UUID assistantMessageId = messages.insert(session.sessionRowId(), MessageRole.ASSISTANT,
+                                reply.toString(), actions);
+                        state.partialResult = new TurnResult(reply.toString(), toolCalls, assistantMessageId);
+                    } catch (RuntimeException saveFailure) {
+                        failure.addSuppressed(saveFailure);
+                    }
+                }
+                throw failure;
             }
         }
     }
@@ -256,7 +283,7 @@ public class TurnRunner {
         }
     }
 
-    private static void notifyFailure(TurnListener listener, Throwable failure) {
+    private static void notifyFailure(TurnListener listener, Throwable failure, TurnResult partialResult) {
         TurnEvent.Failed event = switch (failure) {
             case TurnFailure turnFailure -> new TurnEvent.Failed(
                     turnFailure.code, turnFailure.getMessage(), turnFailure.retryable);
@@ -271,7 +298,14 @@ public class TurnRunner {
             case Error ignored -> new TurnEvent.Failed("internal_error", "The agent turn failed internally", false);
             default -> new TurnEvent.Failed("turn_failed", "The agent turn failed", false);
         };
-        listener.on(event);
+        listener.on(partialResult == null ? event : new TurnEvent.Failed(event.code(), event.message(),
+                event.retryable(), partialResult.assistantMessageId()));
+    }
+
+    private static TurnEvent.Failed failedEvent(String code, String message, boolean retryable,
+                                                TurnResult partialResult) {
+        return new TurnEvent.Failed(code, message, retryable,
+                partialResult == null ? null : partialResult.assistantMessageId());
     }
 
     private static final class TurnFailure extends IOException {
@@ -306,12 +340,25 @@ public class TurnRunner {
         }
     }
 
+    private static void awaitWorkerFinish(TurnState state, Exception failure) {
+        try {
+            if (!state.workerFinished.await(5, TimeUnit.SECONDS)) {
+                failure.addSuppressed(new IOException("Turn worker did not finish cleanup before the deadline"));
+            }
+        } catch (InterruptedException interrupted) {
+            Thread.currentThread().interrupt();
+            failure.addSuppressed(interrupted);
+        }
+    }
+
     private static final class TurnState {
         volatile SessionRef session;
         volatile ResilientEventSource source;
         volatile boolean cancelled;
         volatile boolean lockAcquired;
+        volatile TurnResult partialResult;
         final CompletableFuture<Boolean> lockAcquiredSignal = new CompletableFuture<>();
+        final CountDownLatch workerFinished = new CountDownLatch(1);
 
         void checkCancelled() throws InterruptedException {
             if (cancelled || Thread.currentThread().isInterrupted()) {

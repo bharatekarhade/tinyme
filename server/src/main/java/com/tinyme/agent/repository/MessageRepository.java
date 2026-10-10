@@ -66,6 +66,20 @@ public class MessageRepository {
         return messages.findBySession_IdOrderByCreatedAtAsc(sessionId);
     }
 
+    @Transactional(readOnly = true)
+    public List<MessageRecord> findForSessions(List<UUID> sessionIds) {
+        Objects.requireNonNull(sessionIds, "sessionIds");
+        if (sessionIds.isEmpty()) return List.of();
+        return messages.findBySession_IdInOrderByCreatedAtAscIdAsc(sessionIds).stream()
+                .map(message -> new MessageRecord(message.getId(), message.getRole(), message.getContent(),
+                        message.getActions(), message.getCreatedAt()))
+                .toList();
+    }
+
+    public record MessageRecord(UUID id, MessageRole role, String content, List<Object> actions,
+                                java.time.Instant createdAt) {
+    }
+
     public static final class DuplicateMessage extends RuntimeException {
         private final UUID existingId;
 
