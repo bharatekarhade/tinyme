@@ -25,6 +25,15 @@ public class MessageRepository {
     }
 
     @Transactional
+    public UUID insertUser(UUID sessionId, UUID clientMessageId, String content) {
+        Objects.requireNonNull(sessionId, "sessionId");
+        Objects.requireNonNull(clientMessageId, "clientMessageId");
+        MessageEntity message = MessageEntity.create(sessions.getReferenceById(sessionId), MessageRole.USER,
+                content, List.of(), clientMessageId);
+        return messages.save(message).getId();
+    }
+
+    @Transactional
     public UUID insert(UUID sessionId, MessageRole role, String content, List<?> actions) {
         Objects.requireNonNull(sessionId, "sessionId");
         MessageEntity message = MessageEntity.create(sessions.getReferenceById(sessionId), role, content, actions);

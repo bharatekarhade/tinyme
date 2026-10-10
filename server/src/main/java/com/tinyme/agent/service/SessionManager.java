@@ -1,6 +1,6 @@
 package com.tinyme.agent.service;
 
-import com.tinyme.agent.client.ManagedAgentApi;
+import com.tinyme.agent.client.ManagedAgents;
 import com.tinyme.agent.model.SessionRef;
 import com.tinyme.agent.repository.AgentSessionRepository;
 import org.hibernate.exception.ConstraintViolationException;
@@ -21,10 +21,10 @@ import java.util.Objects;
 public class SessionManager {
     private final AgentSessionRepository sessions;
     private final AgentResources resources;
-    private final ManagedAgentApi api;
+    private final ManagedAgents api;
     private final Clock clock;
 
-    SessionManager(AgentSessionRepository sessions, AgentResources resources, ManagedAgentApi api, Clock clock) {
+    SessionManager(AgentSessionRepository sessions, AgentResources resources, ManagedAgents api, Clock clock) {
         this.sessions = sessions;
         this.resources = resources;
         this.api = api;

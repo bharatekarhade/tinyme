@@ -36,6 +36,9 @@ public class MessageEntity {
     @JoinColumn(name = "session_id", nullable = false)
     private AgentSessionEntity session;
 
+    @Column(name = "client_msg_id", unique = true)
+    private UUID clientMessageId;
+
     @Enumerated(EnumType.STRING)
     @Column(name = "role", nullable = false)
     private MessageRole role;
@@ -64,8 +67,14 @@ public class MessageEntity {
 
     public static MessageEntity create(AgentSessionEntity session, MessageRole role, String content,
                                        List<?> actions) {
+        return create(session, role, content, actions, null);
+    }
+
+    public static MessageEntity create(AgentSessionEntity session, MessageRole role, String content,
+                                       List<?> actions, UUID clientMessageId) {
         var message = new MessageEntity();
         message.session = Objects.requireNonNull(session, "session");
+        message.clientMessageId = clientMessageId;
         message.role = Objects.requireNonNull(role, "role");
         message.content = Objects.requireNonNull(content, "content");
         message.actions = new ArrayList<>(Objects.requireNonNull(actions, "actions"));
@@ -78,6 +87,10 @@ public class MessageEntity {
 
     public UUID getSessionId() {
         return session.getId();
+    }
+
+    public UUID getClientMessageId() {
+        return clientMessageId;
     }
 
     public MessageRole getRole() {

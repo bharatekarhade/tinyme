@@ -54,7 +54,8 @@ class MessageRepositoryTests {
     void persistsAndReadsUserAndAssistantWithJsonActionsAndAttachments() {
         var actions = List.of(Map.<String, Object>of(
                 "tool", "entries_add", "summary", "Logged drink (coffee), 2 today", "isError", false));
-        UUID userId = messages.insert(sessionId, MessageRole.USER, "had a coffee");
+        UUID clientMessageId = UUID.randomUUID();
+        UUID userId = messages.insertUser(sessionId, clientMessageId, "had a coffee");
         UUID assistantId = messages.insert(sessionId, MessageRole.ASSISTANT,
                 "Logged coffee, 1 today.", actions);
 
@@ -64,6 +65,8 @@ class MessageRepositoryTests {
         assertThat(saved).extracting(MessageEntity::getSessionId).containsOnly(sessionId);
         assertThat(saved).extracting(MessageEntity::getRole)
                 .containsExactly(MessageRole.USER, MessageRole.ASSISTANT);
+        assertThat(saved.getFirst().getClientMessageId()).isEqualTo(clientMessageId);
+        assertThat(saved.get(1).getClientMessageId()).isNull();
         assertThat(saved).extracting(MessageEntity::getContent)
                 .containsExactly("had a coffee", "Logged coffee, 1 today.");
         assertThat(saved.getFirst().getActions()).isEmpty();

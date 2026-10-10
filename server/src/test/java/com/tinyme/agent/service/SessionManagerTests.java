@@ -1,6 +1,6 @@
 package com.tinyme.agent.service;
 
-import com.tinyme.agent.client.ManagedAgentApi;
+import com.tinyme.agent.client.ManagedAgents;
 import com.tinyme.agent.support.AgentDatabaseConfiguration;
 import com.tinyme.agent.model.SessionRef;
 import org.junit.jupiter.api.BeforeEach;
@@ -55,7 +55,7 @@ class SessionManagerTests {
     PlatformTransactionManager transactions;
 
     @MockitoBean
-    ManagedAgentApi api;
+    ManagedAgents api;
 
     @BeforeEach
     void setUp() {

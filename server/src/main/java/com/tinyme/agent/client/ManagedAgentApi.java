@@ -15,7 +15,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 
-public final class ManagedAgentApi {
+public final class ManagedAgentApi implements ManagedAgents {
     private final HttpClient client;
     private final JsonMapper json = JsonMapper.builder().build();
     private final String key;

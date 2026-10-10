@@ -1,8 +1,11 @@
 package com.tinyme.agent.service;
 
 import com.tinyme.agent.client.EventStream;
-import com.tinyme.agent.client.ManagedAgentApi;
+import com.tinyme.agent.client.ManagedAgents;
+import com.tinyme.agent.client.FakeManagedAgents;
 import com.tinyme.agent.model.SessionRef;
+import com.tinyme.agent.model.TurnEvent;
+import com.tinyme.agent.model.TurnRequest;
 import com.tinyme.agent.model.TurnResult;
 import com.tinyme.agent.model.MessageRole;
 import com.tinyme.agent.repository.MessageRepository;
@@ -29,6 +32,7 @@ import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.ArrayList;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 
@@ -45,18 +49,27 @@ class TurnRunnerTests {
     private static final String END = """
             {"type":"session.status_idle","id":"end","stop_reason":{"type":"end_turn"}}
             """;
-    private final SessionManager sessions = mock(SessionManager.class);
     private final ContextPrefixBuilder prefix = mock(ContextPrefixBuilder.class);
-    private final ManagedAgentApi api = mock(ManagedAgentApi.class);
+    private final ManagedAgents api = mock(ManagedAgents.class);
     private final ToolDispatcher dispatcher = mock(ToolDispatcher.class);
     private final MessageRepository messages = mock(MessageRepository.class);
     private final SessionRef session = new SessionRef(UUID.randomUUID(), "sesn_test");
+    private static final UUID USER_MESSAGE_ID = UUID.fromString("5d589013-d823-4d72-aa14-3888c191872c");
 
     private TurnRunner runner(Duration timeout) throws Exception {
-        when(sessions.todaySession(ZONE)).thenReturn(session);
         when(prefix.build(ZONE)).thenReturn("[context]\ntz: Asia/Tokyo\n[/context]");
-        return new TurnRunner(sessions, prefix, api, dispatcher, messages,
+        return new TurnRunner(prefix, api, dispatcher, messages,
                 Clock.fixed(NOW, ZoneOffset.UTC), timeout);
+    }
+
+    private TurnRunner runner(Duration timeout, ManagedAgents agents) throws Exception {
+        when(prefix.build(ZONE)).thenReturn("[context]\ntz: Asia/Tokyo\n[/context]");
+        return new TurnRunner(prefix, agents, dispatcher, messages,
+                Clock.fixed(NOW, ZoneOffset.UTC), timeout);
+    }
+
+    private TurnRequest request(String text) {
+        return new TurnRequest(session, USER_MESSAGE_ID, text, ZONE);
     }
 
     @Test
@@ -72,16 +85,14 @@ class TurnRunnerTests {
         var stream = new EventStream(body);
         when(api.openStream("sesn_test")).thenReturn(stream);
 
-        assertThat(runner.run("hello", ZONE)).isEqualTo(new TurnResult("Hello there. Welcome!", 0));
+        assertThat(runner.run(request("hello"), TurnListener.NONE)).isEqualTo(new TurnResult("Hello there. Welcome!", 0));
 
-        var order = inOrder(sessions, prefix, api);
-        order.verify(sessions).todaySession(ZONE);
+        var order = inOrder(prefix, api);
         order.verify(prefix).build(ZONE);
         order.verify(api).openStream("sesn_test");
         order.verify(api).sendEvents("sesn_test", List.of(Map.of("type", "user.message", "content", List.of(
                 Map.of("type", "text", "text", "[context]\ntz: Asia/Tokyo\n[/context]"),
                 Map.of("type", "text", "text", "hello")))));
-        verify(messages).insert(session.sessionRowId(), MessageRole.USER, "hello");
         verify(messages).insert(session.sessionRowId(), MessageRole.ASSISTANT,
                 "Hello there. Welcome!", List.of());
         verifyNoMoreInteractions(api);
@@ -109,11 +120,10 @@ class TurnRunnerTests {
         when(dispatcher.dispatch("tool1", "entries_add", input, expectedContext))
                 .thenReturn(new DispatchOutcome(resultJson, isError));
 
-        assertThat(runner.run("coffee", ZONE)).isEqualTo(new TurnResult("", 1));
+        assertThat(runner.run(request("coffee"), TurnListener.NONE)).isEqualTo(new TurnResult("", 1));
 
         var order = inOrder(api, dispatcher, messages);
         order.verify(api).openStream("sesn_test");
-        order.verify(messages).insert(session.sessionRowId(), MessageRole.USER, "coffee");
         order.verify(api).sendEvents(eq("sesn_test"), anyList());
         order.verify(dispatcher).dispatch("tool1", "entries_add", input, expectedContext);
         order.verify(api).sendEvents("sesn_test", List.of(Map.of(
@@ -128,7 +138,6 @@ class TurnRunnerTests {
 
     @Test
     void consumesTheRecordedCoffeeSession() throws Exception {
-        var runner = runner(Duration.ofSeconds(5));
         JsonNode recording;
         try (var resource = getClass().getResourceAsStream("/streams/had-a-coffee.json")) {
             recording = JSON.readTree(resource);
@@ -143,23 +152,28 @@ class TurnRunnerTests {
                 }
             }
         }
-        var body = events(frames.toArray(String[]::new));
-        when(api.openStream("sesn_test")).thenReturn(new EventStream(body));
+        var fake = new FakeManagedAgents(frames);
+        var runner = runner(Duration.ofSeconds(5), fake);
         when(dispatcher.dispatch(anyString(), eq("entries_add"), any(), any()))
                 .thenReturn(new DispatchOutcome("{\"ok\":true,\"summary\":\"Logged drink\"}", false));
 
-        assertThat(runner.run("had a coffee", ZONE)).isEqualTo(new TurnResult(expectedReply.toString(), 1));
+        var observed = new ArrayList<TurnEvent>();
+        assertThat(runner.run(request("had a coffee"), observed::add))
+                .isEqualTo(new TurnResult(expectedReply.toString(), 1));
         assertThat(expectedReply).isNotEmpty();
+        assertThat(observed).hasSize(2);
+        assertThat(observed.get(0)).isInstanceOf(TurnEvent.ActionDone.class)
+                .isEqualTo(new TurnEvent.ActionDone("entries_add", "Logged drink", false));
+        assertThat(observed.get(1)).isEqualTo(new TurnEvent.Text(expectedReply.toString()));
         verify(dispatcher).dispatch(anyString(), eq("entries_add"), any(), any());
-        verify(messages).insert(session.sessionRowId(), MessageRole.USER, "had a coffee");
         verify(messages).insert(eq(session.sessionRowId()), eq(MessageRole.ASSISTANT),
                 eq(expectedReply.toString()), anyList());
-        verify(body).close();
+        assertThat(fake.sentEvents()).anySatisfy(batch -> assertThat(batch.getFirst())
+                .doesNotContainKey("client_msg_id"));
     }
 
     @ParameterizedTest
     @ValueSource(strings = {
-            "{\"type\":\"session.error\",\"id\":\"error\",\"error\":{\"message\":\"private content\"}}",
             "{\"type\":\"session.status_idle\",\"id\":\"idle\",\"stop_reason\":{\"type\":\"budget_reached\"}}",
             "{\"type\":\"agent.custom_tool_use\",\"id\":\"tool\",\"name\":\"entries_add\"}"
     })
@@ -168,9 +182,44 @@ class TurnRunnerTests {
         var body = events(event);
         when(api.openStream("sesn_test")).thenReturn(new EventStream(body));
 
-        assertThatThrownBy(() -> runner.run("hello", ZONE)).isInstanceOf(IOException.class)
+        assertThatThrownBy(() -> runner.run(request("hello"), TurnListener.NONE)).isInstanceOf(IOException.class)
                 .hasMessageNotContaining("private content");
+        var observed = new ArrayList<TurnEvent>();
+        var failureBody = events(event);
+        when(api.openStream("sesn_test")).thenReturn(new EventStream(failureBody));
+        assertThatThrownBy(() -> runner.run(request("hello"), observed::add)).isInstanceOf(IOException.class);
+        assertThat(observed).hasSize(1).first().isInstanceOf(TurnEvent.Failed.class);
         verify(body).close();
+        verify(failureBody).close();
+    }
+
+    @Test
+    void sessionErrorEmitsRetryableAgentErrorWithoutText() throws Exception {
+        var runner = runner(Duration.ofSeconds(5));
+        var body = events(
+                "{\"type\":\"session.error\",\"id\":\"error\",\"error\":{\"message\":\"private content\"}}");
+        when(api.openStream("sesn_test")).thenReturn(new EventStream(body));
+        var observed = new ArrayList<TurnEvent>();
+
+        assertThatThrownBy(() -> runner.run(request("hello"), observed::add)).isInstanceOf(IOException.class)
+                .hasMessageNotContaining("private content");
+
+        assertThat(observed).containsExactly(new TurnEvent.Failed(
+                "agent_error", "Managed Agents session reported an error", true));
+        verify(body).close();
+    }
+
+    @Test
+    void skipsTextEventsWithoutTextBlocks() throws Exception {
+        var runner = runner(Duration.ofSeconds(5));
+        var body = events(
+                "{\"type\":\"agent.message\",\"id\":\"msg\",\"content\":[{\"type\":\"thinking\",\"thinking\":\"hidden\"}]}",
+                END);
+        when(api.openStream("sesn_test")).thenReturn(new EventStream(body));
+        var observed = new ArrayList<TurnEvent>();
+
+        assertThat(runner.run(request("hello"), observed::add)).isEqualTo(new TurnResult("", 0));
+        assertThat(observed).isEmpty();
     }
 
     @Test
@@ -178,7 +227,7 @@ class TurnRunnerTests {
         var runner = runner(Duration.ofSeconds(5));
         var body = events("{\"type\":\"agent.message\",\"id\":\"partial\",\"content\":[{\"type\":\"text\",\"text\":\"partial\"}]}");
         when(api.openStream("sesn_test")).thenReturn(new EventStream(body));
-        assertThatThrownBy(() -> runner.run("hello", ZONE)).isInstanceOf(IOException.class)
+        assertThatThrownBy(() -> runner.run(request("hello"), TurnListener.NONE)).isInstanceOf(IOException.class)
                 .hasMessageContaining("before end_turn");
         verify(api).openStream("sesn_test");
         verify(body).close();
@@ -190,10 +239,10 @@ class TurnRunnerTests {
         var body = events(END);
         when(api.openStream("sesn_test")).thenReturn(new EventStream(body));
         doThrow(new IOException("send failed")).when(api).sendEvents(anyString(), anyList());
-        assertThatThrownBy(() -> runner.run("hello", ZONE)).isInstanceOf(IOException.class)
+        assertThatThrownBy(() -> runner.run(request("hello"), TurnListener.NONE)).isInstanceOf(IOException.class)
                 .hasMessage("send failed");
-        var order = inOrder(messages, api);
-        order.verify(messages).insert(session.sessionRowId(), MessageRole.USER, "hello");
+        var order = inOrder(api);
+        order.verify(api).openStream("sesn_test");
         order.verify(api).sendEvents(anyString(), anyList());
         verify(api).sendEvents(anyString(), anyList());
         verify(body).close();
@@ -205,7 +254,7 @@ class TurnRunnerTests {
         var body = events("{\"type\":\"agent.custom_tool_use\",\"id\":\"tool\",\"name\":\"entries_add\",\"input\":{}}");
         when(api.openStream("sesn_test")).thenReturn(new EventStream(body));
         when(dispatcher.dispatch(anyString(), anyString(), any(), any())).thenThrow(new IllegalStateException("db unavailable"));
-        assertThatThrownBy(() -> runner.run("hello", ZONE)).isInstanceOf(IllegalStateException.class);
+        assertThatThrownBy(() -> runner.run(request("hello"), TurnListener.NONE)).isInstanceOf(IllegalStateException.class);
         verify(body).close();
     }
 
@@ -217,10 +266,13 @@ class TurnRunnerTests {
         when(api.openStream("sesn_test")).thenReturn(new EventStream(body));
         var interrupt = List.of(Map.of("type", "user.interrupt"));
         if (interruptFails) doThrow(new IOException("interrupt failed")).when(api).sendEvents("sesn_test", interrupt);
+        var observed = new ArrayList<TurnEvent>();
 
         assertTimeoutPreemptively(Duration.ofSeconds(5), () -> {
-            assertThatThrownBy(() -> runner.run("hello", ZONE)).isInstanceOf(HttpTimeoutException.class)
+            assertThatThrownBy(() -> runner.run(request("hello"), observed::add)).isInstanceOf(HttpTimeoutException.class)
                     .satisfies(error -> assertThat(error.getSuppressed()).hasSize(interruptFails ? 1 : 0));
+            assertThat(observed).containsExactly(new TurnEvent.Failed(
+                    "turn_timeout", "Managed Agents turn timed out after PT0.5S", true));
             assertThat(body.readStarted.getCount()).isZero();
             assertThat(body.closed.getCount()).isZero();
             verify(api).sendEvents("sesn_test", interrupt);
@@ -241,7 +293,7 @@ class TurnRunnerTests {
             }
         });
         assertTimeoutPreemptively(Duration.ofSeconds(5), () -> {
-            assertThatThrownBy(() -> runner.run("hello", ZONE)).isInstanceOf(HttpTimeoutException.class);
+            assertThatThrownBy(() -> runner.run(request("hello"), TurnListener.NONE)).isInstanceOf(HttpTimeoutException.class);
             assertThat(stopped.await(1, TimeUnit.SECONDS)).isTrue();
             verify(api).sendEvents("sesn_test", List.of(Map.of("type", "user.interrupt")));
             verify(api).sendEvents(anyString(), anyList());
