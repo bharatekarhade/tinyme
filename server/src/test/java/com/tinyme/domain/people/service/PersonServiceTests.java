@@ -21,7 +21,9 @@ import java.util.UUID;
 import static org.assertj.core.api.Assertions.assertThat;
 
 @SpringBootTest(properties = {
-        "tinyme.agent.setup-enabled=false"
+        "tinyme.agent.setup-enabled=false",
+        "TINYME_OWNER_EMAIL=owner@test.tinyme.local",
+        "TINYME_OWNER_PASSWORD=test-only-owner-password"
 })
 @Import(PersonServiceTests.DatabaseConfiguration.class)
 class PersonServiceTests {

@@ -34,7 +34,11 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
-@SpringBootTest(properties = "tinyme.agent.setup-enabled=false")
+@SpringBootTest(properties = {
+        "tinyme.agent.setup-enabled=false",
+        "TINYME_OWNER_EMAIL=owner@test.tinyme.local",
+        "TINYME_OWNER_PASSWORD=test-only-owner-password"
+})
 @AutoConfigureMockMvc
 @Import(AuthFlowTests.DatabaseConfiguration.class)
 class AuthFlowTests {

@@ -15,7 +15,9 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 @SpringBootTest(properties = {
-        "tinyme.agent.setup-enabled=false"
+        "tinyme.agent.setup-enabled=false",
+        "TINYME_OWNER_EMAIL=owner@test.tinyme.local",
+        "TINYME_OWNER_PASSWORD=test-only-owner-password"
 })
 @Import(AgentDatabaseConfiguration.class)
 class AgentResourcesTests {

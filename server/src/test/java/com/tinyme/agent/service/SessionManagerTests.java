@@ -38,7 +38,9 @@ import static org.mockito.ArgumentMatchers.anyMap;
 import static org.mockito.Mockito.*;
 
 @SpringBootTest(properties = {
-        "tinyme.agent.setup-enabled=false"
+        "tinyme.agent.setup-enabled=false",
+        "TINYME_OWNER_EMAIL=owner@test.tinyme.local",
+        "TINYME_OWNER_PASSWORD=test-only-owner-password"
 })
 @Import({AgentDatabaseConfiguration.class, SessionManagerTests.TimeConfiguration.class})
 class SessionManagerTests {
