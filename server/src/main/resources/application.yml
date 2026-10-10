@@ -22,6 +22,9 @@ tinyme:
   blobs:
     path: ${TINYME_BLOBS_PATH:./blobs}
 
+# Only enable behind a reverse proxy you control; forwarded headers affect login IP limiting.
+# server.forward-headers-strategy: native
+
   agent:
     setup-enabled: ${TINYME_AGENT_SETUP_ENABLED:true}
     api-key: ${ANTHROPIC_API_KEY:}
