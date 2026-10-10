@@ -30,7 +30,9 @@ public final class ResilientEventSource implements AutoCloseable {
     private final Sleeper sleeper;
     private final Set<String> seen = new HashSet<>();
     private final Queue<JsonNode> catchup = new ArrayDeque<>();
+    private final Object stateLock = new Object();
     private volatile EventStream stream;
+    private volatile boolean closed;
     private Instant lastSeen;
     private int failedRecoveries;
 
@@ -49,10 +51,13 @@ public final class ResilientEventSource implements AutoCloseable {
     /** Returns the next event with a previously unseen id, or fails after three unsuccessful recoveries. */
     public JsonNode next() throws IOException, InterruptedException {
         for (;;) {
+            ensureOpen();
             JsonNode event = catchup.poll();
             if (event == null) {
+                EventStream current = stream;
+                if (current == null) throw new IOException("Event source is closed");
                 try {
-                    event = stream.next();
+                    event = current.next();
                 } catch (IOException dropped) {
                     recover(dropped);
                     continue;
@@ -64,10 +69,17 @@ public final class ResilientEventSource implements AutoCloseable {
             }
             JsonNode unseen = markAndFilter(event);
             if (unseen != null) {
+                ensureOpen();
                 failedRecoveries = 0;
                 return unseen;
             }
         }
+    }
+
+    /** Sets a bounded history floor before the current user message is submitted. */
+    public void beginTurn(Instant turnStartedAt) throws IOException {
+        ensureOpen();
+        lastSeen = Objects.requireNonNull(turnStartedAt, "turnStartedAt").minus(Duration.ofMinutes(1));
     }
 
     public Instant lastSeen() {
@@ -91,21 +103,33 @@ public final class ResilientEventSource implements AutoCloseable {
     }
 
     private void recover(IOException original) throws IOException, InterruptedException {
+        ensureOpen();
         closeCurrent();
         IOException lastFailure = original;
         while (failedRecoveries < BACKOFFS.size()) {
+            ensureOpen();
             Duration delay = BACKOFFS.get(failedRecoveries++);
             sleeper.sleep(delay);
+            ensureOpen();
             EventStream reopened = null;
             try {
                 reopened = agents.openStream(sessionId);
+                ensureOpen();
                 List<JsonNode> missed = agents.listEvents(sessionId, lastSeen);
-                stream = reopened;
-                catchup.addAll(new ArrayList<>(missed));
+                ensureOpen();
+                int lastUserMessage = lastUserMessageIndex(missed);
+                for (int i = 0; i <= lastUserMessage; i++) markAndFilter(missed.get(i));
+                synchronized (stateLock) {
+                    if (closed) throw new IOException("Event source is closed");
+                    stream = reopened;
+                    reopened = null;
+                }
+                for (int i = lastUserMessage + 1; i < missed.size(); i++) catchup.add(missed.get(i));
                 return;
             } catch (IOException failure) {
                 lastFailure = failure;
                 if (reopened != null) closeQuietly(reopened, failure);
+                if (closed) throw new IOException("Event source is closed", failure);
             } catch (InterruptedException interrupted) {
                 if (reopened != null) {
                     try {
@@ -118,6 +142,18 @@ public final class ResilientEventSource implements AutoCloseable {
             }
         }
         throw new StreamLostException(lastFailure);
+    }
+
+    private static int lastUserMessageIndex(List<JsonNode> events) {
+        int last = -1;
+        for (int i = 0; i < events.size(); i++) {
+            if ("user.message".equals(events.get(i).path("type").asString())) last = i;
+        }
+        return last;
+    }
+
+    private void ensureOpen() throws IOException {
+        if (closed) throw new IOException("Event source is closed");
     }
 
     private void closeCurrent() {
@@ -142,8 +178,13 @@ public final class ResilientEventSource implements AutoCloseable {
 
     @Override
     public void close() throws IOException {
-        EventStream current = stream;
-        stream = null;
+        EventStream current;
+        synchronized (stateLock) {
+            if (closed) return;
+            closed = true;
+            current = stream;
+            stream = null;
+        }
         if (current != null) current.close();
     }
 

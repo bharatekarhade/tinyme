@@ -19,22 +19,34 @@ import java.util.Objects;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.Set;
+import java.util.concurrent.ThreadLocalRandom;
+import java.util.function.LongSupplier;
 import tools.jackson.databind.JsonNode;
 
 public final class ManagedAgentApi implements ManagedAgents {
+    private static final int MAX_RETRIES = 3;
     private final HttpClient client;
     private final JsonMapper json = JsonMapper.builder().build();
     private final String key;
     private final URI base;
+    private final Sleeper retrySleeper;
+    private final LongSupplier jitterMillis;
 
     public ManagedAgentApi(String key, URI base) {
-        this(key, base, HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(15)).build());
+        this(key, base, HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(15)).build(),
+                Thread::sleep, () -> ThreadLocalRandom.current().nextLong(251));
     }
 
     ManagedAgentApi(String key, URI base, HttpClient client) {
+        this(key, base, client, Thread::sleep, () -> ThreadLocalRandom.current().nextLong(251));
+    }
+
+    ManagedAgentApi(String key, URI base, HttpClient client, Sleeper retrySleeper, LongSupplier jitterMillis) {
         this.key = key;
         this.base = base;
         this.client = client;
+        this.retrySleeper = retrySleeper;
+        this.jitterMillis = jitterMillis;
     }
 
     public String createSession(Map<?, ?> body) throws IOException, InterruptedException {
@@ -46,7 +58,7 @@ public final class ManagedAgentApi implements ManagedAgents {
     }
 
     public void sendEvents(String sessionId, List<? extends Map<String, ?>> events) throws IOException, InterruptedException {
-        // request() sends POSTs exactly once, even on 429, 5xx, or a lost response.
+        // user.message is never retried after an uncertain send; 429 is always safe to retry.
         request("POST", sessionPath(sessionId) + "/events",
                 Map.of("events", Objects.requireNonNull(events, "events")), false);
     }
@@ -55,14 +67,8 @@ public final class ManagedAgentApi implements ManagedAgents {
         // Deliberately no HttpRequest timeout: the stream lives for the entire turn.
         var request = requestBuilder(sessionPath(sessionId) + "/events/stream", false)
                 .header("Accept", "text/event-stream").GET().build();
-        var response = client.send(request, HttpResponse.BodyHandlers.ofInputStream());
+        var response = sendWithRetry(request, true, null, HttpResponse.BodyHandlers.ofInputStream());
         InputStream body = response.body();
-        if (response.statusCode() < 200 || response.statusCode() >= 300) {
-            try (body) {
-                throw apiError(response.statusCode(), response.headers(), request,
-                        new String(body.readAllBytes(), StandardCharsets.UTF_8), null);
-            }
-        }
         String contentType = response.headers().firstValue("Content-Type").orElse("");
         if (!contentType.split(";", 2)[0].trim().equalsIgnoreCase("text/event-stream")) {
             body.close();
@@ -77,7 +83,8 @@ public final class ManagedAgentApi implements ManagedAgents {
         String sessionPath = sessionPath(sessionId) + "/events";
         String filter = "order=asc";
         if (after != null) {
-            filter += "&" + query("created_at[gt]", after.toString());
+            // The API's created_at filter is compared to processed_at; gte avoids skipping same-time events.
+            filter += "&" + query("created_at[gte]", after.toString());
         }
         String page = null;
         Set<String> seenPages = new HashSet<>();
@@ -132,27 +139,50 @@ public final class ManagedAgentApi implements ManagedAgents {
         builder.method(method, payload == null ? HttpRequest.BodyPublishers.noBody()
                 : HttpRequest.BodyPublishers.ofString(json.writeValueAsString(payload)));
         var request = builder.build();
-        int attempts = method.equals("GET") ? 4 : 1;
-        for (int attempt = 0; ; attempt++) {
+        boolean transientRetry = method.equals("GET") || isCustomToolResult(payload);
+        var response = sendWithRetry(request, transientRetry, payload, HttpResponse.BodyHandlers.ofString());
+        if (response.body().isBlank()) return Map.of();
+        return json.readValue(response.body(), Map.class);
+    }
+
+    private <T> HttpResponse<T> sendWithRetry(HttpRequest request, boolean transientRetry,
+                                             Map<?, ?> payload, HttpResponse.BodyHandler<T> bodyHandler)
+            throws IOException, InterruptedException {
+        for (int retry = 0; ; retry++) {
             try {
-                return send(request, payload);
+                var response = client.send(request, bodyHandler);
+                if (response.statusCode() < 200 || response.statusCode() >= 300) {
+                    String responseBody;
+                    if (response.body() instanceof InputStream input) {
+                        try (input) {
+                            responseBody = new String(input.readAllBytes(), StandardCharsets.UTF_8);
+                        }
+                    } else {
+                        responseBody = String.valueOf(response.body());
+                    }
+                    throw apiError(response.statusCode(), response.headers(), request, responseBody, payload);
+                }
+                return response;
             } catch (IOException error) {
-                boolean retryable = !(error instanceof ApiException apiError)
-                        || apiError.status == 429 || (apiError.status >= 500 && apiError.status <= 599);
-                if (!retryable || attempt + 1 >= attempts) throw error;
-                Thread.sleep(250L << attempt);
+                boolean retryable = error instanceof ApiException apiError
+                        ? apiError.status == 429 || (transientRetry && apiError.status >= 500 && apiError.status <= 599)
+                        : transientRetry;
+                if (!retryable || retry >= MAX_RETRIES) throw error;
+                long backoff = 500L << retry;
+                retrySleeper.sleep(backoff + Math.max(0, jitterMillis.getAsLong()));
             }
         }
     }
 
-    private Map<?, ?> send(HttpRequest request, Map<?, ?> payload) throws IOException, InterruptedException {
-        // POST requests are sent once: a lost response may follow successful creation.
-        var response = client.send(request, HttpResponse.BodyHandlers.ofString());
-        if (response.statusCode() < 200 || response.statusCode() >= 300) {
-            throw apiError(response.statusCode(), response.headers(), request, response.body(), payload);
-        }
-        if (response.body().isBlank()) return Map.of();
-        return json.readValue(response.body(), Map.class);
+    private static boolean isCustomToolResult(Map<?, ?> payload) {
+        if (payload == null || !(payload.get("events") instanceof List<?> events) || events.isEmpty()) return false;
+        return events.stream().allMatch(event -> event instanceof Map<?, ?> map
+                && "user.custom_tool_result".equals(map.get("type")));
+    }
+
+    @FunctionalInterface
+    interface Sleeper {
+        void sleep(long millis) throws InterruptedException;
     }
 
     private ApiException apiError(int status, HttpHeaders headers, HttpRequest request,

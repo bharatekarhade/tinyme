@@ -237,10 +237,7 @@ class TurnRunnerTests {
     }
 
     @ParameterizedTest
-    @ValueSource(strings = {
-            "{\"type\":\"session.status_idle\",\"id\":\"idle\",\"stop_reason\":{\"type\":\"budget_reached\"}}",
-            "{\"type\":\"agent.custom_tool_use\",\"id\":\"tool\",\"name\":\"entries_add\"}"
-    })
+    @ValueSource(strings = {"{\"type\":\"agent.custom_tool_use\",\"id\":\"tool\",\"name\":\"entries_add\"}"})
     void errorsFailAndCloseWithoutExposingEventContents(String event) throws Exception {
         var runner = runner(Duration.ofSeconds(5));
         var body = events(event);
@@ -255,6 +252,37 @@ class TurnRunnerTests {
         assertThat(observed).hasSize(1).first().isInstanceOf(TurnEvent.Failed.class);
         verify(body).close();
         verify(failureBody).close();
+    }
+
+    @Test
+    void budgetReachedStoresPartialReplyAndEmitsNonRetryableFailure() throws Exception {
+        var runner = runner(Duration.ofSeconds(5));
+        var body = events(
+                "{\"type\":\"agent.message\",\"id\":\"partial\",\"content\":[{\"type\":\"text\",\"text\":\"Partial answer\"}]}",
+                "{\"type\":\"session.status_idle\",\"id\":\"budget\",\"stop_reason\":{\"type\":\"budget_reached\"}}");
+        when(api.openStream("sesn_test")).thenReturn(new EventStream(body));
+        var observed = new ArrayList<TurnEvent>();
+
+        assertThat(runner.run(request("hello"), observed::add)).isEqualTo(new TurnResult("Partial answer", 0));
+
+        assertThat(observed).containsExactly(
+                new TurnEvent.Text("Partial answer"),
+                new TurnEvent.Failed("budget_reached", "Today's session hit its budget", false));
+        verify(messages).insert(session.sessionRowId(), MessageRole.ASSISTANT, "Partial answer", List.of());
+        verify(body).close();
+    }
+
+    @Test
+    void unexpectedStopReasonIsRetryableAndReportsReason() throws Exception {
+        var runner = runner(Duration.ofSeconds(5));
+        var body = events("{\"type\":\"session.status_idle\",\"id\":\"stop\",\"stop_reason\":{\"type\":\"max_turns\"}}");
+        when(api.openStream("sesn_test")).thenReturn(new EventStream(body));
+        var observed = new ArrayList<TurnEvent>();
+
+        assertThatThrownBy(() -> runner.run(request("hello"), observed::add))
+                .isInstanceOf(IOException.class).hasMessage("max_turns");
+
+        assertThat(observed).containsExactly(new TurnEvent.Failed("unexpected_stop", "max_turns", true));
     }
 
     @Test
@@ -321,6 +349,64 @@ class TurnRunnerTests {
                 new TurnEvent.ActionDone("entries_add", "Logged coffee", false),
                 new TurnEvent.Text("Logged coffee."));
         verify(dispatcher, times(1)).dispatch(anyString(), eq("entries_add"), any(), any());
+    }
+
+    @Test
+    void dropBeforeFirstEventSkipsFinishedHistoryThroughCurrentUserMessage() throws Exception {
+        JsonNode earlierUser = JSON.readTree("""
+                {"id":"old-user","processed_at":"2026-10-05T15:29:10Z","type":"user.message",
+                 "content":[{"type":"text","text":"had a beer"}]}
+                """);
+        JsonNode earlierReply = JSON.readTree("""
+                {"id":"old-reply","processed_at":"2026-10-05T15:29:11Z","type":"agent.message",
+                 "content":[{"type":"text","text":"Earlier answer"}]}
+                """);
+        JsonNode earlierEnd = JSON.readTree("""
+                {"id":"old-end","processed_at":"2026-10-05T15:29:12Z","type":"session.status_idle",
+                 "stop_reason":{"type":"end_turn"}}
+                """);
+        JsonNode currentUser = JSON.readTree("""
+                {"id":"current-user","processed_at":"2026-10-05T15:30:00Z","type":"user.message",
+                 "content":[{"type":"text","text":"had a coffee"}]}
+                """);
+        JsonNode currentTool = JSON.readTree("""
+                {"id":"current-tool","processed_at":"2026-10-05T15:30:01Z","type":"agent.custom_tool_use",
+                 "name":"entries_add","input":{"kind":"drink","data":{"type":"coffee"}}}
+                """);
+        JsonNode currentReply = JSON.readTree("""
+                {"id":"current-reply","processed_at":"2026-10-05T15:30:02Z","type":"agent.message",
+                 "content":[{"type":"text","text":"Logged coffee."}]}
+                """);
+        JsonNode currentEnd = JSON.readTree("""
+                {"id":"current-end","processed_at":"2026-10-05T15:30:03Z","type":"session.status_idle",
+                 "stop_reason":{"type":"end_turn"}}
+                """);
+        var fake = FakeManagedAgents.scripted(List.of(List.of(), List.of()), List.of(List.of(
+                earlierUser, earlierReply, earlierEnd, currentUser, currentTool, currentReply, currentEnd)));
+        when(dispatcher.dispatch(anyString(), eq("entries_add"), any(), any()))
+                .thenReturn(new DispatchOutcome("{\"ok\":true,\"summary\":\"Logged coffee\"}", false));
+        var runner = runner(Duration.ofSeconds(5), fake, ignored -> { });
+        var observed = new ArrayList<TurnEvent>();
+
+        assertThat(runner.run(request("had a coffee"), observed::add)).isEqualTo(new TurnResult("Logged coffee.", 1));
+
+        assertThat(fake.listAfterValues()).containsExactly(NOW.minus(Duration.ofMinutes(1)));
+        assertThat(observed).containsExactly(
+                new TurnEvent.ActionDone("entries_add", "Logged coffee", false),
+                new TurnEvent.Text("Logged coffee."));
+        verify(dispatcher, times(1)).dispatch(anyString(), eq("entries_add"), any(), any());
+    }
+
+    @Test
+    void closedEventSourceRejectsNextWithoutReconnecting() throws Exception {
+        var fake = new FakeManagedAgents(List.of(END));
+        var source = new ResilientEventSource(fake, "sesn_test", ignored -> { });
+        source.close();
+        source.close();
+
+        assertThatThrownBy(source::next).isInstanceOf(IOException.class).hasMessage("Event source is closed");
+        assertThat(fake.openCount()).isEqualTo(1);
+        assertThat(fake.listAfterValues()).isEmpty();
     }
 
     @Test

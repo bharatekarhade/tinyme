@@ -1,6 +1,7 @@
 package com.tinyme.agent.service;
 
 import com.tinyme.agent.client.ManagedAgents;
+import com.tinyme.agent.client.ManagedAgentApi;
 import com.tinyme.agent.model.MessageRole;
 import com.tinyme.agent.model.SessionRef;
 import com.tinyme.agent.model.TurnEvent;
@@ -146,6 +147,7 @@ public class TurnRunner {
         state.checkCancelled();
         try (var source = new ResilientEventSource(api, session.anthropicSessionId(), reconnectSleeper)) {
             state.source = source;
+            source.beginTurn(now);
             state.checkCancelled();
             api.sendEvents(session.anthropicSessionId(), List.of(Map.of(
                     "type", "user.message",
@@ -195,9 +197,17 @@ public class TurnRunner {
                             }
                             return new TurnResult(reply.toString(), toolCalls);
                         }
-                        if (!reason.equals("requires_action")) {
-                            throw new IOException("Managed Agents session stopped without end_turn");
+                        if (reason.equals("requires_action")) continue;
+                        if (reason.equals("budget_reached")) {
+                            if (!reply.isEmpty() || !actions.isEmpty()) {
+                                messages.insert(session.sessionRowId(), MessageRole.ASSISTANT,
+                                        reply.toString(), actions);
+                            }
+                            listener.on(new TurnEvent.Failed(
+                                    "budget_reached", "Today's session hit its budget", false));
+                            return new TurnResult(reply.toString(), toolCalls);
                         }
+                        throw new TurnFailure("unexpected_stop", reason, true);
                     }
                     case "session.error" -> throw new TurnFailure(
                             "agent_error", "Managed Agents session reported an error", true);
@@ -241,6 +251,8 @@ public class TurnRunner {
                     turnFailure.code, turnFailure.getMessage(), turnFailure.retryable);
             case ResilientEventSource.StreamLostException lost -> new TurnEvent.Failed(
                     "stream_lost", "The agent event stream could not be recovered", true);
+            case ManagedAgentApi.ApiException apiError -> new TurnEvent.Failed(
+                    apiError.type(), apiError.getMessage(), apiError.status() == 429 || apiError.status() >= 500);
             case HttpTimeoutException timeout -> new TurnEvent.Failed("turn_timeout", timeout.getMessage(), true);
             case InterruptedException ignored -> new TurnEvent.Failed("interrupted", "Turn was interrupted", false);
             case IOException ignored -> new TurnEvent.Failed("turn_failed", "The agent turn failed", true);

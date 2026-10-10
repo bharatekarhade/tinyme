@@ -131,8 +131,8 @@ class ManagedAgentSessionApiTests {
             assertThat(events).extracting(event -> event.path("id").stringValue())
                     .containsExactly("event-1", "event-2");
             assertThat(queries).hasSize(2);
-            assertThat(queries.getFirst()).contains("order=asc", "created_at%5Bgt%5D=2026-10-05T15%3A30%3A01Z");
-            assertThat(queries.get(1)).contains("order=asc", "created_at%5Bgt%5D=2026-10-05T15%3A30%3A01Z",
+            assertThat(queries.getFirst()).contains("order=asc", "created_at%5Bgte%5D=2026-10-05T15%3A30%3A01Z");
+            assertThat(queries.get(1)).contains("order=asc", "created_at%5Bgte%5D=2026-10-05T15%3A30%3A01Z",
                     "page=cursor%2F2");
         } finally {
             server.stop(0);
@@ -160,15 +160,46 @@ class ManagedAgentSessionApiTests {
     }
 
     @ParameterizedTest
-    @ValueSource(ints = {429, 503})
-    void sendEventsNeverRetriesStatusFailures(int status) throws Exception {
+    @ValueSource(ints = {400, 503})
+    void userMessageDoesNotRetryClientOrServerFailures(int status) throws Exception {
         HttpClient client = mock(HttpClient.class);
         doReturn(response(status, "{\"error\":{\"type\":\"overloaded_error\"}}", "application/json"))
                 .when(client).send(any(HttpRequest.class), any());
         var api = new ManagedAgentApi("test", BASE, client);
-        assertThatThrownBy(() -> api.sendEvents("sesn_test", List.of(Map.of("type", "user.interrupt"))))
+        assertThatThrownBy(() -> api.sendEvents("sesn_test", List.of(Map.of("type", "user.message"))))
                 .isInstanceOf(ManagedAgentApi.ApiException.class);
         verify(client).send(any(HttpRequest.class), any());
+    }
+
+    @Test
+    void retries429TwiceThenSucceedsWithBackoff() throws Exception {
+        HttpClient client = mock(HttpClient.class);
+        doReturn(response(429, "{\"error\":{\"type\":\"rate_limit_error\"}}", "application/json"),
+                response(429, "{\"error\":{\"type\":\"rate_limit_error\"}}", "application/json"),
+                response(204, "", "application/json"))
+                .when(client).send(any(HttpRequest.class), any());
+        var delays = new CopyOnWriteArrayList<Long>();
+        var api = new ManagedAgentApi("test", BASE, client, delays::add, () -> 0);
+
+        api.sendEvents("sesn_test", List.of(Map.of("type", "user.message")));
+
+        verify(client, times(3)).send(any(HttpRequest.class), any());
+        assertThat(delays).containsExactly(500L, 1000L);
+    }
+
+    @Test
+    void retriesServerFailureForCustomToolResult() throws Exception {
+        HttpClient client = mock(HttpClient.class);
+        doReturn(response(500, "{\"error\":{\"type\":\"api_error\"}}", "application/json"),
+                response(204, "", "application/json"))
+                .when(client).send(any(HttpRequest.class), any());
+        var delays = new CopyOnWriteArrayList<Long>();
+        var api = new ManagedAgentApi("test", BASE, client, delays::add, () -> 0);
+
+        api.sendEvents("sesn_test", List.of(Map.of("type", "user.custom_tool_result")));
+
+        verify(client, times(2)).send(any(HttpRequest.class), any());
+        assertThat(delays).containsExactly(500L);
     }
 
     @Test
@@ -176,7 +207,8 @@ class ManagedAgentSessionApiTests {
         HttpClient client = mock(HttpClient.class);
         doThrow(new IOException("connection lost after sending"))
                 .when(client).send(any(HttpRequest.class), any());
-        assertThatThrownBy(() -> new ManagedAgentApi("test", BASE, client).sendEvents("sesn_test", List.of()))
+        assertThatThrownBy(() -> new ManagedAgentApi("test", BASE, client).sendEvents("sesn_test",
+                List.of(Map.of("type", "user.message"))))
                 .isInstanceOf(IOException.class);
         verify(client).send(any(HttpRequest.class), any());
     }
