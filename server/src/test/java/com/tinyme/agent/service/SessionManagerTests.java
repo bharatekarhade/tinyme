@@ -38,8 +38,7 @@ import static org.mockito.ArgumentMatchers.anyMap;
 import static org.mockito.Mockito.*;
 
 @SpringBootTest(properties = {
-        "tinyme.agent.setup-enabled=false",
-        "tinyme.tools.allow-missing-handlers=true"
+        "tinyme.agent.setup-enabled=false"
 })
 @Import({AgentDatabaseConfiguration.class, SessionManagerTests.TimeConfiguration.class})
 class SessionManagerTests {

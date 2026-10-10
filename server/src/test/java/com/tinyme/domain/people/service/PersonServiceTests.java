@@ -21,8 +21,7 @@ import java.util.UUID;
 import static org.assertj.core.api.Assertions.assertThat;
 
 @SpringBootTest(properties = {
-        "tinyme.agent.setup-enabled=false",
-        "tinyme.tools.allow-missing-handlers=true"
+        "tinyme.agent.setup-enabled=false"
 })
 @Import(PersonServiceTests.DatabaseConfiguration.class)
 class PersonServiceTests {

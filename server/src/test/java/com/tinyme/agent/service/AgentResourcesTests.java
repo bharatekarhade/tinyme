@@ -15,8 +15,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 @SpringBootTest(properties = {
-        "tinyme.agent.setup-enabled=false",
-        "tinyme.tools.allow-missing-handlers=true"
+        "tinyme.agent.setup-enabled=false"
 })
 @Import(AgentDatabaseConfiguration.class)
 class AgentResourcesTests {
