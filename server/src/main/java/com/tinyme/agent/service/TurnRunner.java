@@ -26,6 +26,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.ArrayList;
 import java.util.Objects;
+import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
 
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.FutureTask;
@@ -38,16 +40,18 @@ public class TurnRunner {
     private final ContextPrefixBuilder contextPrefix;
     private final ManagedAgents api;
     private final ToolDispatcher dispatcher;
+    private final SessionTurnLock sessionTurnLock;
     private final MessageRepository messages;
     private final Clock clock;
     private final Duration timeout;
 
     TurnRunner(ContextPrefixBuilder contextPrefix, ManagedAgents api,
-               ToolDispatcher dispatcher, MessageRepository messages, Clock clock,
+               ToolDispatcher dispatcher, SessionTurnLock sessionTurnLock, MessageRepository messages, Clock clock,
                @Value("${tinyme.agent.turn-timeout:120s}") Duration timeout) {
         this.contextPrefix = contextPrefix;
         this.api = api;
         this.dispatcher = dispatcher;
+        this.sessionTurnLock = sessionTurnLock;
         this.messages = messages;
         this.clock = clock;
         if (timeout.isZero() || timeout.isNegative()) {
@@ -67,11 +71,18 @@ public class TurnRunner {
         var task = new FutureTask<>(() -> execute(request, listener, state));
         Thread.ofVirtual().name("tinyme-turn").start(task);
         try {
+            state.lockAcquiredSignal.get(timeout.toNanos(), TimeUnit.NANOSECONDS);
             return task.get(timeout.toNanos(), TimeUnit.NANOSECONDS);
         } catch (TimeoutException expired) {
+            if (!state.lockAcquired) {
+                var busy = new IOException("Another message is still being answered");
+                cancel(task, state, busy);
+                listener.on(new TurnEvent.Failed("busy", busy.getMessage(), true));
+                throw busy;
+            }
             var failure = new HttpTimeoutException("Managed Agents turn timed out after " + timeout);
             cancel(task, state, failure);
-            if (state.session != null) {
+            if (state.session != null && state.lockAcquired) {
                 try {
                     api.sendEvents(state.session.anthropicSessionId(), List.of(Map.of("type", "user.interrupt")));
                 } catch (IOException | RuntimeException interruptFailure) {
@@ -100,6 +111,22 @@ public class TurnRunner {
     }
 
     private TurnResult execute(TurnRequest request, TurnListener listener, TurnState state)
+            throws IOException, InterruptedException {
+        UUID sessionRowId = request.session().sessionRowId();
+        boolean acquired = sessionTurnLock.acquire(sessionRowId, timeout);
+        state.lockAcquired = acquired;
+        state.lockAcquiredSignal.complete(acquired);
+        if (!acquired) {
+            throw new TurnFailure("busy", "Another message is still being answered", true);
+        }
+        try {
+            return executeLocked(request, listener, state);
+        } finally {
+            sessionTurnLock.release(sessionRowId);
+        }
+    }
+
+    private TurnResult executeLocked(TurnRequest request, TurnListener listener, TurnState state)
             throws IOException, InterruptedException {
         var session = request.session();
         var text = request.text();
@@ -253,6 +280,8 @@ public class TurnRunner {
         volatile SessionRef session;
         volatile EventStream stream;
         volatile boolean cancelled;
+        volatile boolean lockAcquired;
+        final CompletableFuture<Boolean> lockAcquiredSignal = new CompletableFuture<>();
 
         void checkCancelled() throws InterruptedException {
             if (cancelled || Thread.currentThread().isInterrupted()) {

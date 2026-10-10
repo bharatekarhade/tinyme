@@ -52,19 +52,20 @@ class TurnRunnerTests {
     private final ContextPrefixBuilder prefix = mock(ContextPrefixBuilder.class);
     private final ManagedAgents api = mock(ManagedAgents.class);
     private final ToolDispatcher dispatcher = mock(ToolDispatcher.class);
+    private final SessionTurnLock sessionTurnLock = new SessionTurnLock();
     private final MessageRepository messages = mock(MessageRepository.class);
     private final SessionRef session = new SessionRef(UUID.randomUUID(), "sesn_test");
     private static final UUID USER_MESSAGE_ID = UUID.fromString("5d589013-d823-4d72-aa14-3888c191872c");
 
     private TurnRunner runner(Duration timeout) throws Exception {
         when(prefix.build(ZONE)).thenReturn("[context]\ntz: Asia/Tokyo\n[/context]");
-        return new TurnRunner(prefix, api, dispatcher, messages,
+        return new TurnRunner(prefix, api, dispatcher, sessionTurnLock, messages,
                 Clock.fixed(NOW, ZoneOffset.UTC), timeout);
     }
 
     private TurnRunner runner(Duration timeout, ManagedAgents agents) throws Exception {
         when(prefix.build(ZONE)).thenReturn("[context]\ntz: Asia/Tokyo\n[/context]");
-        return new TurnRunner(prefix, agents, dispatcher, messages,
+        return new TurnRunner(prefix, agents, dispatcher, sessionTurnLock, messages,
                 Clock.fixed(NOW, ZoneOffset.UTC), timeout);
     }
 
@@ -170,6 +171,62 @@ class TurnRunnerTests {
                 eq(expectedReply.toString()), anyList());
         assertThat(fake.sentEvents()).anySatisfy(batch -> assertThat(batch.getFirst())
                 .doesNotContainKey("client_msg_id"));
+    }
+
+    @Test
+    void serializesTwoTurnsOnTheSameSessionUntilFirstEndTurn() throws Exception {
+        var firstMessageSent = new CountDownLatch(1);
+        var continueFirstTurn = new CountDownLatch(1);
+        var firstAssistantSaved = new CountDownLatch(1);
+        String reply = "{\"type\":\"agent.message\",\"id\":\"reply\",\"content\":[{\"type\":\"text\",\"text\":\"done\"}]}";
+        List<String> fixture = List.of(
+                JSON.writeValueAsString(JSON.readTree(reply)),
+                JSON.writeValueAsString(JSON.readTree(END)));
+        var fake = new FakeManagedAgents(fixture, () -> {
+            firstMessageSent.countDown();
+            try {
+                if (!continueFirstTurn.await(3, TimeUnit.SECONDS)) throw new IllegalStateException("test gate timed out");
+            } catch (InterruptedException interrupted) {
+                Thread.currentThread().interrupt();
+                throw new IllegalStateException(interrupted);
+            }
+        }, openNumber -> {
+            if (openNumber == 2) assertThat(firstAssistantSaved.getCount()).isZero();
+        });
+        doAnswer(call -> {
+            firstAssistantSaved.countDown();
+            return UUID.randomUUID();
+        }).when(messages).insert(eq(session.sessionRowId()), eq(MessageRole.ASSISTANT), anyString(), anyList());
+        var runner = runner(Duration.ofSeconds(5), fake);
+        var first = new java.util.concurrent.FutureTask<>(() -> runner.run(request("first"), TurnListener.NONE));
+        Thread.ofVirtual().start(first);
+        assertThat(firstMessageSent.await(2, TimeUnit.SECONDS)).isTrue();
+
+        var second = new java.util.concurrent.FutureTask<>(() -> runner.run(
+                new TurnRequest(session, UUID.randomUUID(), "second", ZONE), TurnListener.NONE));
+        Thread.ofVirtual().start(second);
+        assertThat(fake.openCount()).isEqualTo(1);
+
+        continueFirstTurn.countDown();
+        assertThat(first.get(3, TimeUnit.SECONDS).replyText()).isEqualTo("done");
+        assertThat(second.get(3, TimeUnit.SECONDS).replyText()).isEqualTo("done");
+        assertThat(fake.openCount()).isEqualTo(2);
+    }
+
+    @Test
+    void emitsBusyWhenSessionLockCannotBeAcquiredWithinTurnTimeout() throws Exception {
+        assertThat(sessionTurnLock.acquire(session.sessionRowId(), Duration.ZERO)).isTrue();
+        var observed = new ArrayList<TurnEvent>();
+        try {
+            var runner = runner(Duration.ofMillis(200));
+            assertThatThrownBy(() -> runner.run(request("hello"), observed::add))
+                    .isInstanceOf(IOException.class).hasMessage("Another message is still being answered");
+            assertThat(observed).containsExactly(new TurnEvent.Failed(
+                    "busy", "Another message is still being answered", true));
+            verifyNoInteractions(api);
+        } finally {
+            sessionTurnLock.release(session.sessionRowId());
+        }
     }
 
     @ParameterizedTest
