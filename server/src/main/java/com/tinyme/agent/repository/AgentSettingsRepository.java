@@ -6,6 +6,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 @Repository
 public class AgentSettingsRepository {
@@ -21,5 +22,16 @@ public class AgentSettingsRepository {
         settings.findAllById(List.of("env.default", "agent.chat", "memory.main"))
                 .forEach(setting -> values.put(setting.getKey(), setting.getValue()));
         return values;
+    }
+
+    @Transactional(readOnly = true)
+    public Optional<String> userTimezone() {
+        return settings.findById("user.tz")
+                .map(setting -> {
+                    if (!(setting.getValue() instanceof String timezone) || timezone.isBlank()) {
+                        throw new IllegalStateException("Setting user.tz must be a non-empty JSON string");
+                    }
+                    return timezone;
+                });
     }
 }

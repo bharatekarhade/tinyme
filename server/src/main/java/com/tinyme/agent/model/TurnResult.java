@@ -1,3 +1,9 @@
 package com.tinyme.agent.model;
 
-public record TurnResult(String replyText, int toolCalls) {}
+import java.util.UUID;
+
+public record TurnResult(String replyText, int toolCalls, UUID assistantMessageId) {
+    public TurnResult(String replyText, int toolCalls) {
+        this(replyText, toolCalls, null);
+    }
+}

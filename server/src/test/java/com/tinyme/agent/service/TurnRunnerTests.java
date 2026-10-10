@@ -162,12 +162,15 @@ class TurnRunnerTests {
         }
         var fake = new FakeManagedAgents(frames);
         var runner = runner(Duration.ofSeconds(5), fake);
+        UUID assistantMessageId = UUID.randomUUID();
         when(dispatcher.dispatch(anyString(), eq("entries_add"), any(), any()))
                 .thenReturn(new DispatchOutcome("{\"ok\":true,\"summary\":\"Logged drink\"}", false));
+        when(messages.insert(eq(session.sessionRowId()), eq(MessageRole.ASSISTANT),
+                anyString(), anyList())).thenReturn(assistantMessageId);
 
         var observed = new ArrayList<TurnEvent>();
         assertThat(runner.run(request("had a coffee"), observed::add))
-                .isEqualTo(new TurnResult(expectedReply.toString(), 1));
+                .isEqualTo(new TurnResult(expectedReply.toString(), 1, assistantMessageId));
         assertThat(expectedReply).isNotEmpty();
         assertThat(observed).hasSize(2);
         assertThat(observed.get(0)).isInstanceOf(TurnEvent.ActionDone.class)

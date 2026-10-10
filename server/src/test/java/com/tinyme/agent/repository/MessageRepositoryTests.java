@@ -86,6 +86,16 @@ class MessageRepositoryTests {
     }
 
     @Test
+    void duplicateClientMessageIdReturnsExistingMessageId() {
+        UUID clientMessageId = UUID.randomUUID();
+        UUID existingId = messages.insertUser(sessionId, clientMessageId, "had a coffee");
+
+        assertThatThrownBy(() -> messages.insertUser(sessionId, clientMessageId, "had a beer"))
+                .isInstanceOfSatisfying(MessageRepository.DuplicateMessage.class,
+                        duplicate -> assertThat(duplicate.existingId()).isEqualTo(existingId));
+    }
+
+    @Test
     void databaseRoleCheckRejectsUnknownRoles() {
         assertThatThrownBy(() -> jdbc.update("""
                 INSERT INTO messages (session_id, role, content) VALUES (?, 'SYSTEM', 'invalid role')

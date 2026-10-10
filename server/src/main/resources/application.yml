@@ -1,6 +1,9 @@
 spring:
   application:
     name: tinyme-server
+  threads:
+    virtual:
+      enabled: true
   config:
     # Support IntelliJ from the project root and Maven from server/.
     import:

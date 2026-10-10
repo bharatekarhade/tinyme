@@ -8,4 +8,5 @@ import java.util.List;
 
 interface MessageJpaRepository extends JpaRepository<MessageEntity, UUID> {
     List<MessageEntity> findBySession_IdOrderByCreatedAtAsc(UUID sessionId);
+    java.util.Optional<MessageEntity> findByClientMessageId(UUID clientMessageId);
 }

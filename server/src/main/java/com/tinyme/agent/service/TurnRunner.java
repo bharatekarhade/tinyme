@@ -200,21 +200,23 @@ public class TurnRunner {
                     case "session.status_idle" -> {
                         String reason = requiredText(event.path("stop_reason"), "type");
                         if (reason.equals("end_turn")) {
+                            UUID assistantMessageId = null;
                             if (!reply.isEmpty() || !actions.isEmpty()) {
-                                messages.insert(session.sessionRowId(), MessageRole.ASSISTANT,
+                                assistantMessageId = messages.insert(session.sessionRowId(), MessageRole.ASSISTANT,
                                         reply.toString(), actions);
                             }
-                            return new TurnResult(reply.toString(), toolCalls);
+                            return new TurnResult(reply.toString(), toolCalls, assistantMessageId);
                         }
                         if (reason.equals("requires_action")) continue;
                         if (reason.equals("budget_reached")) {
+                            UUID assistantMessageId = null;
                             if (!reply.isEmpty() || !actions.isEmpty()) {
-                                messages.insert(session.sessionRowId(), MessageRole.ASSISTANT,
+                                assistantMessageId = messages.insert(session.sessionRowId(), MessageRole.ASSISTANT,
                                         reply.toString(), actions);
                             }
                             listener.on(new TurnEvent.Failed(
                                     "budget_reached", "Today's session hit its budget", false));
-                            return new TurnResult(reply.toString(), toolCalls);
+                            return new TurnResult(reply.toString(), toolCalls, assistantMessageId);
                         }
                         throw new TurnFailure("unexpected_stop", reason, true);
                     }
