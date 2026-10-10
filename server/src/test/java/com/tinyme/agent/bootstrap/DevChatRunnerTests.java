@@ -44,7 +44,7 @@ class DevChatRunnerTests {
     @Test
     void joinsMessageArgumentsPrintsReplyAndCloses(CapturedOutput output) throws Exception {
         var zone = ZoneId.of("Asia/Tokyo");
-        when(turns.run(any(TurnRequest.class), eq(TurnListener.NONE)))
+        when(turns.run(any(TurnRequest.class), any(TurnListener.class)))
                 .thenReturn(new TurnResult("Logged coffee, 1 today.", 1));
 
         runner(zone.getId()).run("had", "a", "coffee", "--tinyme.dev.zone=Asia/Tokyo");
@@ -61,7 +61,7 @@ class DevChatRunnerTests {
 
     @Test
     void defaultsToTheComputersTimezoneAndAcceptsAQuotedMessage() throws Exception {
-        when(turns.run(any(TurnRequest.class), eq(TurnListener.NONE))).thenReturn(new TurnResult("Done", 0));
+        when(turns.run(any(TurnRequest.class), any(TurnListener.class))).thenReturn(new TurnResult("Done", 0));
 
         runner("").run("had a coffee");
 
@@ -101,7 +101,7 @@ class DevChatRunnerTests {
         when(sessions.todaySession(zone)).thenReturn(session);
         when(messages.insertUser(eq(session.sessionRowId()), any(UUID.class), anyString()))
                 .thenReturn(USER_MESSAGE_ROW_ID);
-        when(turns.run(any(TurnRequest.class), eq(TurnListener.NONE)))
+        when(turns.run(any(TurnRequest.class), any(TurnListener.class)))
                 .thenReturn(new TurnResult("Logged from dev.", 1));
         var application = new SpringApplication(DevChatRunner.class);
         application.setRegisterShutdownHook(false);
@@ -120,8 +120,8 @@ class DevChatRunnerTests {
             var clientMessageId = org.mockito.ArgumentCaptor.forClass(UUID.class);
             order.verify(messages).insertUser(eq(session.sessionRowId()), clientMessageId.capture(), eq("had a coffee"));
             assertThat(clientMessageId.getValue()).isNotEqualTo(USER_MESSAGE_ROW_ID);
-            order.verify(turns).run(new TurnRequest(session, USER_MESSAGE_ROW_ID, "had a coffee", zone),
-                    TurnListener.NONE);
+            order.verify(turns).run(eq(new TurnRequest(session, USER_MESSAGE_ROW_ID, "had a coffee", zone)),
+                    any(TurnListener.class));
             assertThat(started.isActive()).isFalse();
             assertThat(started.getEnvironment().getProperty("spring.main.web-application-type")).isEqualTo("none");
             assertThat(output.getOut()).contains("Logged from dev.");
@@ -130,7 +130,7 @@ class DevChatRunnerTests {
 
     private TurnRequest captureRequest(String text, ZoneId zone) throws IOException, InterruptedException {
         var captor = org.mockito.ArgumentCaptor.forClass(TurnRequest.class);
-        verify(turns).run(captor.capture(), eq(TurnListener.NONE));
+        verify(turns).run(captor.capture(), any(TurnListener.class));
         assertThat(captor.getValue().session()).isEqualTo(session);
         assertThat(captor.getValue().userMessageId()).isEqualTo(USER_MESSAGE_ROW_ID);
         assertThat(captor.getValue().text()).isEqualTo(text);
