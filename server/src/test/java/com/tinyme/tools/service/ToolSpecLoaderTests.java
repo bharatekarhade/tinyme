@@ -28,6 +28,15 @@ class ToolSpecLoaderTests {
         assertThat(specs.get("people_get").inputSchema().get("additionalProperties").booleanValue()).isFalse();
         assertThat(specs.get("people_get").inputSchema().get("properties").get("query").get("maxLength").intValue())
                 .isEqualTo(80);
+        JsonNode upsert = specs.get("people_upsert").inputSchema();
+        assertThat(upsert.get("additionalProperties").booleanValue()).isFalse();
+        assertThat(upsert.get("properties").get("slug").get("pattern").stringValue())
+                .isEqualTo("^[a-z0-9-]{1,48}$");
+        assertThat(upsert.get("properties").get("display_name").get("maxLength").intValue()).isEqualTo(80);
+        assertThat(upsert.get("properties").get("aliases").get("maxItems").intValue()).isEqualTo(8);
+        assertThat(upsert.get("properties").get("aliases").get("items").get("maxLength").intValue())
+                .isEqualTo(40);
+        assertThat(upsert.get("properties").get("relationship").get("maxLength").intValue()).isEqualTo(80);
     }
 
     @Test

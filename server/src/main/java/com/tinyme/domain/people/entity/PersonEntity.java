@@ -13,6 +13,7 @@ import org.hibernate.type.SqlTypes;
 
 import java.time.Instant;
 import java.util.Arrays;
+import java.util.List;
 import java.util.UUID;
 
 @Entity
@@ -51,6 +52,14 @@ public class PersonEntity {
     private Instant deletedAt;
 
     protected PersonEntity() {
+    }
+
+    public PersonEntity(String slug, String displayName, String[] aliases, String relationship, String memoryPath) {
+        this.slug = slug;
+        this.displayName = displayName;
+        this.aliases = aliases.clone();
+        this.relationship = relationship;
+        this.memoryPath = memoryPath;
     }
 
     public UUID getId() {

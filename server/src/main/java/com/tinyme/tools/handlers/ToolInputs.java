@@ -12,6 +12,8 @@ import java.time.OffsetDateTime;
 import java.time.format.DateTimeParseException;
 import java.time.temporal.ChronoUnit;
 import java.util.Map;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.UUID;
 
 final class ToolInputs {
@@ -96,6 +98,18 @@ final class ToolInputs {
         if (value == null || value.isNull()) return null;
         if (!value.isObject()) throw new IllegalArgumentException(key + " must be an object");
         return JSON.convertValue(value, MAP_TYPE);
+    }
+
+    static List<String> optionalStringList(JsonNode input, String key) {
+        JsonNode value = value(input, key);
+        if (value == null || value.isNull()) return null;
+        if (!value.isArray()) throw new IllegalArgumentException(key + " must be an array of strings");
+        List<String> result = new ArrayList<>(value.size());
+        for (JsonNode item : value) {
+            if (!item.isString()) throw new IllegalArgumentException(key + " must contain only strings");
+            result.add(item.stringValue());
+        }
+        return List.copyOf(result);
     }
 
     private static JsonNode value(JsonNode input, String key) {

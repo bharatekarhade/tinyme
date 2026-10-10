@@ -39,6 +39,17 @@ class ToolInputsTests {
     }
 
     @Test
+    void optionalStringListReadsStringArraysAndRejectsOtherValues() {
+        var input = JSON.readTree("{\"aliases\":[\"Ken\",\"Kenny\"]}");
+
+        assertThat(ToolInputs.optionalStringList(input, "aliases")).containsExactly("Ken", "Kenny");
+        assertThat(ToolInputs.optionalStringList(JSON.readTree("{}"), "aliases")).isNull();
+        assertThatThrownBy(() -> ToolInputs.optionalStringList(JSON.readTree("{\"aliases\":[\"Ken\",1]}"),
+                "aliases")).isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("aliases must contain only strings");
+    }
+
+    @Test
     void requiredValuesAndInvalidTypesHaveClearErrors() {
         var input = JSON.readTree("{\"id\":\"not-a-uuid\",\"date\":\"yesterday\",\"count\":1.5}");
 

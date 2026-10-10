@@ -4,6 +4,7 @@ import com.tinyme.domain.people.entity.PersonEntity;
 import com.tinyme.domain.people.model.PersonSnapshot;
 import com.tinyme.domain.people.model.get.PeopleLookup;
 import com.tinyme.domain.people.model.get.PersonCandidate;
+import com.tinyme.domain.people.model.upsert.PersonUpsert;
 import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 import org.springframework.stereotype.Repository;
@@ -33,13 +34,42 @@ public class PersonRepository {
     }
 
     @Transactional(readOnly = true)
-    public Optional<PersonSnapshot> findBySlug(String slug) {
+    public Optional<PersonSnapshot> findLiveBySlug(String slug) {
         return people.findBySlugAndDeletedAtIsNull(slug).map(PersonRepository::snapshot);
     }
 
     @Transactional(readOnly = true)
     public boolean existsBySlug(String slug) {
         return people.existsBySlug(slug);
+    }
+
+    @Transactional(readOnly = true)
+    public List<PersonSnapshot> findLiveByDisplayName(String displayName) {
+        return people.findAllByDisplayNameIgnoreCaseAndDeletedAtIsNullOrderBySlugAsc(displayName).stream()
+                .map(PersonRepository::snapshot)
+                .toList();
+    }
+
+    @Transactional(readOnly = true)
+    public List<String> takenSlugs(String base) {
+        return people.findTakenSlugs(base);
+    }
+
+    @Transactional
+    public PersonSnapshot insert(PersonUpsert command, String slug) {
+        PersonEntity person = new PersonEntity(slug, command.displayName(), command.aliases().toArray(String[]::new),
+                command.relationship(), "people/" + slug + ".md");
+        return snapshot(people.save(person));
+    }
+
+    @Transactional
+    public Optional<PersonSnapshot> update(String slug, String displayName, List<String> aliases, String relationship) {
+        return people.findBySlugAndDeletedAtIsNull(slug).map(person -> {
+            person.setDisplayName(displayName);
+            person.setAliases(aliases.toArray(String[]::new));
+            person.setRelationship(relationship);
+            return snapshot(person);
+        });
     }
 
     @Transactional(readOnly = true)

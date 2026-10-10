@@ -161,15 +161,17 @@ tools:
       Create a person, or update their name, nicknames or relationship (pass slug to
       update). Use relationship to tell people with the same name apart ("friend from
       work" vs "cousin"). Facts and stories do NOT go here: write those to the memory
-      file at the returned memory_path. Returns slug and memory_path.
+      file at the returned memory_path. Aliases are added to the existing ones. Returns
+      slug and memory_path.
     input_schema:
       type: object
       required: [display_name]
+      additionalProperties: false
       properties:
-        slug:         { type: string, description: "Existing slug to update; omit to create" }
-        display_name: { type: string }
-        aliases:      { type: array, items: { type: string } }
-        relationship: { type: string }
+        slug:         { type: string, pattern: "^[a-z0-9-]{1,48}$", description: "Existing slug to update; omit to create" }
+        display_name: { type: string, minLength: 1, maxLength: 80 }
+        aliases:      { type: array, maxItems: 8, items: { type: string, maxLength: 40 } }
+        relationship: { type: string, maxLength: 80 }
 
   # Deferred until handlers exist and place search is decided.
   #   # ── Photos ─────────────────────────────────────────────────────────────

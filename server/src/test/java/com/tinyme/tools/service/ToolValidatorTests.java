@@ -49,6 +49,21 @@ class ToolValidatorTests {
     }
 
     @Test
+    void validatesPeopleUpsertLimitsAndSlugPattern() throws Exception {
+        ToolValidator validator = new ToolValidator(new ToolSpecLoader());
+
+        assertThat(validator.validate("people_upsert", YAML.readTree("""
+                display_name: Kenji
+                aliases: [Ken]
+                relationship: friend from work
+                """))).isEmpty();
+        assertThat(validator.validate("people_upsert", YAML.readTree("{display_name: Kenji, extra: true}")))
+                .anySatisfy(message -> assertThat(message).contains("extra"));
+        assertThat(validator.validate("people_upsert", YAML.readTree("{display_name: Kenji, slug: KENJI}")))
+                .anySatisfy(message -> assertThat(message).contains("pattern"));
+    }
+
+    @Test
     void acceptsValidInputAndDoesNotApplySchemaDefaults() throws Exception {
         JsonNode schema = YAML.readTree("""
                 type: object
