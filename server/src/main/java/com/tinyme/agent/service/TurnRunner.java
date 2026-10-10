@@ -33,6 +33,7 @@ import java.util.concurrent.ExecutionException;
 import java.util.concurrent.FutureTask;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
+import java.util.function.Consumer;
 
 @Service
 public class TurnRunner {
@@ -70,14 +71,20 @@ public class TurnRunner {
     }
 
     public TurnResult run(TurnRequest request, TurnListener listener) throws IOException, InterruptedException {
+        return run(request, listener, ignored -> { });
+    }
+
+    public TurnResult run(TurnRequest request, TurnListener listener, Consumer<JsonNode> rawEventObserver)
+            throws IOException, InterruptedException {
         Objects.requireNonNull(request, "request");
         Objects.requireNonNull(listener, "listener");
+        Objects.requireNonNull(rawEventObserver, "rawEventObserver");
         if (request.text().isBlank()) throw new IllegalArgumentException("Message text must not be blank");
 
         // A separate worker lets the deadline cancel even a blocked HTTP call or SSE read.
         var state = new TurnState();
         state.session = request.session();
-        var task = new FutureTask<>(() -> execute(request, listener, state));
+        var task = new FutureTask<>(() -> execute(request, listener, rawEventObserver, state));
         Thread.ofVirtual().name("tinyme-turn").start(task);
         try {
             state.lockAcquiredSignal.get(timeout.toNanos(), TimeUnit.NANOSECONDS);
@@ -119,7 +126,8 @@ public class TurnRunner {
         }
     }
 
-    private TurnResult execute(TurnRequest request, TurnListener listener, TurnState state)
+    private TurnResult execute(TurnRequest request, TurnListener listener, Consumer<JsonNode> rawEventObserver,
+                               TurnState state)
             throws IOException, InterruptedException {
         UUID sessionRowId = request.session().sessionRowId();
         boolean acquired = sessionTurnLock.acquire(sessionRowId, timeout);
@@ -129,13 +137,14 @@ public class TurnRunner {
             throw new TurnFailure("busy", "Another message is still being answered", true);
         }
         try {
-            return executeLocked(request, listener, state);
+            return executeLocked(request, listener, rawEventObserver, state);
         } finally {
             sessionTurnLock.release(sessionRowId);
         }
     }
 
-    private TurnResult executeLocked(TurnRequest request, TurnListener listener, TurnState state)
+    private TurnResult executeLocked(TurnRequest request, TurnListener listener, Consumer<JsonNode> rawEventObserver,
+                                     TurnState state)
             throws IOException, InterruptedException {
         var session = request.session();
         var text = request.text();
@@ -145,7 +154,7 @@ public class TurnRunner {
         var context = new ToolContext(session.sessionRowId(), null, zone, LocalDate.ofInstant(now, zone), now);
         String prefix = contextPrefix.build(zone);
         state.checkCancelled();
-        try (var source = new ResilientEventSource(api, session.anthropicSessionId(), reconnectSleeper)) {
+        try (var source = new ResilientEventSource(api, session.anthropicSessionId(), reconnectSleeper, rawEventObserver)) {
             state.source = source;
             source.beginTurn(now);
             state.checkCancelled();

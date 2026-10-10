@@ -1,0 +1,9 @@
+[
+  {"id":"two-tools-user","processed_at":"2026-10-10T03:00:00Z","type":"user.message","content":[{"type":"text","text":"had a coffee and a beer"}]},
+  {"id":"two-tools-coffee","processed_at":"2026-10-10T03:00:01Z","type":"agent.custom_tool_use","name":"entries_add","input":{"kind":"drink","data":{"type":"coffee"}}},
+  {"id":"two-tools-coffee-result","processed_at":"2026-10-10T03:00:02Z","type":"user.custom_tool_result","custom_tool_use_id":"two-tools-coffee","is_error":false,"content":[{"type":"text","text":"fixture result"}]},
+  {"id":"two-tools-beer","processed_at":"2026-10-10T03:00:03Z","type":"agent.custom_tool_use","name":"entries_add","input":{"kind":"drink","data":{"type":"beer"}}},
+  {"id":"two-tools-beer-result","processed_at":"2026-10-10T03:00:04Z","type":"user.custom_tool_result","custom_tool_use_id":"two-tools-beer","is_error":false,"content":[{"type":"text","text":"fixture result"}]},
+  {"id":"two-tools-reply","processed_at":"2026-10-10T03:00:05Z","type":"agent.message","content":[{"type":"text","text":"Logged a coffee and a beer."}]},
+  {"id":"two-tools-end","processed_at":"2026-10-10T03:00:06Z","type":"session.status_idle","stop_reason":{"type":"end_turn"}}
+]

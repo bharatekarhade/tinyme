@@ -181,6 +181,26 @@ class TurnRunnerTests {
     }
 
     @Test
+    void replaysTheTurnScenarioFixturesThroughTheLoop() throws Exception {
+        Map<String, Integer> toolCounts = Map.of(
+                "two-tools-one-message", 2,
+                "query-then-update", 2,
+                "no-tool-reply", 0,
+                "people-upsert", 1);
+        when(dispatcher.dispatch(anyString(), anyString(), any(), any())).thenAnswer(invocation ->
+                new DispatchOutcome("{\"ok\":true,\"summary\":\"fixture action\"}", false));
+
+        for (var fixture : toolCounts.entrySet()) {
+            var fake = FakeManagedAgents.fromResource(getClass(), "/streams/" + fixture.getKey() + ".json").build();
+            var result = runner(Duration.ofSeconds(5), fake).run(request("fixture prompt"), TurnListener.NONE);
+            assertThat(result.toolCalls()).as(fixture.getKey()).isEqualTo(fixture.getValue());
+            assertThat(result.replyText()).as(fixture.getKey()).isNotBlank();
+        }
+        verify(dispatcher, times(toolCounts.values().stream().mapToInt(Integer::intValue).sum()))
+                .dispatch(anyString(), anyString(), any(), any());
+    }
+
+    @Test
     void serializesTwoTurnsOnTheSameSessionUntilFirstEndTurn() throws Exception {
         var firstMessageSent = new CountDownLatch(1);
         var continueFirstTurn = new CountDownLatch(1);

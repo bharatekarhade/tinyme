@@ -8,6 +8,7 @@ import com.tinyme.agent.service.TurnListener;
 import com.tinyme.agent.repository.MessageRepository;
 import com.tinyme.agent.model.TurnResult;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
@@ -16,8 +17,13 @@ import org.springframework.boot.test.system.OutputCaptureExtension;
 import org.springframework.context.ConfigurableApplicationContext;
 
 import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.time.ZoneId;
 import java.util.UUID;
+import java.util.function.Consumer;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.json.JsonMapper;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -27,6 +33,7 @@ import static org.mockito.Mockito.*;
 
 @ExtendWith(OutputCaptureExtension.class)
 class DevChatRunnerTests {
+    private static final JsonMapper JSON = JsonMapper.builder().build();
     private final TurnRunner turns = mock(TurnRunner.class);
     private final SessionManager sessions = mock(SessionManager.class);
     private final MessageRepository messages = mock(MessageRepository.class);
@@ -34,17 +41,20 @@ class DevChatRunnerTests {
     private final SessionRef session = new SessionRef(UUID.randomUUID(), "sesn_test");
     private static final UUID USER_MESSAGE_ROW_ID = UUID.fromString("29228cb9-f347-4230-a9d3-04f8ad69a862");
 
+    @TempDir
+    Path tempDir;
+
     private DevChatRunner runner(String zone) throws Exception {
         when(sessions.todaySession(any())).thenReturn(session);
         when(messages.insertUser(eq(session.sessionRowId()), any(UUID.class), anyString()))
                 .thenReturn(USER_MESSAGE_ROW_ID);
-        return new DevChatRunner(turns, sessions, messages, context, zone);
+        return new DevChatRunner(turns, sessions, messages, context, zone, "");
     }
 
     @Test
     void joinsMessageArgumentsPrintsReplyAndCloses(CapturedOutput output) throws Exception {
         var zone = ZoneId.of("Asia/Tokyo");
-        when(turns.run(any(TurnRequest.class), any(TurnListener.class)))
+        when(turns.run(any(TurnRequest.class), any(TurnListener.class), any()))
                 .thenReturn(new TurnResult("Logged coffee, 1 today.", 1));
 
         runner(zone.getId()).run("had", "a", "coffee", "--tinyme.dev.zone=Asia/Tokyo");
@@ -61,7 +71,7 @@ class DevChatRunnerTests {
 
     @Test
     void defaultsToTheComputersTimezoneAndAcceptsAQuotedMessage() throws Exception {
-        when(turns.run(any(TurnRequest.class), any(TurnListener.class))).thenReturn(new TurnResult("Done", 0));
+        when(turns.run(any(TurnRequest.class), any(TurnListener.class), any())).thenReturn(new TurnResult("Done", 0));
 
         runner("").run("had a coffee");
 
@@ -81,11 +91,30 @@ class DevChatRunnerTests {
     @Test
     void turnFailurePropagatesAndCloses() throws Exception {
         var failure = new IOException("Turn failed");
-        when(turns.run(any(TurnRequest.class), any(TurnListener.class))).thenThrow(failure);
+        when(turns.run(any(TurnRequest.class), any(TurnListener.class), any())).thenThrow(failure);
 
         assertThatThrownBy(() -> runner("UTC").run("hello"))
                 .isSameAs(failure);
         verify(context).close();
+    }
+
+    @Test
+    void writesRawEventCaptureWhenConfigured() throws Exception {
+        Path capture = tempDir.resolve("capture.json");
+        when(sessions.todaySession(any())).thenReturn(session);
+        when(messages.insertUser(eq(session.sessionRowId()), any(UUID.class), anyString()))
+                .thenReturn(USER_MESSAGE_ROW_ID);
+        when(turns.run(any(TurnRequest.class), any(TurnListener.class), any())).thenAnswer(invocation -> {
+            Consumer<JsonNode> observer = invocation.getArgument(2);
+            observer.accept(JSON.readTree("{\"id\":\"event-1\",\"type\":\"agent.message\"}"));
+            return new TurnResult("Done", 0);
+        });
+
+        new DevChatRunner(turns, sessions, messages, context, "UTC", capture.toString()).run("hello");
+
+        JsonNode captured = JSON.readTree(Files.readString(capture));
+        assertThat(captured).hasSize(1);
+        assertThat(captured.get(0).path("id").asString()).isEqualTo("event-1");
     }
 
     @Test
@@ -101,7 +130,7 @@ class DevChatRunnerTests {
         when(sessions.todaySession(zone)).thenReturn(session);
         when(messages.insertUser(eq(session.sessionRowId()), any(UUID.class), anyString()))
                 .thenReturn(USER_MESSAGE_ROW_ID);
-        when(turns.run(any(TurnRequest.class), any(TurnListener.class)))
+        when(turns.run(any(TurnRequest.class), any(TurnListener.class), any()))
                 .thenReturn(new TurnResult("Logged from dev.", 1));
         var application = new SpringApplication(DevChatRunner.class);
         application.setRegisterShutdownHook(false);
@@ -121,7 +150,7 @@ class DevChatRunnerTests {
             order.verify(messages).insertUser(eq(session.sessionRowId()), clientMessageId.capture(), eq("had a coffee"));
             assertThat(clientMessageId.getValue()).isNotEqualTo(USER_MESSAGE_ROW_ID);
             order.verify(turns).run(eq(new TurnRequest(session, USER_MESSAGE_ROW_ID, "had a coffee", zone)),
-                    any(TurnListener.class));
+                    any(TurnListener.class), any());
             assertThat(started.isActive()).isFalse();
             assertThat(started.getEnvironment().getProperty("spring.main.web-application-type")).isEqualTo("none");
             assertThat(output.getOut()).contains("Logged from dev.");
@@ -130,7 +159,7 @@ class DevChatRunnerTests {
 
     private TurnRequest captureRequest(String text, ZoneId zone) throws IOException, InterruptedException {
         var captor = org.mockito.ArgumentCaptor.forClass(TurnRequest.class);
-        verify(turns).run(captor.capture(), any(TurnListener.class));
+        verify(turns).run(captor.capture(), any(TurnListener.class), any());
         assertThat(captor.getValue().session()).isEqualTo(session);
         assertThat(captor.getValue().userMessageId()).isEqualTo(USER_MESSAGE_ROW_ID);
         assertThat(captor.getValue().text()).isEqualTo(text);

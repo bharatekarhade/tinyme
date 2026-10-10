@@ -1,0 +1,5 @@
+[
+  {"id":"no-tool-user","processed_at":"2026-10-10T05:00:00Z","type":"user.message","content":[{"type":"text","text":"hi"}]},
+  {"id":"no-tool-reply","processed_at":"2026-10-10T05:00:01Z","type":"agent.message","content":[{"type":"text","text":"Hi! What would you like to note?"}]},
+  {"id":"no-tool-end","processed_at":"2026-10-10T05:00:02Z","type":"session.status_idle","stop_reason":{"type":"end_turn"}}
+]

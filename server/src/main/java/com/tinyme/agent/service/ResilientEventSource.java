@@ -14,6 +14,7 @@ import java.util.List;
 import java.util.Objects;
 import java.util.Queue;
 import java.util.Set;
+import java.util.function.Consumer;
 
 /** Reads live events and recovers dropped streams by reopening before querying the event history. */
 public final class ResilientEventSource implements AutoCloseable {
@@ -28,6 +29,7 @@ public final class ResilientEventSource implements AutoCloseable {
     private final ManagedAgents agents;
     private final String sessionId;
     private final Sleeper sleeper;
+    private final Consumer<JsonNode> observer;
     private final Set<String> seen = new HashSet<>();
     private final Queue<JsonNode> catchup = new ArrayDeque<>();
     private final Object stateLock = new Object();
@@ -37,14 +39,20 @@ public final class ResilientEventSource implements AutoCloseable {
     private int failedRecoveries;
 
     public ResilientEventSource(ManagedAgents agents, String sessionId) throws IOException, InterruptedException {
-        this(agents, sessionId, Thread::sleep);
+        this(agents, sessionId, Thread::sleep, ignored -> { });
     }
 
     ResilientEventSource(ManagedAgents agents, String sessionId, Sleeper sleeper)
             throws IOException, InterruptedException {
+        this(agents, sessionId, sleeper, ignored -> { });
+    }
+
+    ResilientEventSource(ManagedAgents agents, String sessionId, Sleeper sleeper, Consumer<JsonNode> observer)
+            throws IOException, InterruptedException {
         this.agents = Objects.requireNonNull(agents, "agents");
         this.sessionId = Objects.requireNonNull(sessionId, "sessionId");
         this.sleeper = Objects.requireNonNull(sleeper, "sleeper");
+        this.observer = Objects.requireNonNull(observer, "observer");
         this.stream = agents.openStream(sessionId);
     }
 
@@ -67,6 +75,7 @@ public final class ResilientEventSource implements AutoCloseable {
                     continue;
                 }
             }
+            observer.accept(event);
             JsonNode unseen = markAndFilter(event);
             if (unseen != null) {
                 ensureOpen();
@@ -118,7 +127,10 @@ public final class ResilientEventSource implements AutoCloseable {
                 List<JsonNode> missed = agents.listEvents(sessionId, lastSeen);
                 ensureOpen();
                 int lastUserMessage = lastUserMessageIndex(missed);
-                for (int i = 0; i <= lastUserMessage; i++) markAndFilter(missed.get(i));
+                for (int i = 0; i <= lastUserMessage; i++) {
+                    observer.accept(missed.get(i));
+                    markAndFilter(missed.get(i));
+                }
                 synchronized (stateLock) {
                     if (closed) throw new IOException("Event source is closed");
                     stream = reopened;
