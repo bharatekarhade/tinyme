@@ -26,7 +26,10 @@ actor APIClient {
     private let onUnauthorized: @Sendable () async -> Void
     private var reportedUnauthorized = false
     private let encoder = JSONEncoder()
-    private let decoder: JSONDecoder = {
+    private let decoder = APIClient.makeDecoder()
+
+    /// The decoder every server reply goes through (also used to read fixtures).
+    static func makeDecoder() -> JSONDecoder {
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .custom { decoder in
             let container = try decoder.singleValueContainer()
@@ -41,7 +44,7 @@ actor APIClient {
             throw DecodingError.dataCorruptedError(in: container, debugDescription: "Not an ISO 8601 date: \(string)")
         }
         return decoder
-    }()
+    }
 
     /// - Parameters:
     ///   - token: the current device token, or nil when signed out.

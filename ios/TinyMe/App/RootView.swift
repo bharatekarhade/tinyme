@@ -11,8 +11,10 @@ struct RootView: View {
                 LoginView(session: environment.session)
                     .transition(.opacity)
             case .signedIn:
-                HomeView()
-                    .transition(.opacity)
+                if let api = environment.session.api {
+                    HomeView(api: api)
+                        .transition(.opacity)
+                }
             }
         }
         .animation(.easeInOut(duration: 0.3), value: isSignedIn)
