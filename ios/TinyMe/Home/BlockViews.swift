@@ -7,35 +7,98 @@ struct BlockView: View {
     var period: StatPeriod
     /// False when the card's badge already shows the change against the previous period.
     var showsChange = true
+    /// The comparison with your usual day, on the one block of the card that shows it.
+    var average: AverageDay?
 
     var body: some View {
         switch block {
         case .stat(let stat):
             StatBlockView(
                 label: stat.label, unit: stat.unit, value: stat.value, goal: stat.goal, entries: stat.entries,
-                period: period, previous: showsChange ? stat.previous : nil, deltaPct: showsChange ? stat.deltaPct : nil
+                period: period, previous: showsChange ? stat.previous : nil, deltaPct: showsChange ? stat.deltaPct : nil,
+                average: average
             )
         case .progress(let progress):
             if progress.goal == nil {
-                StatBlockView(label: progress.label, unit: progress.unit, value: progress.value, goal: nil, entries: progress.entries, period: period)
+                StatBlockView(label: progress.label, unit: progress.unit, value: progress.value, goal: nil, entries: progress.entries, period: period, average: average)
             } else {
-                ProgressBlockView(block: progress)
+                withAverage(alignment: progress.style == "gauge" ? .center : .leading) {
+                    ProgressBlockView(block: progress)
+                }
             }
         case .chart(let chart):
-            ChartBlockView(block: chart, range: range)
+            withAverage { ChartBlockView(block: chart, range: range) }
         case .latest(let latest):
             LatestBlockView(block: latest)
         case .goals(let goals):
             GoalsBlockView(block: goals)
         case .checkins(let checkins):
-            CheckinsBlockView(block: checkins, range: range)
+            withAverage { CheckinsBlockView(block: checkins, range: range) }
         case .breakdown(let breakdown):
-            BreakdownBlockView(block: breakdown)
+            withAverage { BreakdownBlockView(block: breakdown) }
         case .unavailable:
             BlockNote("This part couldn't load")
         case .unknown:
             BlockNote("Update TinyMe to see this")
         }
+    }
+}
+
+extension BlockView {
+    /// Adds the "vs your usual day" pill under a block, when this is the block that shows it.
+    @ViewBuilder
+    fileprivate func withAverage(alignment: HorizontalAlignment = .leading, @ViewBuilder content: () -> some View) -> some View {
+        if let text = average?.text {
+            VStack(alignment: alignment, spacing: Space.s2) {
+                content()
+                ChangePill(text: text)
+            }
+            .frame(maxWidth: .infinity, alignment: alignment == .center ? .center : .leading)
+        } else {
+            content()
+        }
+    }
+}
+
+extension AverageDay {
+    /// "↑ 15% vs your usual day": the usual day is the average of the 30 days before this period.
+    var text: String? {
+        deltaPct.map { Formatters.change($0, versus: "your usual day") }
+    }
+}
+
+extension StatBlock {
+    /// "↓ 12% vs last month". The server sends no percentage when the earlier period was zero.
+    func changeText(_ period: StatPeriod) -> String? {
+        StatPeriod.changeText(deltaPct: deltaPct, previous: previous, value: value, period: period)
+    }
+}
+
+extension StatPeriod {
+    static func changeText(deltaPct: Double?, previous: Double?, value: Double?, period: StatPeriod) -> String? {
+        if let deltaPct {
+            return Formatters.change(deltaPct, versus: period.previousPhrase)
+        }
+        if let previous, previous == 0, let value, value > 0 {
+            return "↑ from 0 \(period.previousPhrase)"
+        }
+        return nil
+    }
+}
+
+/// A small, neutral pill for a comparison: "↓ 12% vs last month".
+struct ChangePill: View {
+    let text: String
+    @Environment(\.cardStyle) private var style
+
+    var body: some View {
+        Text(text)
+            .textStyle(.caption, weight: .semibold)
+            .foregroundStyle(style.foreground)
+            .padding(.horizontal, Space.s2)
+            .frame(height: 22)
+            .background(style.track, in: Capsule())
+            .fixedSize()
     }
 }
 
@@ -67,6 +130,7 @@ struct StatBlockView: View {
     let period: StatPeriod
     var previous: Double?
     var deltaPct: Double?
+    var average: AverageDay?
 
     @Environment(\.cardStyle) private var style
     @State private var shown = false
@@ -85,25 +149,22 @@ struct StatBlockView: View {
                         .foregroundStyle(style.muted)
                 }
             }
-            HStack(spacing: Space.s2) {
-                Text(caption)
-                    .textStyle(.label)
-                    .foregroundStyle(isOver ? Palette.accent : style.muted)
-                if let change {
-                    Text(change)
-                        .textStyle(.caption, weight: .semibold)
-                        .foregroundStyle(style.foreground)
-                        .padding(.horizontal, Space.s2)
-                        .frame(height: 22)
-                        .background(style.track, in: Capsule())
-                        .fixedSize()
+            Text(caption)
+                .textStyle(.label)
+                .foregroundStyle(isOver ? Palette.accent : style.muted)
+            if !comparisons.isEmpty {
+                FlowLayout(spacing: 6) {
+                    ForEach(comparisons, id: \.self) { text in
+                        ChangePill(text: text)
+                    }
                 }
+                .padding(.top, 6)
             }
         }
         .growIn(shown)
         .revealOnScroll($shown)
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("\(Formatters.value(value ?? 0, unit: unit)), \(caption)\(change.map { ", \($0)" } ?? "")")
+        .accessibilityLabel(([Formatters.value(value ?? 0, unit: unit), caption] + comparisons).joined(separator: ", "))
     }
 
     private var isOver: Bool {
@@ -111,16 +172,14 @@ struct StatBlockView: View {
         return value > goal
     }
 
+    /// Against the previous period, and against your usual day.
+    private var comparisons: [String] {
+        [change, average?.text].compactMap { $0 }
+    }
+
     /// "↓ 12% vs last month". The server sends no percentage when the earlier period was zero.
     private var change: String? {
-        if let deltaPct {
-            if deltaPct == 0 { return "Same as \(period.previousPhrase)" }
-            return "\(deltaPct > 0 ? "↑" : "↓") \(Formatters.percent(deltaPct)) vs \(period.previousPhrase)"
-        }
-        if let previous, previous == 0, let value, value > 0 {
-            return "↑ from 0 \(period.previousPhrase)"
-        }
-        return nil
+        StatPeriod.changeText(deltaPct: deltaPct, previous: previous, value: value, period: period)
     }
 
     private var caption: String {

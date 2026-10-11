@@ -41,6 +41,7 @@ import com.tinyme.domain.cards.model.view.StreakView;
 import com.tinyme.domain.cards.model.view.StatView;
 import com.tinyme.domain.cards.model.view.UnavailableView;
 import com.tinyme.domain.entries.model.EntrySnapshot;
+import com.tinyme.domain.entries.model.aggregate.Bucket;
 import com.tinyme.domain.entries.model.aggregate.AggregateQuery;
 import com.tinyme.domain.entries.model.aggregate.AggregateMetric;
 import com.tinyme.domain.entries.model.aggregate.AggregateResult;
@@ -261,7 +262,12 @@ public class CardEvaluator {
             BigDecimal baselineTotal = baselineResult.buckets().stream().map(bucket -> bucket.value() == null
                             ? BigDecimal.ZERO : bucket.value())
                     .reduce(BigDecimal.ZERO, BigDecimal::add);
-            BigDecimal baseline = baselineTotal.divide(BigDecimal.valueOf(30), 2, RoundingMode.HALF_UP);
+            // Average over the days since tracking began (at most 30), not a flat 30:
+            // otherwise a new tracker's few days are diluted and every comparison reads as +1000%.
+            LocalDate firstDay = baselineResult.buckets().stream().filter(bucket -> bucket.entries() > 0)
+                    .map(Bucket::period).min(LocalDate::compareTo).orElse(baselineFrom);
+            long baselineDays = Math.max(1, ChronoUnit.DAYS.between(firstDay, baselineTo) + 1);
+            BigDecimal baseline = baselineTotal.divide(BigDecimal.valueOf(baselineDays), 2, RoundingMode.HALF_UP);
 
             LocalDate observedTo = dates.to().isAfter(actualToday) ? actualToday : dates.to();
             long observedDays = ChronoUnit.DAYS.between(dates.from(), observedTo) + 1;

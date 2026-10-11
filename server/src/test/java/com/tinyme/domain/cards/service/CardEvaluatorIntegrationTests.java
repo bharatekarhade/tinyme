@@ -106,7 +106,8 @@ class CardEvaluatorIntegrationTests {
         var calories = evaluator.evaluate(saveExample("calories", CALORIES), Range.WEEK);
         var calorieProgress = (ProgressView) calories.blocks().getFirst();
         assertThat(calorieProgress.value()).isEqualByComparingTo("155");
-        assertThat(calorieProgress.averageDay().baseline()).isEqualByComparingTo("3.33");
+        // 100 kcal over the 3 days since the first entry, not over a flat 30.
+        assertThat(calorieProgress.averageDay().baseline()).isEqualByComparingTo("33.33");
         assertThat(calorieProgress.averageDay().currentPerDay()).isEqualByComparingTo("155.00");
         assertThat(((GoalsView) calories.blocks().get(1)).items()).hasSize(3);
         assertThat(((GoalsView) calories.blocks().get(1)).items().getFirst().value()).isEqualByComparingTo("45");

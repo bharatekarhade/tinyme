@@ -84,6 +84,41 @@ enum BlockDTO: Decodable, Sendable, Hashable {
     }
 }
 
+/// The period's per-day value against the daily average of the 30 days before it.
+struct AverageDay: Decodable, Sendable, Hashable {
+    let baseline: Double?
+    let currentPerDay: Double?
+    let deltaPct: Double?
+
+    private enum CodingKeys: String, CodingKey {
+        case baseline
+        case currentPerDay = "current_per_day"
+        case deltaPct = "delta_pct"
+    }
+}
+
+extension BlockDTO {
+    /// How many entries the block's number is made of, for blocks that count them.
+    var entryCount: Int? {
+        switch self {
+        case .stat(let block): block.entries
+        case .progress(let block): block.entries
+        default: nil
+        }
+    }
+
+    var averageDay: AverageDay? {
+        switch self {
+        case .stat(let block): block.averageDay
+        case .progress(let block): block.averageDay
+        case .chart(let block): block.averageDay
+        case .checkins(let block): block.averageDay
+        case .breakdown(let block): block.averageDay
+        case .goals, .latest, .unavailable, .unknown: nil
+        }
+    }
+}
+
 struct StatBlock: Decodable, Sendable, Hashable {
     let label: String
     let unit: String?
@@ -92,10 +127,12 @@ struct StatBlock: Decodable, Sendable, Hashable {
     let entries: Int
     let previous: Double?
     let deltaPct: Double?
+    let averageDay: AverageDay?
 
     private enum CodingKeys: String, CodingKey {
         case label, unit, value, goal, entries, previous
         case deltaPct = "delta_pct"
+        case averageDay = "average_day"
     }
 }
 
@@ -108,6 +145,12 @@ struct ProgressBlock: Decodable, Sendable, Hashable {
     let remaining: Double?
     let pct: Double?
     let entries: Int
+    let averageDay: AverageDay?
+
+    private enum CodingKeys: String, CodingKey {
+        case label, unit, style, value, goal, remaining, pct, entries
+        case averageDay = "average_day"
+    }
 }
 
 struct GoalsBlock: Decodable, Sendable, Hashable {
@@ -117,9 +160,16 @@ struct GoalsBlock: Decodable, Sendable, Hashable {
         let goal: Double?
         let pct: Double?
         let unit: String?
+        let averageDay: AverageDay?
+
+        private enum CodingKeys: String, CodingKey {
+            case label, value, goal, pct, unit
+            case averageDay = "average_day"
+        }
     }
 
-    let label: String
+    /// The server lets a goals block go without a title.
+    let label: String?
     let items: [Item]
 }
 
@@ -137,11 +187,13 @@ struct ChartBlock: Decodable, Sendable, Hashable {
     let points: [Point]
     let goalLine: Double?
     let peakIndex: Int?
+    let averageDay: AverageDay?
 
     private enum CodingKeys: String, CodingKey {
         case label, unit, style, points
         case goalLine = "goal_line"
         case peakIndex = "peak_index"
+        case averageDay = "average_day"
     }
 }
 
@@ -162,10 +214,12 @@ struct CheckinsBlock: Decodable, Sendable, Hashable {
     let doneCount: Int
     let goal: Int?
     let streak: Streak?
+    let averageDay: AverageDay?
 
     private enum CodingKeys: String, CodingKey {
         case label, slots, goal, streak
         case doneCount = "done_count"
+        case averageDay = "average_day"
     }
 }
 
@@ -187,6 +241,12 @@ struct BreakdownBlock: Decodable, Sendable, Hashable {
     let total: Double?
     let slices: [Slice]
     let other: Other?
+    let averageDay: AverageDay?
+
+    private enum CodingKeys: String, CodingKey {
+        case label, style, unit, total, slices, other
+        case averageDay = "average_day"
+    }
 }
 
 struct LatestBlock: Decodable, Sendable, Hashable {

@@ -101,16 +101,30 @@ struct CardView: View {
                 Spacer(minLength: Space.s2)
                 if isPreview {
                     Pill(text: "Preview", background: style.track, foreground: style.muted)
-                } else if let badge = card.badge {
+                } else if let badge = card.badge, keepsBadge {
                     BadgeView(badge: badge)
+                } else if let headline {
+                    Pill(text: headline.text, background: style.track, foreground: style.foreground)
                 }
+                // No comparison to show: the corner stays empty. The caption already names the period.
             }
 
             if card.error != nil {
                 BlockNote("Couldn't load this card")
             } else {
-                ForEach(Array((card.blocks ?? []).enumerated()), id: \.offset) { _, block in
-                    BlockView(block: block, range: range, period: period, showsChange: card.badge?.kind != "delta")
+                let blocks = card.blocks ?? []
+                // Whatever the corner pill already says isn't repeated under the number.
+                let corner = keepsBadge || isPreview ? nil : headline
+                // Several blocks can carry the same comparison with your usual day: say it once, on the first.
+                let averageIndex = corner?.isAverage == true ? nil : blocks.firstIndex { $0.averageDay?.deltaPct != nil }
+                ForEach(Array(blocks.enumerated()), id: \.offset) { index, block in
+                    BlockView(
+                        block: block,
+                        range: range,
+                        period: period,
+                        showsChange: card.badge?.kind != "delta" && corner?.isAverage != false,
+                        average: index == averageIndex ? block.averageDay : nil
+                    )
                 }
             }
         }
@@ -126,6 +140,33 @@ struct CardView: View {
             }
         }
         .environment(\.cardStyle, style)
+    }
+
+    /// A streak or a server-made change badge stays in the corner; a plain period badge ("Today") is never shown.
+    private var keepsBadge: Bool {
+        switch card.badge?.kind {
+        case "delta": card.badge?.deltaPct != nil
+        case "streak": (card.badge?.days ?? 0) > 0
+        default: false
+        }
+    }
+
+    /// The comparison for the corner: against the previous period if there is one, else against your usual day.
+    private var headline: (text: String, isAverage: Bool)? {
+        let blocks = card.blocks ?? []
+        for block in blocks {
+            if case .stat(let stat) = block, let text = stat.changeText(period) {
+                return (text, false)
+            }
+        }
+        if let text = blocks.lazy.compactMap({ $0.averageDay?.text }).first {
+            return (text, true)
+        }
+        // Nothing earlier to compare with yet: say how much has been logged instead.
+        if let entries = blocks.lazy.compactMap({ $0.entryCount }).first, entries > 0 {
+            return (entries == 1 ? "1 entry" : "\(entries) entries", true)
+        }
+        return nil
     }
 
     /// The period the card's numbers cover: the one its badge names, otherwise the Home range.

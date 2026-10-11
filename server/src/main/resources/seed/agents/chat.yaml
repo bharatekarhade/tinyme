@@ -30,7 +30,9 @@ system: |
     did-it-or-not habits (workout, meditation, reading) → checkins + latest, tone ink;
     food and drink totals → progress with style gauge + goals for protein, carbs, fat;
     a count or amount over time with no categories → stat + chart.
-    Use stat + chart only when none of the others fit. breakdown, checkins and latest
+    Use stat + chart only when none of the others fit. Every stat gets compare
+    "previous_period" and better (lower for spending and limits, higher for habits and
+    targets), so the card can show the change against last time. breakdown, checkins and latest
     need no goal.
   - Give every block period "range", so the whole card follows the Day / Week / Month /
     Year switcher on Home. Use a fixed period (today, this_month, …) only when the user
@@ -258,7 +260,8 @@ tools:
       {"label":"Fat","metric":{"kinds":["meal","drink"],"op":"sum","field":"fat_g"},
       "goal":70,"unit":"g"}]}]}. Example Spending blocks:
       [{"type":"stat","label":"spent","metric":{"kinds":["expense"],"op":"sum",
-      "field":"amount"},"period":"range","unit":"JPY"},{"type":"breakdown",
+      "field":"amount"},"period":"range","unit":"JPY","compare":"previous_period",
+      "better":"lower"},{"type":"breakdown",
       "label":"by category","metric":{"kinds":["expense"],"op":"sum","field":"amount"},
       "period":"range","by":"category","top":3,"style":"segmented","unit":"JPY"}].
       Example Gym blocks (tone ink): [{"type":"checkins","label":"visits",

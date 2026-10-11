@@ -24,4 +24,16 @@ enum Formatters {
     static func percent(_ value: Double) -> String {
         "\(Int(value.magnitude.rounded()))%"
     }
+
+    /// A change against an earlier figure: "↑ 14% vs last week", "Same as last week",
+    /// and for big jumps a multiple that reads better than a four-digit percentage: "↑ 16× last week".
+    static func change(_ deltaPct: Double, versus other: String) -> String {
+        if deltaPct.rounded() == 0 { return "Same as \(other)" }
+        if deltaPct >= 300 {
+            let multiple = 1 + deltaPct / 100
+            let text = multiple < 10 ? multiple.formatted(.number.precision(.fractionLength(0...1))) : "\(Int(multiple.rounded()))"
+            return "↑ \(text)× \(other)"
+        }
+        return "\(deltaPct > 0 ? "↑" : "↓") \(percent(deltaPct)) vs \(other)"
+    }
 }
