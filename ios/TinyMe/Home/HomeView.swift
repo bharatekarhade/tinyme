@@ -117,6 +117,12 @@ struct HomeView: View {
         .onChange(of: model.range) {
             model.load()
         }
+        .onOpenURL { url in
+            // The widget's "Journal something?" bar.
+            if url == WidgetSnapshot.chatURL, chat == nil {
+                chat = ChatDraft()
+            }
+        }
         .onChange(of: scenePhase) { _, phase in
             if phase == .active {
                 model.load()

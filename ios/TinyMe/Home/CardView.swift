@@ -178,7 +178,7 @@ struct CardView: View {
     }
 
     /// Server icon names → SF Symbols.
-    static func symbol(for icon: String) -> String {
+    nonisolated static func symbol(for icon: String) -> String {
         switch icon {
         case "journal": "text.book.closed"
         case "flame": "flame"

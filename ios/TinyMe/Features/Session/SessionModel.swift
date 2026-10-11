@@ -117,6 +117,7 @@ final class SessionModel {
 
     private func endSession() async {
         await authStore.clear()
+        WidgetSnapshot.clearAndReload()   // the widget shouldn't keep showing this account's numbers
         api = nil
         stream = nil
         state = .signedOut

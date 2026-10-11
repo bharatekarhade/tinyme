@@ -6,12 +6,44 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		7A0000000000000000000030 /* TinyMeWidget.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 7A0000000000000000000021 /* TinyMeWidget.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+/* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		7A0000000000000000000031 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 7A0000000000000000000009 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 7A0000000000000000000022;
+			remoteInfo = TinyMeWidget;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		7A0000000000000000000032 /* Embed Foundation Extensions */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 13;
+			files = (
+				7A0000000000000000000030 /* TinyMeWidget.appex in Embed Foundation Extensions */,
+			);
+			name = "Embed Foundation Extensions";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
+
 /* Begin PBXFileReference section */
 		7A0000000000000000000001 /* TinyMe.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = TinyMe.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		7A0000000000000000000010 /* Base.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Base.xcconfig; sourceTree = "<group>"; };
 		7A0000000000000000000011 /* TinyMe.xcconfig.template */ = {isa = PBXFileReference; lastKnownFileType = text; path = TinyMe.xcconfig.template; sourceTree = "<group>"; };
 		7A0000000000000000000012 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		7A0000000000000000000014 /* Info-Debug.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = "Info-Debug.plist"; sourceTree = "<group>"; };
+		7A0000000000000000000021 /* TinyMeWidget.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = TinyMeWidget.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		7A0000000000000000000034 /* Widget-Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = "Widget-Info.plist"; sourceTree = "<group>"; };
+		7A0000000000000000000035 /* TinyMe.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = TinyMe.entitlements; sourceTree = "<group>"; };
+		7A0000000000000000000036 /* TinyMeWidget.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = TinyMeWidget.entitlements; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -20,10 +52,27 @@
 			path = TinyMe;
 			sourceTree = "<group>";
 		};
+		7A0000000000000000000023 /* TinyMeShared */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = TinyMeShared;
+			sourceTree = "<group>";
+		};
+		7A0000000000000000000024 /* TinyMeWidget */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = TinyMeWidget;
+			sourceTree = "<group>";
+		};
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
 		7A0000000000000000000003 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		7A0000000000000000000025 /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -37,6 +86,8 @@
 			isa = PBXGroup;
 			children = (
 				7A0000000000000000000002 /* TinyMe */,
+				7A0000000000000000000024 /* TinyMeWidget */,
+				7A0000000000000000000023 /* TinyMeShared */,
 				7A0000000000000000000013 /* Config */,
 				7A0000000000000000000005 /* Products */,
 			);
@@ -46,6 +97,7 @@
 			isa = PBXGroup;
 			children = (
 				7A0000000000000000000001 /* TinyMe.app */,
+				7A0000000000000000000021 /* TinyMeWidget.appex */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -57,6 +109,9 @@
 				7A0000000000000000000011 /* TinyMe.xcconfig.template */,
 				7A0000000000000000000012 /* Info.plist */,
 				7A0000000000000000000014 /* Info-Debug.plist */,
+				7A0000000000000000000034 /* Widget-Info.plist */,
+				7A0000000000000000000035 /* TinyMe.entitlements */,
+				7A0000000000000000000036 /* TinyMeWidget.entitlements */,
 			);
 			path = Config;
 			sourceTree = "<group>";
@@ -71,13 +126,16 @@
 				7A0000000000000000000007 /* Sources */,
 				7A0000000000000000000003 /* Frameworks */,
 				7A0000000000000000000008 /* Resources */,
+				7A0000000000000000000032 /* Embed Foundation Extensions */,
 			);
 			buildRules = (
 			);
 			dependencies = (
+				7A0000000000000000000033 /* PBXTargetDependency */,
 			);
 			fileSystemSynchronizedGroups = (
 				7A0000000000000000000002 /* TinyMe */,
+				7A0000000000000000000023 /* TinyMeShared */,
 			);
 			name = TinyMe;
 			packageProductDependencies = (
@@ -85,6 +143,29 @@
 			productName = TinyMe;
 			productReference = 7A0000000000000000000001 /* TinyMe.app */;
 			productType = "com.apple.product-type.application";
+		};
+		7A0000000000000000000022 /* TinyMeWidget */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 7A0000000000000000000028 /* Build configuration list for PBXNativeTarget "TinyMeWidget" */;
+			buildPhases = (
+				7A0000000000000000000026 /* Sources */,
+				7A0000000000000000000025 /* Frameworks */,
+				7A0000000000000000000027 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				7A0000000000000000000023 /* TinyMeShared */,
+				7A0000000000000000000024 /* TinyMeWidget */,
+			);
+			name = TinyMeWidget;
+			packageProductDependencies = (
+			);
+			productName = TinyMeWidget;
+			productReference = 7A0000000000000000000021 /* TinyMeWidget.appex */;
+			productType = "com.apple.product-type.app-extension";
 		};
 /* End PBXNativeTarget section */
 
@@ -97,6 +178,9 @@
 				LastUpgradeCheck = 2600;
 				TargetAttributes = {
 					7A0000000000000000000006 = {
+						CreatedOnToolsVersion = 26.0;
+					};
+					7A0000000000000000000022 = {
 						CreatedOnToolsVersion = 26.0;
 					};
 				};
@@ -116,12 +200,20 @@
 			projectRoot = "";
 			targets = (
 				7A0000000000000000000006 /* TinyMe */,
+				7A0000000000000000000022 /* TinyMeWidget */,
 			);
 		};
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
 		7A0000000000000000000008 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		7A0000000000000000000027 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -138,7 +230,22 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		7A0000000000000000000026 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		7A0000000000000000000033 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 7A0000000000000000000022 /* TinyMeWidget */;
+			targetProxy = 7A0000000000000000000031 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
 		7A000000000000000000000B /* Debug */ = {
@@ -198,6 +305,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = Config/TinyMe.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				ENABLE_PREVIEWS = YES;
@@ -225,6 +333,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = Config/TinyMe.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				ENABLE_PREVIEWS = YES;
@@ -240,6 +349,56 @@
 				);
 				MARKETING_VERSION = 0.1.0;
 				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 6.0;
+				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Release;
+		};
+		7A0000000000000000000029 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = 7A0000000000000000000010 /* Base.xcconfig */;
+			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = Config/TinyMeWidget.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = "Config/Widget-Info.plist";
+				INFOPLIST_KEY_CFBundleDisplayName = TinyMe;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 0.1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = "com.$(DEVELOPMENT_TEAM).tinyme.widget";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 6.0;
+				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Debug;
+		};
+		7A000000000000000000002A /* Release */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = 7A0000000000000000000010 /* Base.xcconfig */;
+			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = Config/TinyMeWidget.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = "Config/Widget-Info.plist";
+				INFOPLIST_KEY_CFBundleDisplayName = TinyMe;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 0.1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = "com.$(DEVELOPMENT_TEAM).tinyme.widget";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_VERSION = 6.0;
 				TARGETED_DEVICE_FAMILY = 1;
@@ -263,6 +422,15 @@
 			buildConfigurations = (
 				7A000000000000000000000E /* Debug */,
 				7A000000000000000000000F /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		7A0000000000000000000028 /* Build configuration list for PBXNativeTarget "TinyMeWidget" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				7A0000000000000000000029 /* Debug */,
+				7A000000000000000000002A /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;

@@ -6,6 +6,8 @@
 	<string>$(TINYME_DEFAULT_SERVER_URL)</string>
 	<key>TINYME_PUSH_ENABLED</key>
 	<string>$(TINYME_PUSH_ENABLED)</string>
+	<key>TINYME_APP_GROUP</key>
+	<string>$(TINYME_APP_GROUP)</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>TinyMe listens while you hold the mic, so you can talk instead of type.</string>
 	<key>NSSpeechRecognitionUsageDescription</key>

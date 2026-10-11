@@ -6,3 +6,7 @@ TINYME_DEFAULT_SERVER_URL =
 TINYME_PUSH_ENABLED = NO
 
 #include? "TinyMe.xcconfig"
+
+// Shared by the app and its widget so the app can hand the widget its stats.
+// Follows the bundle id pattern in TinyMe.xcconfig.template (com.<team>.tinyme).
+TINYME_APP_GROUP = group.com.$(DEVELOPMENT_TEAM).tinyme

@@ -146,6 +146,7 @@ final class HomeModel {
             guard !Task.isCancelled, range == self.range else { return }
             cache[range] = list
             cards = list.cards
+            WidgetSnapshot.publish(cards: list.cards, range: range)
             if let newSuggestions {
                 suggestions = newSuggestions
             }
