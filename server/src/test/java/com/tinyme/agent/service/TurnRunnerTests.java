@@ -189,7 +189,8 @@ class TurnRunnerTests {
                 "two-tools-one-message", 2,
                 "query-then-update", 2,
                 "no-tool-reply", 0,
-                "people-upsert", 1);
+                "people-upsert", 1,
+                "build-calories-card", 2);
         when(dispatcher.dispatch(anyString(), anyString(), any(), any())).thenAnswer(invocation ->
                 new DispatchOutcome("{\"ok\":true,\"summary\":\"fixture action\"}", false));
 

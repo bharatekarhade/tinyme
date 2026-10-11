@@ -75,6 +75,16 @@ public class EntryRepository {
     }
 
     @Transactional(readOnly = true)
+    public boolean hasLiveDataField(String kind, String field) {
+        var params = new MapSqlParameterSource().addValue("kind", kind).addValue("field", field);
+        Boolean exists = jdbc.queryForObject("""
+                SELECT EXISTS (SELECT 1 FROM entries
+                 WHERE kind = :kind AND deleted_at IS NULL AND jsonb_exists(data, :field))
+                """, params, Boolean.class);
+        return Boolean.TRUE.equals(exists);
+    }
+
+    @Transactional(readOnly = true)
     public List<TodayTotal> todayTotals(LocalDate day) {
         Objects.requireNonNull(day, "day");
         return entries.todayTotals(day).stream()

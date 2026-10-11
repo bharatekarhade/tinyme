@@ -59,6 +59,7 @@ class CardSpecParserTests {
         assertThat(journal.blocks()).hasSize(2);
         assertThat(journal.tone()).isEqualTo(CardTone.BRAND);
         assertThat(calories.blocks().get(0)).isInstanceOf(ProgressBlock.class);
+        assertThat(((GoalsBlock) calories.blocks().get(1)).label()).isEqualTo("goals");
         assertThat(spending.badge().kind()).isEqualTo(BadgeKind.DELTA);
         assertThat(gym.blocks().get(1)).isInstanceOf(LatestBlock.class);
         assertThat(writer.write(journal).get("tone").stringValue()).isEqualTo("brand");

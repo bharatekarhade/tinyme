@@ -18,6 +18,27 @@ system: |
   - Photo storage and saved places are not available yet. Tell the user when asked;
     do not claim to save photos or places.
 
+  Cards and trackers:
+  - For "card / tracker / stats for X", call cards_list first. If a matching card exists,
+    call cards_save with its id to update it. Otherwise create a new card.
+  - New cards are drafts. The app shows the card under your reply. Say in one line what it
+    tracks, quote one real number from the result, and tell the user they can tap Add to Home.
+    Set status to active only when the user explicitly asks to add it.
+  - Use 2–3 blocks. Without a goal, use stat instead of progress or goals, or ask a
+    quick question. Choose tone and accent from the allowed values; never use brand.
+    Never put computed numbers in a spec; include a goal only when the user gave it.
+    Icons: journal, flame, wallet, dumbbell, cup, bed, heart, steps, drop, book, star,
+    chart. Accents: mint, coral, sunny, ink. Tones: surface or ink. Metrics use count,
+    sum, avg, min or max; periods use range, today, yesterday, this_week, last_7_days,
+    this_month, last_30_days, last_12_weeks or this_year.
+
+  Data used by cards:
+  - meal / drink: always store data.kcal; when estimating, also store protein_g,
+    carbs_g, fat_g and kcal_estimated: true.
+  - expense: store amount in yen as a number, category as a short lowercase word, and
+    merchant when the user said it.
+  - workout: store type (for example "push day") and minutes.
+
   Answering:
   - Never estimate numbers; use entries_aggregate. Use entries_query for the past.
   - No match means "I don't have a record of that", never "you didn't".
@@ -181,6 +202,85 @@ tools:
         display_name: { type: string, minLength: 1, maxLength: 80 }
         aliases:      { type: array, maxItems: 8, items: { type: string, maxLength: 40 } }
         relationship: { type: string, maxLength: 80 }
+
+  # ── Cards ──────────────────────────────────────────────────────────────
+  - type: custom
+    name: cards_list
+    description: >
+      List the user's cards without calculated numbers. Use this before creating or
+      updating a card so you can reuse the existing id. The Journal system card is
+      not included.
+    input_schema:
+      type: object
+      additionalProperties: false
+      properties: {}
+
+  - type: custom
+    name: cards_save
+    description: >
+      Create a card draft or update an existing card. Pass a valid v1 CardSpec in spec:
+      v, title, icon, accent, tone and 1–4 blocks (stat, progress, goals, chart,
+      checkins, breakdown, latest), with metrics using kinds, op, optional field and
+      where. Every block needs a label (1–40 characters), except goals may omit its label;
+      every goals item needs its own label. Block fields: stat: label, metric, period,
+      unit?, goal?, goal_period?, compare?:
+      previous_period, better?: higher|lower|neutral; progress: label, metric, period, goal,
+      unit?, goal_period?, style?: ring|gauge|bar; goals: label?, period, items:
+      [{label, metric, goal, unit?}] (1–4); chart: label, metric, period, bucket?:
+      auto|day|week|month, style?: bars|line, goal_line?, highlight?: peak|none;
+      checkins: label, metric, period, goal?, goal_period?; breakdown: label, metric
+      (count or sum), period, by, top? (1–5), style?: segmented|bars; latest: label,
+      kinds, fields (1–3).
+      badge: {kind: period|delta|streak, block: index}. period=range follows the Home
+      switcher. Chart bucket rules: range→auto, this_week→day, this_month→day|week,
+      this_year→week|month. Example Calories spec:
+      {"v":1,"title":"Calories","icon":"flame","accent":"coral","tone":"surface",
+      "badge":{"kind":"period","block":0},"blocks":[{"type":"progress","label":"kcal",
+      "style":"gauge","metric":{"kinds":["meal","drink"],"op":"sum","field":"kcal"},
+      "period":"today","goal":2200,"unit":"kcal"},{"type":"goals","period":"today",
+      "items":[{"label":"Protein","metric":{"kinds":["meal","drink"],"op":"sum",
+      "field":"protein_g"},"goal":120,"unit":"g"},{"label":"Carbs","metric":
+      {"kinds":["meal","drink"],"op":"sum","field":"carbs_g"},"goal":250,"unit":"g"},
+      {"label":"Fat","metric":{"kinds":["meal","drink"],"op":"sum","field":"fat_g"},
+      "goal":70,"unit":"g"}]}]}. Use only the allowed icons, accents, tones, metrics and
+      periods from your instructions. Without id, the card is always saved as a draft.
+      With id, spec replaces the current spec; status: active adds a draft to Home. Pass
+      active only when the user explicitly asked to add the card. Returns compact real
+      headline values, warnings and ref.card_id; the app renders the card from that id.
+    input_schema:
+      type: object
+      additionalProperties: false
+      properties:
+        id:     { type: string, format: uuid, description: "Existing card id to update" }
+        spec:
+          type: object
+          additionalProperties: false
+          required: [v, title, icon, accent, tone, blocks]
+          properties:
+            v:      { type: integer, enum: [1] }
+            title:  { type: string, minLength: 1, maxLength: 40 }
+            icon:   { type: string, enum: [journal, flame, wallet, dumbbell, cup, bed, heart, steps, drop, book, star, chart] }
+            accent: { type: string, enum: [mint, coral, sunny, ink] }
+            tone:   { type: string, enum: [surface, ink] }
+            badge:  { type: object, description: "Optional badge with kind and block index" }
+            blocks:
+              type: array
+              minItems: 1
+              maxItems: 4
+              items: { type: object, description: "A valid v1 block specification" }
+        status: { type: string, enum: [active], description: "Set only when the user asks to add the card to Home" }
+
+  - type: custom
+    name: cards_delete
+    description: >
+      Soft-delete one of the user's cards. The Journal system card cannot be removed.
+      Use cards_list first to find the card id.
+    input_schema:
+      type: object
+      required: [id]
+      additionalProperties: false
+      properties:
+        id: { type: string, format: uuid }
 
   # Deferred until handlers exist and place search is decided.
   #   # ── Photos ─────────────────────────────────────────────────────────────

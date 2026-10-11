@@ -17,7 +17,7 @@ class ToolSpecLoaderTests {
 
         assertThat(specs.keySet()).containsExactlyInAnyOrder(
                 "entries_add", "entries_query", "entries_aggregate", "entries_update",
-                "entries_delete", "people_get", "people_upsert");
+                "entries_delete", "people_get", "people_upsert", "cards_list", "cards_save", "cards_delete");
         assertThat(specs.values()).allSatisfy(spec ->
                 assertThat(spec.inputSchema().get("type").stringValue()).isEqualTo("object"));
         assertThat(strings(specs.get("entries_add").inputSchema().get("required")))

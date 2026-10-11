@@ -4,6 +4,7 @@ import com.tinyme.domain.entries.entity.EntryKindEntity;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
+import tools.jackson.databind.json.JsonMapper;
 
 import java.util.HashSet;
 import java.util.List;
@@ -14,6 +15,7 @@ import java.util.Set;
 @Repository
 public class EntryKindRepository {
     private static final int MAX_MERGE_HOPS = 5;
+    private static final JsonMapper JSON = JsonMapper.builder().build();
 
     private final EntryKindJpaRepository kinds;
 
@@ -46,6 +48,15 @@ public class EntryKindRepository {
 
         return resolveExisting(kind).orElseThrow(() -> new IllegalStateException(
                 "Entry kind '" + kind + "' disappeared while resolving it"));
+    }
+
+    /** Adds a card-defined kind without counting a card save as an entry use. */
+    @Transactional
+    public void ensureCardKind(String kind, String description, java.util.Map<String, ?> dataHints) {
+        Objects.requireNonNull(kind, "kind");
+        Objects.requireNonNull(description, "description");
+        Objects.requireNonNull(dataHints, "dataHints");
+        kinds.insertCardKindIfMissing(kind, description, JSON.writeValueAsString(dataHints));
     }
 
     /** Resolves a kind without creating it or changing its usage count. */

@@ -85,7 +85,7 @@ public final class CardSpecParser {
                     items.add(new GoalItem(label(item, itemPath), metric(required(item, "metric", itemPath), itemPath + ".metric", system),
                             decimal(required(item, "goal", itemPath), itemPath + ".goal"), optionalUnit(item, itemPath)));
                 }
-                String blockLabel = node.get("label") == null ? "" : label(node, path);
+                String blockLabel = node.hasNonNull("label") ? label(node, path) : "goals";
                 yield new GoalsBlock(blockLabel, period(node, path), items);
             }
             case "chart" -> {

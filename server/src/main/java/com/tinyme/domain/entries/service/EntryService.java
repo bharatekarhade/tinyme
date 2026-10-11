@@ -93,6 +93,14 @@ public class EntryService {
     }
 
     @Transactional(readOnly = true)
+    public boolean hasDataField(String kind, String field) {
+        Objects.requireNonNull(kind, "kind");
+        Objects.requireNonNull(field, "field");
+        Optional<String> resolved = entryKinds.resolveExisting(kind);
+        return resolved.isPresent() && entries.hasLiveDataField(resolved.get(), field);
+    }
+
+    @Transactional(readOnly = true)
     public EntryQueryResult query(EntryQuery query) {
         Objects.requireNonNull(query, "query");
         if (query.kind() == null) return entries.find(query);
