@@ -2,6 +2,7 @@ package com.tinyme.domain.cards.service;
 
 import com.tinyme.domain.cards.entity.CardEntity;
 import com.tinyme.domain.cards.model.Block;
+import com.tinyme.domain.cards.model.BlockTypes;
 import com.tinyme.domain.cards.model.CardSpec;
 import com.tinyme.domain.cards.model.CardSpecParser;
 import com.tinyme.domain.cards.model.CardSpecWriter;
@@ -165,10 +166,10 @@ public class CardManagementService {
 
     private Map<String, Object> blockSummary(Block block) {
         return switch (block) {
-            case MetricBlock metric -> Map.of("type", blockType(block), "label", metric.label());
-            case GoalsBlock goals -> Map.of("type", "goals",
+            case MetricBlock metric -> Map.of("type", BlockTypes.name(block), "label", metric.label());
+            case GoalsBlock goals -> Map.of("type", BlockTypes.name(block),
                     "label", goals.label().isBlank() ? "goals" : goals.label());
-            case LatestBlock latest -> Map.of("type", "latest", "label", latest.label());
+            case LatestBlock latest -> Map.of("type", BlockTypes.name(block), "label", latest.label());
         };
     }
 
@@ -225,18 +226,6 @@ public class CardManagementService {
         if (value instanceof Boolean) return "boolean";
         if (value instanceof Map<?, ?> || value instanceof List<?>) return "object";
         return "string";
-    }
-
-    private static String blockType(Block block) {
-        return switch (block) {
-            case com.tinyme.domain.cards.model.StatBlock ignored -> "stat";
-            case com.tinyme.domain.cards.model.ProgressBlock ignored -> "progress";
-            case GoalsBlock ignored -> "goals";
-            case com.tinyme.domain.cards.model.ChartBlock ignored -> "chart";
-            case com.tinyme.domain.cards.model.CheckinsBlock ignored -> "checkins";
-            case BreakdownBlock ignored -> "breakdown";
-            case LatestBlock ignored -> "latest";
-        };
     }
 
     private Map<String, Object> stored(CardSpec spec) {

@@ -7,6 +7,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.server.ResponseStatusException;
 
 @RestControllerAdvice
 public class AuthProblemHandler {
@@ -22,5 +23,13 @@ public class AuthProblemHandler {
         var problem = ProblemDetail.forStatusAndDetail(HttpStatus.BAD_REQUEST, "Invalid request");
         problem.setTitle(HttpStatus.BAD_REQUEST.getReasonPhrase());
         return ResponseEntity.badRequest().body(problem);
+    }
+
+    @ExceptionHandler(ResponseStatusException.class)
+    public ResponseEntity<ProblemDetail> responseStatus(ResponseStatusException exception) {
+        HttpStatus status = HttpStatus.valueOf(exception.getStatusCode().value());
+        var problem = ProblemDetail.forStatusAndDetail(status, exception.getReason());
+        problem.setTitle(status.getReasonPhrase());
+        return ResponseEntity.status(status).body(problem);
     }
 }

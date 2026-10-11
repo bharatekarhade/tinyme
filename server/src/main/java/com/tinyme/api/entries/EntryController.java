@@ -36,7 +36,7 @@ public class EntryController {
     }
 
     @GetMapping
-    public EntryPageResponse list(@RequestParam(required = false) String kind,
+    public EntryPageResponse list(@RequestParam(name = "kind", required = false) List<String> kinds,
                                   @RequestParam(required = false) LocalDate from,
                                   @RequestParam(required = false) LocalDate to,
                                   @RequestParam(required = false) String q,
@@ -54,9 +54,9 @@ public class EntryController {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "cursor is invalid", invalid);
         }
         try {
-            EntryFilters filters = new EntryFilters(kind, q, whereMap, from, to);
+            EntryFilters filters = new EntryFilters(kinds, q, whereMap, from, to, null);
             EntryPage page = entries.page(filters, limit, decoded);
-            return new EntryPageResponse(page.kindKnown(), page.entries().stream()
+            return new EntryPageResponse(page.unknownKinds(), page.entries().stream()
                     .map(EntryResponse::from).toList(), page.nextCursor());
         } catch (IllegalArgumentException invalid) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, invalid.getMessage(), invalid);
@@ -75,9 +75,12 @@ public class EntryController {
         }
     }
 
-    public record EntryPageResponse(@JsonProperty("kind_known") boolean kindKnown, List<EntryResponse> entries,
+    public record EntryPageResponse(@JsonProperty("unknown_kinds") List<String> unknownKinds, List<EntryResponse> entries,
                                     @JsonProperty("next_cursor") String nextCursor) {
-        public EntryPageResponse { entries = List.copyOf(entries); }
+        public EntryPageResponse {
+            unknownKinds = List.copyOf(unknownKinds);
+            entries = List.copyOf(entries);
+        }
     }
 
     public record EntryResponse(String id, String ts, @JsonProperty("local_day") String localDay, String kind,

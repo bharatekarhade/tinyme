@@ -1,17 +1,18 @@
 import SwiftUI
 
-/// Floating glass bar: Home · Upcoming in one pill, the mint + as its own circle.
+/// Floating glass bar: Home · History in one pill, the mint + as its own circle.
+/// Upcoming joins them once there is a calendar to show.
 struct HomeTabBar: View {
     enum Tab: String, CaseIterable, Identifiable {
         case home = "Home"
-        case upcoming = "Upcoming"
+        case history = "History"
 
         var id: Self { self }
 
         var systemImage: String {
             switch self {
             case .home: "house"
-            case .upcoming: "calendar.badge.clock"
+            case .history: "clock"   // symmetric, so it sits centred over its label
             }
         }
     }

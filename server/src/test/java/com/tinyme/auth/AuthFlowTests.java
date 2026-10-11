@@ -118,8 +118,11 @@ class AuthFlowTests {
     @Test
     void readEndpointsRequireAuthenticationAndEntriesRejectInvalidFilters() throws Exception {
         mvc.perform(get("/entries")).andExpect(status().isUnauthorized());
+        mvc.perform(get("/kinds")).andExpect(status().isUnauthorized());
         mvc.perform(get("/people")).andExpect(status().isUnauthorized());
         mvc.perform(get("/cards")).andExpect(status().isUnauthorized());
+        mvc.perform(get("/cards/00000000-0000-0000-0000-000000000001/entries"))
+                .andExpect(status().isUnauthorized());
         mvc.perform(get("/cards/suggestions")).andExpect(status().isUnauthorized());
 
         String bearer = "Bearer " + tokens.issue("api-read-tests").token();
@@ -137,6 +140,10 @@ class AuthFlowTests {
                 .andExpect(status().isNotFound());
         mvc.perform(get("/cards").header("Authorization", bearer).param("range", "quarter"))
                 .andExpect(status().isBadRequest());
+        mvc.perform(get("/cards/00000000-0000-0000-0000-000000000001/entries")
+                        .header("Authorization", bearer).param("range", "quarter"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.detail").value("range must be day, week, month, or year"));
         mvc.perform(get("/cards").header("Authorization", bearer))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.range").value("week"))

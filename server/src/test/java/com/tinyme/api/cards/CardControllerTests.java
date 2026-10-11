@@ -47,7 +47,8 @@ class CardControllerTests {
     void invalidRangeReturnsBadRequest() {
         assertThatThrownBy(() -> new CardController(mock(CardApiService.class)).list("quarter", null))
                 .isInstanceOf(ResponseStatusException.class)
-                .hasFieldOrPropertyWithValue("statusCode", HttpStatus.BAD_REQUEST);
+                .hasFieldOrPropertyWithValue("statusCode", HttpStatus.BAD_REQUEST)
+                .hasMessageContaining("range must be day, week, month, or year");
     }
 
     @Test

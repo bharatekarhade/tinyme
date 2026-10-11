@@ -12,6 +12,7 @@ import com.tinyme.domain.entries.model.aggregate.BreakdownResult;
 import com.tinyme.domain.entries.model.aggregate.BreakdownOther;
 import com.tinyme.domain.entries.model.aggregate.BreakdownSlice;
 import com.tinyme.domain.entries.model.EntrySnapshot;
+import com.tinyme.domain.entries.model.RecentKind;
 import com.tinyme.domain.entries.model.query.EntryQuery;
 import com.tinyme.domain.entries.model.query.EntryQueryResult;
 import com.tinyme.domain.entries.model.query.EntryFilters;
@@ -102,6 +103,18 @@ public class EntryRepository {
     }
 
     @Transactional(readOnly = true)
+    public List<RecentKind> recentCanonicalKinds(LocalDate from, LocalDate to, int limit) {
+        Objects.requireNonNull(from, "from");
+        Objects.requireNonNull(to, "to");
+        if (from.isAfter(to)) throw new IllegalArgumentException("from must be on or before to");
+        if (limit < 1 || limit > 20) throw new IllegalArgumentException("limit must be between 1 and 20");
+        return entries.recentCanonicalKinds(from, to, org.springframework.data.domain.PageRequest.of(0, limit))
+                .stream()
+                .map(row -> new RecentKind(row.getKind(), row.getEntryCount(), row.getLastLoggedOn()))
+                .toList();
+    }
+
+    @Transactional(readOnly = true)
     public EntryQueryResult find(EntryQuery query) {
         Objects.requireNonNull(query, "query");
         var filters = query.filters();
@@ -135,9 +148,9 @@ public class EntryRepository {
                 .append(textExpression).append(" AS text, e.data::text AS data FROM entries e ")
                 .append("WHERE e.deleted_at IS NULL");
 
-        if (filters.kind() != null) {
-            sql.append(" AND e.kind = :kind");
-            parameters.addValue("kind", filters.kind());
+        if (!filters.kinds().isEmpty()) {
+            sql.append(" AND e.kind IN (:kinds)");
+            parameters.addValue("kinds", filters.kinds());
         }
         if (filters.from() != null) {
             sql.append(" AND e.local_day >= :from");
@@ -154,6 +167,10 @@ public class EntryRepository {
         if (filters.text() != null) {
             sql.append(" AND (e.search @@ websearch_to_tsquery('simple', :text) OR e.text % :text)");
             parameters.addValue("text", filters.text());
+        }
+        if (filters.numericField() != null) {
+            sql.append(" AND jsonb_typeof(e.data -> CAST(:numericField AS text)) = 'number'");
+            parameters.addValue("numericField", filters.numericField());
         }
         if (cursorTs != null) {
             sql.append(" AND (e.ts, e.id) < (:cursorTs, :cursorId)");

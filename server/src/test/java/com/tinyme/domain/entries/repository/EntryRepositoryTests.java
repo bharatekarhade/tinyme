@@ -351,7 +351,7 @@ class EntryRepositoryTests {
             assertThat(beer.entries().getFirst().id()).isEqualTo(ids.get(1));
             assertThat(beer.entries().getFirst().ts()).isEqualTo(Instant.parse("2026-10-08T23:30:00Z"));
             assertThat(beer.truncated()).isFalse();
-            var apiBeer = entryController.list(kind, day, day, "beer", "{\"type\":\"beer\"}", null, 50);
+            var apiBeer = entryController.list(List.of(kind), day, day, "beer", "{\"type\":\"beer\"}", null, 50);
             assertThat(apiBeer.entries()).extracting(EntryController.EntryResponse::id)
                     .containsExactly(ids.get(1).toString());
 
@@ -375,10 +375,10 @@ class EntryRepositoryTests {
                 ids.add(insertQueryEntry(kind, day, start.plusSeconds(i).toString(), "page " + i, data));
             }
 
-            var first = entryService.page(new EntryFilters(kind, null, Map.of(), day, day), 50, null);
-            var second = entryService.page(new EntryFilters(kind, null, Map.of(), day, day), 50,
+            var first = entryService.page(new EntryFilters(List.of(kind), null, Map.of(), day, day, null), 50, null);
+            var second = entryService.page(new EntryFilters(List.of(kind), null, Map.of(), day, day, null), 50,
                     EntryCursorCodec.decode(first.nextCursor()));
-            var third = entryService.page(new EntryFilters(kind, null, Map.of(), day, day), 50,
+            var third = entryService.page(new EntryFilters(List.of(kind), null, Map.of(), day, day, null), 50,
                     EntryCursorCodec.decode(second.nextCursor()));
 
             assertThat(first.entries()).hasSize(50);
@@ -404,6 +404,100 @@ class EntryRepositoryTests {
     }
 
     @Test
+    void pagesAcrossMultipleResolvedKindsAndReportsUnknownKinds() {
+        String meal = createKind();
+        String drink = createKind();
+        String oldDrink = "old_" + UUID.randomUUID().toString().replace("-", "").substring(0, 8);
+        String missing = "missing_" + UUID.randomUUID().toString().replace("-", "").substring(0, 8);
+        LocalDate day = LocalDate.of(2026, 10, 9);
+        List<UUID> ids = new ArrayList<>();
+        try {
+            jdbc.update("INSERT INTO entry_kinds (kind, merged_into) VALUES (?, ?)", oldDrink, drink);
+            Instant start = Instant.parse("2026-10-09T00:00:00Z");
+            for (int i = 0; i < 120; i++) {
+                String kind = i % 2 == 0 ? meal : drink;
+                ids.add(insertQueryEntry(kind, day, start.plusSeconds(i).toString(), "entry " + i, Map.of()));
+            }
+
+            EntryFilters filters = new EntryFilters(List.of(meal, oldDrink, missing), null, Map.of(), day, day, null);
+            var first = entryService.page(filters, 50, null);
+            var second = entryService.page(filters, 50, EntryCursorCodec.decode(first.nextCursor()));
+            var third = entryService.page(filters, 50, EntryCursorCodec.decode(second.nextCursor()));
+
+            assertThat(first.unknownKinds()).containsExactly(missing);
+            assertThat(first.entries()).hasSize(50);
+            assertThat(second.entries()).hasSize(50);
+            assertThat(third.entries()).hasSize(20);
+            var all = new ArrayList<EntrySnapshot>();
+            all.addAll(first.entries());
+            all.addAll(second.entries());
+            all.addAll(third.entries());
+            assertThat(all).extracting(EntrySnapshot::id).doesNotHaveDuplicates().hasSize(120);
+            assertThat(all).extracting(EntrySnapshot::kind).contains(meal, drink);
+
+            var apiPage = entryController.list(List.of(meal, oldDrink, missing), day, day,
+                    null, null, null, 100);
+            assertThat(apiPage.unknownKinds()).containsExactly(missing);
+            assertThat(apiPage.entries()).hasSize(100);
+
+            var unknownOnly = entryService.page(new EntryFilters(List.of(missing), null, Map.of(), day, day, null),
+                    50, null);
+            assertThat(unknownOnly.unknownKinds()).containsExactly(missing);
+            assertThat(unknownOnly.entries()).isEmpty();
+        } finally {
+            for (UUID id : ids) jdbc.update("DELETE FROM entries WHERE id = ?", id);
+            jdbc.update("DELETE FROM entry_kinds WHERE kind = ?", oldDrink);
+            jdbc.update("DELETE FROM entry_kinds WHERE kind IN (?, ?)", meal, drink);
+        }
+    }
+
+    @Test
+    void numericFieldFilterExcludesStringAndMissingValues() {
+        String kind = createKind();
+        LocalDate day = LocalDate.of(2026, 10, 9);
+        List<UUID> ids = new ArrayList<>();
+        try {
+            ids.add(insertQueryEntry(kind, day, "2026-10-09T08:00:00Z", "numeric", Map.of("amount", 980)));
+            ids.add(insertQueryEntry(kind, day, "2026-10-09T09:00:00Z", "string", Map.of("amount", "500")));
+            ids.add(insertQueryEntry(kind, day, "2026-10-09T10:00:00Z", "missing", Map.of()));
+
+            var page = entryService.page(new EntryFilters(List.of(kind), null, Map.of(), day, day, "amount"),
+                    20, null);
+
+            assertThat(page.entries()).extracting(EntrySnapshot::id).containsExactly(ids.getFirst());
+        } finally {
+            cleanup(kind, ids);
+        }
+    }
+
+    @Test
+    void recentCanonicalKindsCountsLiveEntriesAndReportsLatestLocalDay() {
+        String kind = createKind();
+        String staleKind = "stale_" + UUID.randomUUID().toString().replace("-", "").substring(0, 8);
+        LocalDate from = LocalDate.of(2026, 7, 14);
+        LocalDate to = LocalDate.of(2026, 10, 11);
+        List<UUID> ids = new ArrayList<>();
+        try {
+            jdbc.update("INSERT INTO entry_kinds (kind) VALUES (?)", staleKind);
+            jdbc.update("UPDATE entry_kinds SET merged_into = ? WHERE kind = ?", kind, staleKind);
+            ids.add(insert(kind, LocalDate.of(2026, 10, 8), "1", Map.of()));
+            ids.add(insert(kind, LocalDate.of(2026, 10, 10), "1", Map.of()));
+            ids.add(insert(staleKind, LocalDate.of(2026, 10, 10), "1", Map.of()));
+            ids.add(insert(kind, from.minusDays(1), "1", Map.of()));
+            jdbc.update("UPDATE entries SET deleted_at = now() WHERE id = ?", ids.get(2));
+
+            assertThat(entries.recentCanonicalKinds(from, to, 20))
+                    .containsExactly(new com.tinyme.domain.entries.model.RecentKind(kind, 2,
+                            LocalDate.of(2026, 10, 10)));
+        } finally {
+            for (UUID id : ids) jdbc.update("DELETE FROM entries WHERE id = ?", id);
+            jdbc.update("UPDATE entry_kinds SET merged_into = NULL WHERE kind = ?", staleKind);
+            jdbc.update("DELETE FROM entry_kinds WHERE kind = ?", staleKind);
+            jdbc.update("DELETE FROM entry_kinds WHERE kind = ?", kind);
+        }
+    }
+
+    @Test
     void apiReturnsFullJournalTextWhileToolQueryTruncatesIt() {
         String kind = createKind();
         LocalDate day = LocalDate.of(2026, 10, 9);
@@ -411,7 +505,7 @@ class EntryRepositoryTests {
         try {
             String fullText = "j".repeat(1000);
             ids.add(insertQueryEntry(kind, day, "2026-10-09T12:00:00Z", fullText, Map.of()));
-            var apiPage = entryController.list(kind, day, day, null, null, null, 50);
+            var apiPage = entryController.list(List.of(kind), day, day, null, null, null, 50);
             var toolPage = entries.find(new EntryQuery(kind, null, Map.of(), day, day, 10));
 
             assertThat(apiPage.entries().getFirst().text()).hasSize(1000);

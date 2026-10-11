@@ -36,6 +36,30 @@ struct Endpoint: Sendable {
         Endpoint(method: "GET", path: "conversations", query: day.map { [URLQueryItem(name: "day", value: $0.description)] } ?? [])
     }
 
+    static let kinds = Endpoint(method: "GET", path: "kinds")
+
+    /// The whole log, newest first. `kind` nil means every kind.
+    static func entries(kind: String?, query: String, cursor: String?) -> Endpoint {
+        var items: [URLQueryItem] = []
+        if let kind { items.append(URLQueryItem(name: "kind", value: kind)) }
+        if !query.isEmpty { items.append(URLQueryItem(name: "q", value: query)) }
+        if let cursor { items.append(URLQueryItem(name: "cursor", value: cursor)) }
+        return Endpoint(method: "GET", path: "entries", query: items)
+    }
+
+    /// The entries behind one block of a card. The server builds the filter, so the list adds up to the card.
+    static func cardEntries(
+        _ id: String, range: String, block: Int?, item: Int?, day: LocalDay?, key: String?, cursor: String?
+    ) -> Endpoint {
+        var items = [URLQueryItem(name: "range", value: range)]
+        if let block { items.append(URLQueryItem(name: "block", value: String(block))) }
+        if let item { items.append(URLQueryItem(name: "item", value: String(item))) }
+        if let day { items.append(URLQueryItem(name: "day", value: day.description)) }
+        if let key { items.append(URLQueryItem(name: "key", value: key)) }
+        if let cursor { items.append(URLQueryItem(name: "cursor", value: cursor)) }
+        return Endpoint(method: "GET", path: "cards/\(id)/entries", query: items)
+    }
+
     static func actionResult(_ actionId: String) -> Endpoint {
         Endpoint(method: "POST", path: "actions/\(actionId)/result")
     }

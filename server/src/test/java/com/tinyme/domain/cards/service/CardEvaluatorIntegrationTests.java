@@ -1,5 +1,6 @@
 package com.tinyme.domain.cards.service;
 
+import com.tinyme.api.cards.CardEntriesService;
 import com.tinyme.domain.cards.entity.CardEntity;
 import com.tinyme.domain.cards.model.CardSpecParser;
 import com.tinyme.domain.cards.model.CardSpecWriter;
@@ -41,6 +42,7 @@ import java.util.Map;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 @SpringBootTest(properties = {
         "tinyme.agent.setup-enabled=false",
@@ -56,6 +58,7 @@ class CardEvaluatorIntegrationTests {
     private static final JsonMapper JSON = JsonMapper.builder().build();
 
     @Autowired CardEvaluator evaluator;
+    @Autowired CardEntriesService cardEntries;
     @Autowired EntryService entries;
     @Autowired CardRepository cards;
     @Autowired CardSpecParser parser;
@@ -64,9 +67,9 @@ class CardEvaluatorIntegrationTests {
 
     @AfterEach
     void cleanUp() {
-        jdbc.update("DELETE FROM entries WHERE kind IN ('meal', 'drink', 'expense', 'workout')");
-        jdbc.update("UPDATE entry_kinds SET merged_into = NULL WHERE kind IN ('meal', 'drink', 'expense', 'workout')");
-        jdbc.update("DELETE FROM entry_kinds WHERE kind IN ('meal', 'drink', 'expense', 'workout')");
+        jdbc.update("DELETE FROM entries WHERE kind IN ('meal', 'drink', 'expense', 'workout', 'quantity_test')");
+        jdbc.update("UPDATE entry_kinds SET merged_into = NULL WHERE kind IN ('meal', 'drink', 'expense', 'workout', 'quantity_test')");
+        jdbc.update("DELETE FROM entry_kinds WHERE kind IN ('meal', 'drink', 'expense', 'workout', 'quantity_test')");
         jdbc.update("DELETE FROM cards WHERE slug LIKE ?", CARD_PREFIX + "%");
     }
 
@@ -135,6 +138,85 @@ class CardEvaluatorIntegrationTests {
         assertThat(jdbc.queryForObject("SELECT local_day FROM entries WHERE kind = 'drink' AND local_day = ?",
                 LocalDate.class, WEDNESDAY))
                 .isEqualTo(WEDNESDAY);
+    }
+
+    @Test
+    void cardDrilldownUsesTheSameMetricScopeAsTheCard() {
+        add("expense", LocalDate.of(2026, 10, 5), LocalTime.NOON, Map.of("amount", 8470, "category", "food"));
+        add("expense", LocalDate.of(2026, 10, 6), LocalTime.NOON, Map.of("amount", 4050, "category", "transport"));
+        add("expense", LocalDate.of(2026, 10, 7), LocalTime.NOON, Map.of("amount", 3320, "category", "food"));
+        add("expense", LocalDate.of(2026, 10, 7), LocalTime.of(13, 0), Map.of("category", "food"));
+        CardEntity spending = saveExample("spending", SPENDING);
+
+        var firstPage = cardEntries.get(spending.getId(), Range.WEEK, 0, null, null, null, null, 2).orElseThrow();
+        assertThat(firstPage.nextCursor()).isNotNull();
+        var secondPage = cardEntries.get(spending.getId(), Range.WEEK, 0, null, null, null,
+                firstPage.nextCursor(), 2).orElseThrow();
+        List<CardEntriesService.EntryRow> allListed = new java.util.ArrayList<>(firstPage.entries());
+        allListed.addAll(secondPage.entries());
+        BigDecimal listedAmount = allListed.stream().map(row -> (Number) row.data().get("amount"))
+                .map(value -> new BigDecimal(value.toString())).reduce(BigDecimal.ZERO, BigDecimal::add);
+        assertThat(firstPage.total()).isEqualByComparingTo("15840");
+        assertThat(listedAmount).isEqualByComparingTo(firstPage.total());
+        assertThat(allListed).hasSize(3);
+        assertThat(firstPage.total()).isEqualByComparingTo(((StatView) evaluator.evaluate(spending, Range.WEEK)
+                .blocks().getFirst()).value());
+
+        var food = cardEntries.get(spending.getId(), Range.WEEK, 1, null, null, "food", null, 50).orElseThrow();
+        BigDecimal foodSlice = ((BreakdownView) evaluator.evaluate(spending, Range.WEEK).blocks().get(1))
+                .slices().stream().filter(slice -> "food".equals(slice.key())).findFirst().orElseThrow().value();
+        assertThat(food.total()).isEqualByComparingTo(foodSlice);
+        assertThat(food.entries()).hasSize(2);
+
+        var journal = cards.findBySlug("journal").orElseThrow();
+        var monday = cardEntries.get(journal.getId(), Range.WEEK, 1, null, LocalDate.of(2026, 10, 5),
+                null, null, 50).orElseThrow();
+        assertThat(monday.total()).isEqualByComparingTo("1");
+        assertThat(monday.dayTotals()).singleElement().extracting(CardEntriesService.DayTotal::value)
+                .isEqualTo(new BigDecimal("1"));
+    }
+
+    @Test
+    void countDrilldownUsesQuantityRatherThanRowCount() {
+        entries.add(new AddCommand("quantity_test", new BigDecimal("2"), "two checks", Map.of(), List.of(),
+                WEDNESDAY.atTime(10, 0).atZone(TOKYO).toInstant(), TOKYO, "chat"));
+        CardEntity card = saveExample("quantity-count", """
+                {"v":1,"title":"Quantity","icon":"chart","accent":"mint","tone":"surface",
+                 "blocks":[{"type":"stat","label":"count","period":"range",
+                            "metric":{"kinds":["quantity_test"],"op":"count"}}]}
+                """);
+
+        var result = cardEntries.get(card.getId(), Range.WEEK, 0, null, null, null, null, 50).orElseThrow();
+
+        assertThat(result.total()).isEqualByComparingTo("2");
+        assertThat(result.entries()).hasSize(1);
+        assertThat(result.entries().getFirst().quantity()).isEqualByComparingTo("2");
+    }
+
+    @Test
+    void cardDrilldownRejectsInvalidBlockItemKeyDayCursorAndLimit() {
+        CardEntity spending = saveExample("spending", SPENDING);
+
+        assertThatThrownBy(() -> cardEntries.get(spending.getId(), Range.WEEK, 8, null,
+                null, null, null, 50)).isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("block");
+        assertThatThrownBy(() -> cardEntries.get(spending.getId(), Range.WEEK, 0, 0,
+                null, null, null, 50)).isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("item");
+        assertThatThrownBy(() -> cardEntries.get(spending.getId(), Range.WEEK, 0, null,
+                null, "food", null, 50)).isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("key");
+        assertThatThrownBy(() -> cardEntries.get(spending.getId(), Range.WEEK, 1, null,
+                LocalDate.of(2026, 10, 4), null, null, 50)).isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("day");
+        assertThatThrownBy(() -> cardEntries.get(spending.getId(), Range.WEEK, 0, null,
+                null, null, "bad-cursor", 50)).isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("cursor");
+        assertThatThrownBy(() -> cardEntries.get(spending.getId(), Range.WEEK, 0, null,
+                null, null, null, 0)).isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("limit");
+        assertThat(cardEntries.get(UUID.randomUUID(), Range.WEEK, null, null,
+                null, null, null, 50)).isEmpty();
     }
 
     private CardEntity saveExample(String slug, String source) {

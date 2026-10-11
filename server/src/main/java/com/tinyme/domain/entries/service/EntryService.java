@@ -2,6 +2,7 @@ package com.tinyme.domain.entries.service;
 
 import com.tinyme.domain.entries.model.EntryWriteResult;
 import com.tinyme.domain.entries.model.EntrySnapshot;
+import com.tinyme.domain.entries.model.RecentKind;
 import com.tinyme.domain.entries.model.add.AddCommand;
 import com.tinyme.domain.entries.model.add.AddResult;
 import com.tinyme.domain.entries.model.aggregate.AggregateQuery;
@@ -98,6 +99,11 @@ public class EntryService {
     }
 
     @Transactional(readOnly = true)
+    public List<RecentKind> recentCanonicalKinds(LocalDate from, LocalDate to, int limit) {
+        return entries.recentCanonicalKinds(from, to, limit);
+    }
+
+    @Transactional(readOnly = true)
     public boolean hasDataField(String kind, String field) {
         Objects.requireNonNull(kind, "kind");
         Objects.requireNonNull(field, "field");
@@ -118,15 +124,21 @@ public class EntryService {
     @Transactional(readOnly = true)
     public EntryPage page(EntryFilters filters, int limit, EntryRepository.EntryCursor cursor) {
         Objects.requireNonNull(filters, "filters");
-        if (filters.kind() != null) {
-            Optional<String> resolved = entryKinds.resolveExisting(filters.kind());
-            if (resolved.isEmpty()) return new EntryPage(false, List.of(), null);
-            filters = filters.withKind(resolved.get());
+        List<String> unknownKinds = new ArrayList<>();
+        if (!filters.kinds().isEmpty()) {
+            LinkedHashSet<String> resolvedKinds = new LinkedHashSet<>();
+            for (String kind : filters.kinds()) {
+                Optional<String> resolved = entryKinds.resolveExisting(kind);
+                if (resolved.isEmpty()) unknownKinds.add(kind);
+                // Keep unknown kinds in SQL so known kinds can still return rows alongside them.
+                resolvedKinds.add(resolved.orElse(kind));
+            }
+            filters = filters.withKinds(List.copyOf(resolvedKinds));
         }
         var rows = entries.findPage(filters, limit, cursor);
         String nextCursor = rows.hasMore() && !rows.entries().isEmpty()
                 ? EntryCursorCodec.encode(rows.entries().getLast()) : null;
-        return new EntryPage(true, rows.entries(), nextCursor);
+        return new EntryPage(unknownKinds, rows.entries(), nextCursor);
     }
 
     @Transactional

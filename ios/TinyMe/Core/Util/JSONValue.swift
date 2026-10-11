@@ -47,4 +47,12 @@ enum JSONValue: Codable, Sendable, Hashable {
     var stringValue: String? {
         if case .string(let value) = self { value } else { nil }
     }
+
+    var numberValue: Double? {
+        if case .number(let value) = self { value } else { nil }
+    }
+
+    var boolValue: Bool? {
+        if case .bool(let value) = self { value } else { nil }
+    }
 }

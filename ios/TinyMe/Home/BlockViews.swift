@@ -9,33 +9,47 @@ struct BlockView: View {
     var showsChange = true
     /// The comparison with your usual day, on the one block of the card that shows it.
     var average: AverageDay?
+    /// Called when a part of the block is tapped. Nil: nothing is tappable.
+    var onTap: ((BlockTap) -> Void)?
 
     var body: some View {
         switch block {
         case .stat(let stat):
-            StatBlockView(
-                label: stat.label, unit: stat.unit, value: stat.value, goal: stat.goal, entries: stat.entries,
-                period: period, previous: showsChange ? stat.previous : nil, deltaPct: showsChange ? stat.deltaPct : nil,
-                average: average
-            )
+            tappable {
+                StatBlockView(
+                    label: stat.label, unit: stat.unit, value: stat.value, goal: stat.goal, entries: stat.entries,
+                    period: period, previous: showsChange ? stat.previous : nil, deltaPct: showsChange ? stat.deltaPct : nil,
+                    average: average
+                )
+            }
         case .progress(let progress):
             if progress.goal == nil {
-                StatBlockView(label: progress.label, unit: progress.unit, value: progress.value, goal: nil, entries: progress.entries, period: period, average: average)
+                tappable {
+                    StatBlockView(label: progress.label, unit: progress.unit, value: progress.value, goal: nil, entries: progress.entries, period: period, average: average)
+                }
             } else {
-                withAverage(alignment: progress.style == "gauge" ? .center : .leading) {
-                    ProgressBlockView(block: progress)
+                tappable {
+                    withAverage(alignment: progress.style == "gauge" ? .center : .leading) {
+                        ProgressBlockView(block: progress)
+                    }
                 }
             }
         case .chart(let chart):
-            withAverage { ChartBlockView(block: chart, range: range) }
+            withAverage {
+                ChartBlockView(block: chart, range: range, onOpenDay: onTap.map { tap in { tap(.point($0)) } })
+            }
         case .latest(let latest):
-            LatestBlockView(block: latest)
+            tappable { LatestBlockView(block: latest) }
         case .goals(let goals):
-            GoalsBlockView(block: goals)
+            GoalsBlockView(block: goals, onItem: onTap.map { tap in { tap(.item($0)) } })
         case .checkins(let checkins):
-            withAverage { CheckinsBlockView(block: checkins, range: range) }
+            withAverage {
+                CheckinsBlockView(block: checkins, range: range, onSlot: onTap.map { tap in { tap(.slot($0)) } })
+            }
         case .breakdown(let breakdown):
-            withAverage { BreakdownBlockView(block: breakdown) }
+            withAverage {
+                BreakdownBlockView(block: breakdown, onSlice: onTap.map { tap in { tap(.slice($0)) } })
+            }
         case .unavailable:
             BlockNote("This part couldn't load")
         case .unknown:
@@ -44,7 +58,41 @@ struct BlockView: View {
     }
 }
 
+/// The part of a block that was tapped.
+enum BlockTap {
+    case block
+    case slice(String)
+    case point(LocalDay)
+    case slot(LocalDay)
+    case item(Int)
+
+    func cardTap(block index: Int) -> CardTap {
+        switch self {
+        case .block: CardTap(block: index)
+        case .slice(let key): CardTap(block: index, key: key)
+        case .point(let day), .slot(let day): CardTap(block: index, day: day)
+        case .item(let item): CardTap(block: index, item: item)
+        }
+    }
+}
+
 extension BlockView {
+    /// Makes the whole block open its entries, when taps are wanted.
+    @ViewBuilder
+    fileprivate func tappable(@ViewBuilder content: () -> some View) -> some View {
+        if let onTap {
+            Button {
+                onTap(.block)
+            } label: {
+                content()
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+        } else {
+            content()
+        }
+    }
+
     /// Adds the "vs your usual day" pill under a block, when this is the block that shows it.
     @ViewBuilder
     fileprivate func withAverage(alignment: HorizontalAlignment = .leading, @ViewBuilder content: () -> some View) -> some View {
@@ -353,6 +401,8 @@ struct ProgressBlockView: View {
 struct ChartBlockView: View {
     let block: ChartBlock
     let range: HomeRange
+    /// Opens the entries for one bar. The first tap on a bar shows its value; a second tap on it calls this.
+    var onOpenDay: ((LocalDay) -> Void)?
 
     @Environment(\.cardStyle) private var style
     @State private var shown = false
@@ -466,7 +516,8 @@ struct ChartBlockView: View {
         // Thin bars have sparse axis labels, so say which period this is.
         let text = isCrowded ? "\(Self.shortDay(point.period)) · \(number)" : number
         if let selected {
-            return index == selected ? text : nil
+            // The arrow says a second tap opens that bar's entries.
+            return index == selected ? (onOpenDay == nil ? text : "\(text) ›") : nil
         }
         // Nothing selected: the highlighted (peak) bar always carries its number,
         // and so does today when there is room for a second label.
@@ -478,6 +529,10 @@ struct ChartBlockView: View {
     private func select(at x: CGFloat, width: CGFloat) {
         guard width > 0, !block.points.isEmpty else { return }
         let index = min(max(Int(x / width * CGFloat(block.points.count)), 0), block.points.count - 1)
+        if index == selected, let onOpenDay {
+            onOpenDay(block.points[index].period)
+            return
+        }
         withAnimation(.snappy(duration: 0.2)) {
             // Tapping the selected bar again, or a day that hasn't happened, clears the selection.
             selected = index == selected || block.points[index].state == "future" ? nil : index
@@ -670,6 +725,7 @@ struct LatestBlockView: View {
 /// Up to four small bars side by side, each a value against its goal: "Protein · 92 / 120 g".
 struct GoalsBlockView: View {
     let block: GoalsBlock
+    var onItem: ((Int) -> Void)?
 
     @Environment(\.cardStyle) private var style
     @State private var shown = false
@@ -700,8 +756,11 @@ struct GoalsBlockView: View {
                         .minimumScaleFactor(0.8)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
+                .contentShape(Rectangle())
+                .onTapGesture { onItem?(index) }
                 .accessibilityElement(children: .ignore)
                 .accessibilityLabel("\(item.label): \(text(for: item))")
+                .accessibilityAddTraits(onItem == nil ? [] : .isButton)
             }
         }
         .growIn(shown, delay: 0.15)
@@ -732,6 +791,7 @@ struct GoalsBlockView: View {
 struct CheckinsBlockView: View {
     let block: CheckinsBlock
     let range: HomeRange
+    var onSlot: ((LocalDay) -> Void)?
 
     @Environment(\.cardStyle) private var style
     @State private var shown = false
@@ -812,6 +872,12 @@ struct CheckinsBlockView: View {
         .scaleEffect(shown ? 1 : 0.3)
         .opacity(shown ? 1 : 0)
         .growIn(shown, delay: min(Double(index) * 0.04, 0.6))
+        .contentShape(Circle())
+        .onTapGesture {
+            if slot.state != "future" {
+                onSlot?(slot.period)
+            }
+        }
     }
 
     private var caption: String {
@@ -836,6 +902,8 @@ struct CheckinsBlockView: View {
 /// How a total splits by category: one segmented bar (or a bar per category) with a legend.
 struct BreakdownBlockView: View {
     let block: BreakdownBlock
+    /// Opens the entries of one category. "Other" and unlabeled parts can't be opened yet.
+    var onSlice: ((String) -> Void)?
 
     @Environment(\.cardStyle) private var style
     @State private var shown = false
@@ -843,18 +911,26 @@ struct BreakdownBlockView: View {
     private struct Part: Identifiable {
         let id: Int
         let name: String
+        /// The category as the server knows it; nil for "Unlabeled" and "Other".
+        let key: String?
         let value: Double?
         let pct: Double
         /// "Other" is everything too small to name, drawn hatched.
         let isOther: Bool
     }
 
+    private func open(_ part: Part) {
+        if let key = part.key {
+            onSlice?(key)
+        }
+    }
+
     private var parts: [Part] {
         var parts = block.slices.enumerated().map { index, slice in
-            Part(id: index, name: Self.name(slice.key), value: slice.value, pct: max(slice.pct ?? 0, 0), isOther: false)
+            Part(id: index, name: Self.name(slice.key), key: slice.key?.nonEmpty, value: slice.value, pct: max(slice.pct ?? 0, 0), isOther: false)
         }
         if let other = block.other, (other.pct ?? 0) > 0 || (other.value ?? 0) > 0 {
-            parts.append(Part(id: parts.count, name: "Other", value: other.value, pct: max(other.pct ?? 0, 0), isOther: true))
+            parts.append(Part(id: parts.count, name: "Other", key: nil, value: other.value, pct: max(other.pct ?? 0, 0), isOther: true))
         }
         return parts
     }
@@ -886,6 +962,8 @@ struct BreakdownBlockView: View {
                     ForEach(parts) { part in
                         swatch(part)
                             .frame(width: max(available * part.pct / total, 4))
+                            .contentShape(Rectangle())
+                            .onTapGesture { open(part) }
                     }
                 }
             }
@@ -906,6 +984,9 @@ struct BreakdownBlockView: View {
                         Text(valueText(part))
                             .textStyle(.label, weight: .semibold)
                     }
+                    .frame(minHeight: 28)
+                    .contentShape(Rectangle())
+                    .onTapGesture { open(part) }
                 }
             }
         }
@@ -932,6 +1013,8 @@ struct BreakdownBlockView: View {
                             }
                         }
                 }
+                .contentShape(Rectangle())
+                .onTapGesture { open(part) }
             }
         }
     }

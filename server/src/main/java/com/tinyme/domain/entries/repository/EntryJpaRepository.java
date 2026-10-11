@@ -22,6 +22,14 @@ interface EntryJpaRepository extends JpaRepository<EntryEntity, UUID> {
                                      @Param("to") LocalDate to,
                                      @Param("minimum") long minimum);
 
+    @Query("select e.kind.kind as kind, count(e) as entryCount, max(e.localDay) as lastLoggedOn " +
+            "from EntryEntity e where e.deletedAt is null and e.localDay between :from and :to " +
+            "and e.kind.mergedInto is null group by e.kind.kind " +
+            "order by count(e) desc, e.kind.kind asc")
+    List<RecentKindSummary> recentCanonicalKinds(@Param("from") LocalDate from,
+                                                @Param("to") LocalDate to,
+                                                org.springframework.data.domain.Pageable pageable);
+
     @Query(value = """
             SELECT COALESCE(SUM(quantity), 0)
             FROM entries
@@ -54,6 +62,12 @@ interface EntryJpaRepository extends JpaRepository<EntryEntity, UUID> {
 interface RecentKindCount {
     String getKind();
     long getEntryCount();
+}
+
+interface RecentKindSummary {
+    String getKind();
+    long getEntryCount();
+    LocalDate getLastLoggedOn();
 }
 
 interface TodayTotalProjection {

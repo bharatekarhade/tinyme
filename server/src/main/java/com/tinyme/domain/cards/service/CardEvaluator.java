@@ -4,13 +4,13 @@ import com.tinyme.domain.cards.entity.CardEntity;
 import com.tinyme.domain.cards.model.Badge;
 import com.tinyme.domain.cards.model.BadgeKind;
 import com.tinyme.domain.cards.model.Block;
+import com.tinyme.domain.cards.model.BlockScope;
+import com.tinyme.domain.cards.model.BlockTypes;
 import com.tinyme.domain.cards.model.BreakdownBlock;
 import com.tinyme.domain.cards.model.CardSpec;
 import com.tinyme.domain.cards.model.CardSpecParser;
 import com.tinyme.domain.cards.model.CardStatus;
 import com.tinyme.domain.cards.model.ChartBlock;
-import com.tinyme.domain.cards.model.ChartBucket;
-import com.tinyme.domain.cards.model.ChartBuckets;
 import com.tinyme.domain.cards.model.CheckinsBlock;
 import com.tinyme.domain.cards.model.ComparePeriod;
 import com.tinyme.domain.cards.model.GoalItem;
@@ -121,7 +121,7 @@ public class CardEvaluator {
             } catch (RuntimeException error) {
                 log.warn("Card block unavailable: card={}, block={}, type={}", card.getSlug(), i,
                         block.getClass().getSimpleName(), error);
-                var unavailable = new UnavailableView(blockType(block), "unavailable");
+                var unavailable = new UnavailableView(BlockTypes.name(block), "unavailable");
                 views.add(unavailable);
                 completed.put(i, unavailable);
             }
@@ -146,53 +146,52 @@ public class CardEvaluator {
     }
 
     private StatView evaluateStat(StatBlock block, Range range, LocalDate selectedDate, LocalDate actualToday) {
-        DateRange dates = block.period().resolve(range, selectedDate);
-        AggregateResult current = aggregate(block.metric(), dates, GroupBy.NONE);
+        BlockScope scope = BlockScope.resolve(block, range, selectedDate);
+        DateRange dates = scope.dates();
+        AggregateResult current = aggregate(scope.metric(), dates, scope.bucket());
         BigDecimal previous = null;
         BigDecimal deltaPct = null;
         if (block.compare() == ComparePeriod.PREVIOUS_PERIOD && !isCurrentSingleDay(block, range, dates, actualToday)) {
-            AggregateResult prior = aggregate(block.metric(), block.period().previous(range, selectedDate), GroupBy.NONE);
+            AggregateResult prior = aggregate(scope.metric(), block.period().previous(range, selectedDate), scope.bucket());
             previous = prior.value();
             deltaPct = percentChange(current.value(), previous);
         }
         BigDecimal goal = applies(block.goalPeriod(), block.period(), range) ? block.goal() : null;
         return new StatView(block.label(), block.unit(), current.value(), goal,
                 count(current.entries()), previous, deltaPct,
-                averageDay(block.metric(), dates, current.value(), actualToday));
+                averageDay(scope.metric(), dates, current.value(), actualToday));
     }
 
     private ProgressView evaluateProgress(ProgressBlock block, Range range, LocalDate selectedDate, LocalDate actualToday) {
-        DateRange dates = block.period().resolve(range, selectedDate);
-        AggregateResult result = aggregate(block.metric(), dates, GroupBy.NONE);
+        BlockScope scope = BlockScope.resolve(block, range, selectedDate);
+        DateRange dates = scope.dates();
+        AggregateResult result = aggregate(scope.metric(), dates, scope.bucket());
         BigDecimal goal = applies(block.goalPeriod(), block.period(), range) ? block.goal() : null;
         BigDecimal value = result.value();
         BigDecimal remaining = goal == null || value == null ? null : goal.subtract(value).max(BigDecimal.ZERO);
         BigDecimal pct = goal == null ? null : percentage(value, goal);
         return new ProgressView(block.label(), block.unit(), lower(block.style().name()),
                 value, goal, remaining, pct, count(result.entries()),
-                averageDay(block.metric(), dates, value, actualToday));
+                averageDay(scope.metric(), dates, value, actualToday));
     }
 
     private GoalsView evaluateGoals(GoalsBlock block, Range range, LocalDate selectedDate, LocalDate actualToday) {
-        DateRange dates = block.period().resolve(range, selectedDate);
         List<GoalItemView> items = new ArrayList<>(block.items().size());
         for (GoalItem item : block.items()) {
-            AggregateResult result = aggregate(item.metric(), dates, GroupBy.NONE);
+            BlockScope scope = BlockScope.resolve(block, item, range, selectedDate);
+            AggregateResult result = aggregate(scope.metric(), scope.dates(), scope.bucket());
             BigDecimal value = result.value();
             items.add(new GoalItemView(item.label(), value, item.goal(), percentage(value, item.goal()), item.unit(),
-                    averageDay(item.metric(), dates, value, actualToday)));
+                    averageDay(scope.metric(), scope.dates(), value, actualToday)));
         }
         return new GoalsView(block.label(), items);
     }
 
     private ChartView evaluateChart(ChartBlock block, Range range, LocalDate today, LocalDate actualToday) {
-        GroupBy groupBy = toGroupBy(block.bucket() == ChartBucket.AUTO
-                ? ChartBuckets.resolveAuto(block.period(), range) : block.bucket());
-        DateRange dates = block.period().resolve(range, today);
-        if (block.period() == Period.RANGE && range == Range.DAY) {
-            dates = new DateRange(today.minusDays(6), today);
-        }
-        AggregateResult result = aggregate(block.metric(), dates, groupBy);
+        BlockScope scope = BlockScope.resolve(block, range, today);
+        GroupBy groupBy = scope.bucket();
+        DateRange dates = scope.dates();
+        AggregateResult result = aggregate(scope.metric(), dates, groupBy);
         List<Point> points = result.buckets().stream().map(bucket -> new Point(bucket.period(), bucket.value(),
                 bucket.entries(), state(bucket.period(), groupBy, today))).toList();
         Integer peak = block.highlight() == com.tinyme.domain.cards.model.Highlight.PEAK
@@ -204,29 +203,31 @@ public class CardEvaluator {
     }
 
     private CheckinsView evaluateCheckins(CheckinsBlock block, Range range, LocalDate today, LocalDate actualToday) {
-        DateRange dates = block.period().resolve(range, today);
-        GroupBy groupBy = checkinsGroupBy(block.period(), range);
-        AggregateResult result = aggregate(block.metric(), dates, groupBy);
+        BlockScope scope = BlockScope.resolve(block, range, today);
+        DateRange dates = scope.dates();
+        GroupBy groupBy = scope.bucket();
+        AggregateResult result = aggregate(scope.metric(), dates, groupBy);
         List<Slot> slots = result.buckets().stream().map(bucket -> new Slot(bucket.period(),
                 state(bucket.period(), groupBy, today), bucket.entries() > 0)).toList();
         int done = (int) slots.stream().filter(Slot::done).count();
         return new CheckinsView(block.label(), slots, done,
                 applies(block.goalPeriod(), block.period(), range) ? block.goal() : null,
-                streak(block.metric(), today), averageDay(block.metric(), dates,
+                streak(scope.metric(), today), averageDay(scope.metric(), dates,
                 result.buckets().stream().map(bucket -> bucket.value() == null ? BigDecimal.ZERO : bucket.value())
                         .reduce(BigDecimal.ZERO, BigDecimal::add), actualToday));
     }
 
     private BreakdownView evaluateBreakdown(BreakdownBlock block, Range range, LocalDate today, LocalDate actualToday) {
-        DateRange dates = block.period().resolve(range, today);
-        BreakdownResult result = entries.breakdown(new BreakdownQuery(block.metric().kinds(), block.metric().op(),
-                block.metric().field(), block.metric().where(), dates.from(), dates.to(), block.by(), block.top()));
+        BlockScope scope = BlockScope.resolve(block, range, today);
+        DateRange dates = scope.dates();
+        BreakdownResult result = entries.breakdown(new BreakdownQuery(scope.metric().kinds(), scope.metric().op(),
+                scope.metric().field(), scope.metric().where(), dates.from(), dates.to(), block.by(), block.top()));
         List<Slice> slices = result.slices().stream()
                 .map(slice -> new Slice(slice.key(), slice.value(), slice.pct())).toList();
         OtherSlice other = new OtherSlice(result.other().value(), result.other().pct());
         return new BreakdownView(block.label(), lower(block.style().name()), block.unit(),
                 result.total(), slices, other,
-                averageDay(block.metric(), dates, result.total(), actualToday));
+                averageDay(scope.metric(), dates, result.total(), actualToday));
     }
 
     private LatestView evaluateLatest(LatestBlock block) {
@@ -351,17 +352,6 @@ public class CardEvaluator {
                 && (block.period() == Period.TODAY || block.period() == Period.RANGE && range == Range.DAY);
     }
 
-    private static GroupBy checkinsGroupBy(Period period, Range range) {
-        if (period == Period.RANGE) return Period.autoBucket(range);
-        return switch (period) {
-            case TODAY, YESTERDAY -> GroupBy.DAY;
-            case THIS_WEEK, LAST_7_DAYS, THIS_MONTH, LAST_30_DAYS -> GroupBy.DAY;
-            case LAST_12_WEEKS -> GroupBy.WEEK;
-            case THIS_YEAR -> GroupBy.MONTH;
-            case RANGE -> throw new IllegalStateException("RANGE is handled above");
-        };
-    }
-
     private static String state(LocalDate period, GroupBy groupBy, LocalDate today) {
         LocalDate point = switch (groupBy) {
             case DAY -> period;
@@ -412,15 +402,6 @@ public class CardEvaluator {
 
     private static long count(Long entries) { return entries == null ? 0 : entries; }
 
-    private static GroupBy toGroupBy(ChartBucket bucket) {
-        return switch (bucket) {
-            case DAY -> GroupBy.DAY;
-            case WEEK -> GroupBy.WEEK;
-            case MONTH -> GroupBy.MONTH;
-            case AUTO -> throw new IllegalArgumentException("AUTO bucket must be resolved before querying");
-        };
-    }
-
     private static String periodLabel(Period period, Range range) {
         if (period == Period.RANGE) {
             return switch (range) {
@@ -452,18 +433,6 @@ public class CardEvaluator {
             case LAST_7_DAYS -> "previous_7_days";
             case LAST_30_DAYS -> "previous_30_days";
             case LAST_12_WEEKS -> "previous_12_weeks";
-        };
-    }
-
-    private static String blockType(Block block) {
-        return switch (block) {
-            case StatBlock ignored -> "stat";
-            case ProgressBlock ignored -> "progress";
-            case GoalsBlock ignored -> "goals";
-            case ChartBlock ignored -> "chart";
-            case CheckinsBlock ignored -> "checkins";
-            case BreakdownBlock ignored -> "breakdown";
-            case LatestBlock ignored -> "latest";
         };
     }
 

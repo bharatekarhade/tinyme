@@ -84,30 +84,39 @@ struct CardView: View {
     let range: HomeRange
     /// A draft shown in chat: a "Preview" pill takes the badge's place.
     var isPreview = false
+    /// Called with the part that was tapped, to show the entries behind it. Nil: the card isn't tappable (chat previews).
+    var onOpen: ((CardTap) -> Void)?
 
     private var style: CardStyle { CardStyle(tone: card.tone, accent: card.accent) }
 
     var body: some View {
         VStack(alignment: .leading, spacing: Space.s4) {
-            HStack(spacing: Space.s3) {
-                Image(systemName: Self.symbol(for: card.icon))
-                    .font(.system(size: 17))
-                    .frame(width: 36, height: 36)
-                    .background(style.tile, in: RoundedRectangle(cornerRadius: Radius.sm, style: .continuous))
-                    .accessibilityHidden(true)
-                Text(card.title)
-                    .textStyle(.heading)
-                    .lineLimit(1)
-                Spacer(minLength: Space.s2)
-                if isPreview {
-                    Pill(text: "Preview", background: style.track, foreground: style.muted)
-                } else if let badge = card.badge, keepsBadge {
-                    BadgeView(badge: badge)
-                } else if let headline {
-                    Pill(text: headline.text, background: style.track, foreground: style.foreground)
+            Button {
+                onOpen?(CardTap())
+            } label: {
+                HStack(spacing: Space.s3) {
+                    Image(systemName: Self.symbol(for: card.icon))
+                        .font(.system(size: 17))
+                        .frame(width: 36, height: 36)
+                        .background(style.tile, in: RoundedRectangle(cornerRadius: Radius.sm, style: .continuous))
+                        .accessibilityHidden(true)
+                    Text(card.title)
+                        .textStyle(.heading)
+                        .lineLimit(1)
+                    Spacer(minLength: Space.s2)
+                    if isPreview {
+                        Pill(text: "Preview", background: style.track, foreground: style.muted)
+                    } else if let badge = card.badge, keepsBadge {
+                        BadgeView(badge: badge)
+                    } else if let headline {
+                        Pill(text: headline.text, background: style.track, foreground: style.foreground)
+                    }
+                    // No comparison to show: the corner stays empty. The caption already names the period.
                 }
-                // No comparison to show: the corner stays empty. The caption already names the period.
+                .contentShape(Rectangle())
             }
+            .buttonStyle(.plain)
+            .disabled(onOpen == nil)
 
             if card.error != nil {
                 BlockNote("Couldn't load this card")
@@ -123,7 +132,10 @@ struct CardView: View {
                         range: range,
                         period: period,
                         showsChange: card.badge?.kind != "delta" && corner?.isAverage != false,
-                        average: index == averageIndex ? block.averageDay : nil
+                        average: index == averageIndex ? block.averageDay : nil,
+                        onTap: onOpen.map { open in
+                            { tap in open(tap.cardTap(block: index)) }
+                        }
                     )
                 }
             }

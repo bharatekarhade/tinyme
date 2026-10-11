@@ -12,7 +12,7 @@ struct RootView: View {
                     .transition(.opacity)
             case .signedIn:
                 if let api = environment.session.api {
-                    HomeView(api: api)
+                    MainView(api: api)
                         .transition(.opacity)
                 }
             }

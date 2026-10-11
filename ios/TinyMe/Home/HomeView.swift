@@ -1,140 +1,116 @@
 import SwiftUI
 
 struct HomeView: View {
+    let model: HomeModel
+    let api: APIClient
+
     @Environment(AppEnvironment.self) private var environment
+    @Environment(MainRouter.self) private var router
     @Environment(\.scenePhase) private var scenePhase
-    @State private var model: HomeModel
-    @State private var showsSettings = false
-    @State private var chat: ChatDraft?
     @State private var cardToRemove: CardDTO?
-
-    /// What chat opens with: empty from the + button, a suggestion's text from "Track something new".
-    private struct ChatDraft: Identifiable {
-        let id = UUID()
-        var text = ""
-    }
-
-    init(api: APIClient) {
-        _model = State(initialValue: HomeModel(api: api))
-    }
 
     var body: some View {
         @Bindable var model = model
+        @Bindable var router = router
 
-        ScrollView {
-            VStack(spacing: Space.s4) {
-                HomeHeader(initial: profileInitial, subtitle: model.range.subtitle) {
-                    showsSettings = true
-                }
-                .padding(.bottom, Space.s2)
-                PillSwitcher(options: HomeRange.allCases, selection: $model.range, title: \.title, label: "Range")
+        NavigationStack(path: $router.homePath) {
+            ScrollView {
+                VStack(spacing: Space.s4) {
+                    HomeHeader(initial: profileInitial, subtitle: model.range.subtitle) {
+                        router.showsSettings = true
+                    }
+                    .padding(.bottom, Space.s2)
+                    PillSwitcher(options: HomeRange.allCases, selection: $model.range, title: \.title, label: "Range")
 
-                // New identity per range, so every chart fills again on switch.
-                Group {
-                    switch model.phase {
-                    case .loading:
-                        ForEach(0..<2, id: \.self) { _ in
-                            CardPlaceholder()
-                        }
-                    case .failed(let message):
-                        LoadFailedCard(message: message) {
-                            model.load()
-                        }
-                    case .loaded:
-                        ForEach(model.cards) { card in
-                            HomeCardRow(
-                                card: card,
-                                range: model.range,
-                                onRemove: { cardToRemove = card },
-                                onDrop: { droppedId in
-                                    Task { await model.move(droppedId, onto: card.id) }
-                                }
-                            )
+                    // New identity per range, so every chart fills again on switch.
+                    Group {
+                        switch model.phase {
+                        case .loading:
+                            ForEach(0..<2, id: \.self) { _ in
+                                CardPlaceholder()
+                            }
+                        case .failed(let message):
+                            LoadFailedCard(message: message) {
+                                model.load()
+                            }
+                        case .loaded:
+                            ForEach(model.cards) { card in
+                                HomeCardRow(
+                                    card: card,
+                                    range: model.range,
+                                    onOpen: { tap in router.open(card, range: model.range, tap: tap) },
+                                    onRemove: { cardToRemove = card },
+                                    onDrop: { droppedId in
+                                        Task { await model.move(droppedId, onto: card.id) }
+                                    }
+                                )
+                            }
                         }
                     }
-                }
-                .id(model.range)
+                    .id(model.range)
 
-                AddTrackerCard(ideas: model.suggestions.map(\.text)) { idea in
-                    chat = ChatDraft(text: idea)
+                    AddTrackerCard(ideas: model.suggestions.map(\.text)) { idea in
+                        router.openChat(draft: idea)
+                    }
+                }
+                .padding(.horizontal, Space.s4)
+                .padding(.top, Space.s2)
+                .padding(.bottom, Space.s6)
+                .animation(.snappy(duration: 0.3), value: model.phase)
+                .animation(.snappy(duration: 0.3), value: model.cards.map(\.id))
+            }
+            .scrollIndicators(.hidden)
+            .refreshable {
+                await model.reload()
+            }
+            .foregroundStyle(Palette.ink)
+            .background(Palette.surface.ignoresSafeArea())
+            .overlay(alignment: .top) {
+                if let banner = model.banner {
+                    Label(banner, systemImage: "exclamationmark.circle")
+                        .textStyle(.label)
+                        .foregroundStyle(Palette.onAccentSoft)
+                        .padding(.horizontal, Space.s4)
+                        .padding(.vertical, Space.s3)
+                        .background(Palette.accentSoft, in: Capsule())
+                        .cardShadow()
+                        .padding(.top, Space.s2)
+                        .transition(.move(edge: .top).combined(with: .opacity))
                 }
             }
-            .padding(.horizontal, Space.s4)
-            .padding(.top, Space.s2)
-            .padding(.bottom, Space.s6)
-            .animation(.snappy(duration: 0.3), value: model.phase)
-            .animation(.snappy(duration: 0.3), value: model.cards.map(\.id))
-        }
-        .scrollIndicators(.hidden)
-        .refreshable {
-            await model.reload()
-        }
-        .foregroundStyle(Palette.ink)
-        .background(Palette.surface.ignoresSafeArea())
-        .safeAreaInset(edge: .bottom) {
-            HomeTabBar(onNewChat: { chat = ChatDraft() })
-        }
-        .fullScreenCover(item: $chat) { draft in
-            if let api = environment.session.api, let stream = environment.session.stream {
-                ChatView(api: api, stream: stream, draft: draft.text, serverName: serverName) { [model] in
-                    model.invalidate()
+            .animation(.snappy(duration: 0.3), value: model.banner)
+            .confirmationDialog(
+                "Remove \(cardToRemove?.title ?? "this card") from Home?",
+                isPresented: Binding(get: { cardToRemove != nil }, set: { if !$0 { cardToRemove = nil } }),
+                titleVisibility: .visible,
+                presenting: cardToRemove
+            ) { card in
+                Button("Remove", role: .destructive) {
+                    Task { await model.remove(card) }
                 }
+                Button("Cancel", role: .cancel) {}
+            } message: { _ in
+                Text("What you've logged stays. Ask me any time to build the card again.")
+            }
+            // "Home" names the back button on a drill-down; Home itself has its own header.
+            .navigationTitle("Home")
+            .toolbar(.hidden, for: .navigationBar)
+            .navigationDestination(for: MainRouter.DrillTarget.self) { target in
+                DrillDownView(target: target, api: api)
             }
         }
-        .overlay(alignment: .top) {
-            if let banner = model.banner {
-                Label(banner, systemImage: "exclamationmark.circle")
-                    .textStyle(.label)
-                    .foregroundStyle(Palette.onAccentSoft)
-                    .padding(.horizontal, Space.s4)
-                    .padding(.vertical, Space.s3)
-                    .background(Palette.accentSoft, in: Capsule())
-                    .cardShadow()
-                    .padding(.top, Space.s2)
-                    .transition(.move(edge: .top).combined(with: .opacity))
-            }
-        }
-        .animation(.snappy(duration: 0.3), value: model.banner)
-        .confirmationDialog(
-            "Remove \(cardToRemove?.title ?? "this card") from Home?",
-            isPresented: Binding(get: { cardToRemove != nil }, set: { if !$0 { cardToRemove = nil } }),
-            titleVisibility: .visible,
-            presenting: cardToRemove
-        ) { card in
-            Button("Remove", role: .destructive) {
-                Task { await model.remove(card) }
-            }
-            Button("Cancel", role: .cancel) {}
-        } message: { _ in
-            Text("What you've logged stays. Ask me any time to build the card again.")
-        }
-        .overlay {
-            SettingsSheet(isPresented: $showsSettings, session: environment.session)
-        }
+        .tint(Palette.brandStrong)
         .task {
             model.load()
         }
         .onChange(of: model.range) {
             model.load()
         }
-        .onOpenURL { url in
-            // The widget's "Journal something?" bar.
-            if url == WidgetSnapshot.chatURL, chat == nil {
-                chat = ChatDraft()
-            }
-        }
         .onChange(of: scenePhase) { _, phase in
             if phase == .active {
                 model.load()
             }
         }
-    }
-
-    private var serverName: String {
-        if case .signedIn(let server, _) = environment.session.state {
-            return server.host() ?? server.absoluteString
-        }
-        return ""
     }
 
     private var profileInitial: String {
@@ -145,10 +121,12 @@ struct HomeView: View {
     }
 }
 
-/// A card on Home. Your own cards can be removed (long-press) and dragged onto another to reorder; Journal stays put.
+/// A card on Home. Tap it for the entries behind it. Your own cards can also be removed (long-press)
+/// and dragged onto another to reorder; Journal stays put.
 private struct HomeCardRow: View {
     let card: CardDTO
     let range: HomeRange
+    var onOpen: (CardTap) -> Void
     var onRemove: () -> Void
     var onDrop: (String) -> Void
 
@@ -158,9 +136,9 @@ private struct HomeCardRow: View {
 
     var body: some View {
         if card.system == true {
-            CardView(card: card, range: range)
+            CardView(card: card, range: range, onOpen: onOpen)
         } else {
-            CardView(card: card, range: range)
+            CardView(card: card, range: range, onOpen: onOpen)
                 .contentShape(.contextMenuPreview, shape)
                 .contentShape(.dragPreview, shape)
                 .contextMenu {

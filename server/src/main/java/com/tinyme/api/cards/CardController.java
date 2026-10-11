@@ -1,5 +1,6 @@
 package com.tinyme.api.cards;
 
+import com.tinyme.api.RangeParam;
 import com.tinyme.domain.cards.model.view.CardView;
 import com.tinyme.domain.entries.model.aggregate.Range;
 import org.springframework.http.HttpStatus;
@@ -32,7 +33,7 @@ public class CardController {
     @GetMapping
     public CardsResponse list(@RequestParam(defaultValue = "week") String range,
                               @RequestParam(required = false) LocalDate date) {
-        Range resolved = parseRange(range);
+        Range resolved = RangeParam.parse(range);
         var result = cards.list(resolved, date);
         return new CardsResponse(resolved.name().toLowerCase(Locale.ROOT), result.from(), result.to(), result.cards());
     }
@@ -41,14 +42,14 @@ public class CardController {
     public CardView get(@PathVariable UUID id,
                         @RequestParam(defaultValue = "week") String range,
                         @RequestParam(required = false) LocalDate date) {
-        return cards.get(id, parseRange(range), date).orElseThrow(() -> notFound("Card not found"));
+        return cards.get(id, RangeParam.parse(range), date).orElseThrow(() -> notFound("Card not found"));
     }
 
     @PostMapping("/{id}/activate")
     public CardView activate(@PathVariable UUID id,
                              @RequestParam(defaultValue = "week") String range,
                              @RequestParam(required = false) LocalDate date) {
-        return cards.activate(id, parseRange(range), date).orElseThrow(() -> notFound("Card not found"));
+        return cards.activate(id, RangeParam.parse(range), date).orElseThrow(() -> notFound("Card not found"));
     }
 
     @DeleteMapping("/{id}")
@@ -74,14 +75,6 @@ public class CardController {
     @GetMapping("/suggestions")
     public List<CardApiService.CardSuggestion> suggestions() {
         return cards.suggestions();
-    }
-
-    private static Range parseRange(String value) {
-        try {
-            return Range.valueOf(value.strip().toUpperCase(Locale.ROOT));
-        } catch (RuntimeException invalid) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "range must be day, week, month, or year", invalid);
-        }
     }
 
     private static ResponseStatusException notFound(String message) {

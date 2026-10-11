@@ -96,6 +96,8 @@ actor APIClient {
         }
         if !endpoint.query.isEmpty {
             components.queryItems = endpoint.query
+            // URLComponents leaves "+" alone, but servers read it as a space; paging cursors can contain one.
+            components.percentEncodedQuery = components.percentEncodedQuery?.replacingOccurrences(of: "+", with: "%2B")
         }
         guard let url = components.url else { throw APIError.invalidResponse }
         var request = URLRequest(url: url)
