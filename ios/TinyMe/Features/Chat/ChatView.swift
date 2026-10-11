@@ -5,6 +5,10 @@ struct ChatView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.scenePhase) private var scenePhase
     @State private var model: ChatModel
+    @State private var speech = SpeechService()
+    /// What was in the composer when the mic was pressed; spoken words are added after it.
+    @State private var textBeforeVoice = ""
+    @AppStorage("voice.sendOnRelease") private var sendOnRelease = false
     @FocusState private var composerFocused: Bool
 
     private let serverName: String
@@ -76,13 +80,45 @@ struct ChatView: View {
             topBar
         }
         .safeAreaInset(edge: .bottom, spacing: 0) {
-            Composer(
-                text: $model.composer,
-                canSend: model.canSend,
-                isBusy: model.isTurnRunning,
-                isFocused: $composerFocused,
-                onSend: model.send
-            )
+            VStack(spacing: 0) {
+                if let notice = speech.notice {
+                    Text(notice)
+                        .textStyle(.caption)
+                        .foregroundStyle(Palette.inkMuted)
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal, Space.s6)
+                        .transition(.opacity)
+                }
+                Composer(
+                    text: $model.composer,
+                    canSend: model.canSend,
+                    isBusy: model.isTurnRunning,
+                    isListening: speech.isListening,
+                    isFocused: $composerFocused,
+                    onSend: model.send,
+                    onMicPress: {
+                        textBeforeVoice = model.composer.trimmingCharacters(in: .whitespacesAndNewlines)
+                        speech.press()
+                    },
+                    onMicRelease: speech.release
+                )
+            }
+            .animation(.snappy(duration: 0.2), value: speech.notice)
+        }
+        .onChange(of: speech.transcript) { _, heard in
+            // Live words go straight into the composer, after anything already typed.
+            if !heard.isEmpty {
+                model.composer = composed(with: heard)
+            }
+        }
+        .onChange(of: speech.finishedCount) {
+            model.composer = composed(with: speech.transcript)
+            if sendOnRelease {
+                model.send()
+            }
+        }
+        .onDisappear {
+            speech.release()
         }
         .task {
             await model.loadHistory()
@@ -173,6 +209,10 @@ struct ChatView: View {
         .padding(.horizontal, Space.s6)
         .padding(.vertical, 80)
         .frame(maxWidth: .infinity)
+    }
+
+    private func composed(with heard: String) -> String {
+        textBeforeVoice.isEmpty ? heard : textBeforeVoice + " " + heard
     }
 
     // MARK: - Timestamps

@@ -50,6 +50,7 @@ private struct SettingsPanel: View {
     var onClose: () -> Void
 
     @AppStorage(Appearance.storageKey) private var appearance: Appearance = .system
+    @AppStorage("voice.sendOnRelease") private var sendOnRelease = false
     @State private var isConfirming = false
     @State private var isSigningOut = false
     @State private var status: ServerStatus = .checking
@@ -105,6 +106,7 @@ private struct SettingsPanel: View {
                 accountCard(email: account.email)
                 serverSection(server: account.server)
                 appearanceSection
+                voiceSection
             }
 
             Spacer(minLength: Space.s2)
@@ -198,6 +200,28 @@ private struct SettingsPanel: View {
                 .foregroundStyle(Palette.inkMuted)
                 .padding(.horizontal, 4)
             PillSwitcher(options: Appearance.allCases, selection: $appearance, title: \.title, label: "Appearance")
+        }
+    }
+
+    private var voiceSection: some View {
+        VStack(alignment: .leading, spacing: Space.s2) {
+            Text("Voice")
+                .textStyle(.label, weight: .semibold)
+                .foregroundStyle(Palette.inkMuted)
+                .padding(.horizontal, 4)
+            Toggle(isOn: $sendOnRelease) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Send when I let go")
+                        .textStyle(.label, weight: .semibold)
+                    Text("Off: your words stay in the box so you can fix them first.")
+                        .textStyle(.caption)
+                        .foregroundStyle(Palette.inkMuted)
+                }
+            }
+            .tint(Palette.brand)
+            .padding(.horizontal, 18)
+            .padding(.vertical, 14)
+            .background(card)
         }
     }
 

@@ -6,6 +6,10 @@
 	<string>$(TINYME_DEFAULT_SERVER_URL)</string>
 	<key>TINYME_PUSH_ENABLED</key>
 	<string>$(TINYME_PUSH_ENABLED)</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>TinyMe listens while you hold the mic, so you can talk instead of type.</string>
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>TinyMe turns what you say into text on this phone. Your voice isn't sent anywhere.</string>
 	<!-- Debug only: lets the phone reach the dev Mac over plain http on the LAN. Release requires HTTPS. -->
 	<key>NSAppTransportSecurity</key>
 	<dict>

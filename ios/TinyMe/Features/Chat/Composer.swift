@@ -1,12 +1,20 @@
 import SwiftUI
 
-/// The message field and send button at the bottom of chat. The mic joins it with voice input.
+/// The message field at the bottom of chat, with the mic beside it. Once there is text, the mic gives way to send.
 struct Composer: View {
     @Binding var text: String
     var canSend: Bool
     var isBusy: Bool
+    var isListening: Bool
     var isFocused: FocusState<Bool>.Binding
     var onSend: () -> Void
+    var onMicPress: () -> Void
+    var onMicRelease: () -> Void
+
+    /// The mic stays while it is listening, even though words are filling the field.
+    private var showsMic: Bool {
+        isListening || text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
 
     var body: some View {
         HStack(alignment: .bottom, spacing: 10) {
@@ -20,6 +28,18 @@ struct Composer: View {
                 .frame(minHeight: 56)
                 .glassSurface(RoundedRectangle(cornerRadius: Radius.lg, style: .continuous))
 
+            if showsMic {
+                MicButton(isListening: isListening, onPress: onMicPress, onRelease: onMicRelease)
+            } else {
+                sendButton
+            }
+        }
+        .padding(.horizontal, Space.s4)
+        .padding(.top, Space.s2)
+        .padding(.bottom, Space.s2)
+    }
+
+    private var sendButton: some View {
             Button(action: onSend) {
                 Group {
                     if isBusy {
@@ -39,9 +59,5 @@ struct Composer: View {
             .disabled(!canSend)
             .animation(.snappy(duration: 0.2), value: canSend)
             .accessibilityLabel(isBusy ? "TinyMe is replying" : "Send")
-        }
-        .padding(.horizontal, Space.s4)
-        .padding(.top, Space.s2)
-        .padding(.bottom, Space.s2)
     }
 }
