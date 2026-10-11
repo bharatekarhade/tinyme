@@ -1,12 +1,16 @@
 import SwiftUI
 
 struct HomeView: View {
+    @Environment(AppEnvironment.self) private var environment
     @State private var range: HomeRange = .week
+    @State private var showsSettings = false
 
     var body: some View {
         ScrollView {
             VStack(spacing: Space.s4) {
-                HomeHeader(name: HomeSample.userName, subtitle: range.subtitle)
+                HomeHeader(name: HomeSample.userName, subtitle: range.subtitle) {
+                    showsSettings = true
+                }
                     .padding(.bottom, Space.s2)
                 RangeSwitcher(selection: $range)
                 // New identity per range, so every chart fills again on switch.
@@ -29,12 +33,16 @@ struct HomeView: View {
         .safeAreaInset(edge: .bottom) {
             HomeTabBar()
         }
+        .overlay {
+            SettingsSheet(isPresented: $showsSettings, session: environment.session)
+        }
     }
 }
 
 private struct HomeHeader: View {
     var name: String
     var subtitle: String
+    var onProfile: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -57,7 +65,7 @@ private struct HomeHeader: View {
                         .frame(width: 44, height: 44)
                 }
                 .accessibilityLabel("Notifications")
-                Button {} label: {
+                Button(action: onProfile) {
                     Text(name.prefix(1))
                         .textStyle(.label, weight: .semibold)
                         .foregroundStyle(Palette.onInk)
@@ -65,7 +73,7 @@ private struct HomeHeader: View {
                         .background(Palette.ink, in: Circle())
                         .frame(width: 44, height: 44)
                 }
-                .accessibilityLabel("Profile")
+                .accessibilityLabel("Settings")
             }
             .buttonStyle(.pressable)
 
@@ -527,4 +535,5 @@ private struct AddTrackerCard: View {
 
 #Preview {
     HomeView()
+        .environment(AppEnvironment(authStore: AuthStore(service: "app.tinyme.preview")))
 }
