@@ -1,6 +1,5 @@
 package com.tinyme.api.entries;
 
-import com.tinyme.agent.service.UserZone;
 import com.tinyme.domain.entries.model.EntrySnapshot;
 import com.tinyme.domain.entries.model.query.EntryPage;
 import com.tinyme.domain.entries.model.query.EntryFilters;
@@ -19,7 +18,7 @@ import tools.jackson.databind.json.JsonMapper;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
-import java.time.ZoneId;
+import java.time.temporal.ChronoUnit;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -31,11 +30,9 @@ public class EntryController {
     private static final TypeReference<Map<String, Object>> MAP = new TypeReference<>() { };
 
     private final EntryService entries;
-    private final UserZone userZone;
 
-    public EntryController(EntryService entries, UserZone userZone) {
+    public EntryController(EntryService entries) {
         this.entries = entries;
-        this.userZone = userZone;
     }
 
     @GetMapping
@@ -58,10 +55,9 @@ public class EntryController {
         }
         try {
             EntryFilters filters = new EntryFilters(kind, q, whereMap, from, to);
-            ZoneId zone = userZone.current();
             EntryPage page = entries.page(filters, limit, decoded);
             return new EntryPageResponse(page.kindKnown(), page.entries().stream()
-                    .map(entry -> EntryResponse.from(entry, zone)).toList(), page.nextCursor());
+                    .map(EntryResponse::from).toList(), page.nextCursor());
         } catch (IllegalArgumentException invalid) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, invalid.getMessage(), invalid);
         }
@@ -79,15 +75,16 @@ public class EntryController {
         }
     }
 
-    public record EntryPageResponse(boolean kindKnown, List<EntryResponse> entries,
+    public record EntryPageResponse(@JsonProperty("kind_known") boolean kindKnown, List<EntryResponse> entries,
                                     @JsonProperty("next_cursor") String nextCursor) {
         public EntryPageResponse { entries = List.copyOf(entries); }
     }
 
     public record EntryResponse(String id, String ts, @JsonProperty("local_day") String localDay, String kind,
                                 BigDecimal quantity, String text, Map<String, Object> data) {
-        static EntryResponse from(EntrySnapshot entry, ZoneId zone) {
-            return new EntryResponse(entry.id().toString(), entry.ts().toString(), entry.localDay().toString(), entry.kind(),
+        static EntryResponse from(EntrySnapshot entry) {
+            return new EntryResponse(entry.id().toString(), entry.ts().truncatedTo(ChronoUnit.SECONDS).toString(),
+                    entry.localDay().toString(), entry.kind(),
                     entry.quantity(), entry.text(), new LinkedHashMap<>(entry.data()));
         }
     }

@@ -105,7 +105,8 @@ public class EntryRepository {
     private List<EntrySnapshot> findRows(EntryFilters filters, int fetch,
                                          Instant cursorTs, UUID cursorId, Integer maxTextLength) {
         MapSqlParameterSource parameters = new MapSqlParameterSource().addValue("fetch", fetch);
-        String textExpression = maxTextLength == null ? "e.text" : "left(e.text, " + maxTextLength + ")";
+        String textExpression = maxTextLength == null ? "e.text" : "left(e.text, :maxText)";
+        if (maxTextLength != null) parameters.addValue("maxText", maxTextLength);
         StringBuilder sql = new StringBuilder("SELECT e.id, e.ts, e.local_day, e.kind, e.quantity, ")
                 .append(textExpression).append(" AS text, e.data::text AS data FROM entries e ")
                 .append("WHERE e.deleted_at IS NULL");
