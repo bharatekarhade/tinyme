@@ -54,6 +54,16 @@ public class PersonService {
         return new PeopleLookup(match, matches);
     }
 
+    @Transactional(readOnly = true)
+    public List<PersonSnapshot> list() {
+        return people.findAllLive();
+    }
+
+    @Transactional(readOnly = true)
+    public java.util.Optional<PersonSnapshot> findLiveBySlug(String slug) {
+        return people.findLiveBySlug(Objects.requireNonNull(slug, "slug"));
+    }
+
     @Transactional
     public UpsertOutcome upsert(PersonUpsert command) {
         Objects.requireNonNull(command, "command");

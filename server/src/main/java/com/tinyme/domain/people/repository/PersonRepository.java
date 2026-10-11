@@ -39,6 +39,12 @@ public class PersonRepository {
     }
 
     @Transactional(readOnly = true)
+    public List<PersonSnapshot> findAllLive() {
+        return people.findAllByDeletedAtIsNullOrderByDisplayNameAscSlugAsc().stream()
+                .map(PersonRepository::snapshot).toList();
+    }
+
+    @Transactional(readOnly = true)
     public boolean existsBySlug(String slug) {
         return people.existsBySlug(slug);
     }

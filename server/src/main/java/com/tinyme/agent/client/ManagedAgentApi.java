@@ -19,6 +19,7 @@ import java.util.Objects;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.Set;
+import java.util.Optional;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.function.LongSupplier;
 import tools.jackson.databind.JsonNode;
@@ -113,6 +114,47 @@ public final class ManagedAgentApi implements ManagedAgents {
             }
         } while (page != null);
         return List.copyOf(events);
+    }
+
+    @Override
+    public Optional<String> readMemory(String memoryStoreId, String path) throws IOException, InterruptedException {
+        if (memoryStoreId == null || !memoryStoreId.matches("memstore_[A-Za-z0-9_-]+")) {
+            throw new IllegalArgumentException("Invalid Managed Agents memory store ID");
+        }
+        if (path == null || path.isBlank()) throw new IllegalArgumentException("Memory path is required");
+        String normalized = path.startsWith("/") ? path : "/" + path;
+        String prefix = normalized.substring(0, normalized.lastIndexOf('/') + 1);
+        String nextPage = null;
+        Set<String> seenPages = new HashSet<>();
+        do {
+            String endpoint = "/v1/memory_stores/" + memoryStoreId + "/memories"
+                    + "?" + query("path_prefix", prefix) + "&view=basic&limit=100"
+                    + (nextPage == null ? "" : "&" + query("page", nextPage));
+            Map<?, ?> response = request("GET", endpoint, null, true);
+            Object data = response.get("data");
+            if (!(data instanceof List<?> rows)) throw new IOException("Memory list response is missing data");
+            for (Object row : rows) {
+                if (row instanceof Map<?, ?> memory && normalized.equals(memory.get("path"))) {
+                    Object id = memory.get("id");
+                    if (!(id instanceof String memoryId) || !memoryId.matches("mem_[A-Za-z0-9_-]+")) {
+                        throw new IOException("Memory list item is missing a valid ID");
+                    }
+                    Map<?, ?> full = request("GET", "/v1/memory_stores/" + memoryStoreId
+                            + "/memories/" + memoryId + "?view=full", null, true);
+                    Object content = full.get("content");
+                    if (content == null) return Optional.empty();
+                    if (content instanceof String value) return Optional.of(value);
+                    throw new IOException("Memory content has an invalid format");
+                }
+            }
+            Object next = response.get("next_page");
+            if (next == null) nextPage = null;
+            else if (next instanceof String cursor && !cursor.isBlank()) {
+                if (!seenPages.add(cursor)) throw new IOException("Memory pagination repeated a cursor");
+                nextPage = cursor;
+            } else throw new IOException("Memory list response has an invalid next_page");
+        } while (nextPage != null);
+        return Optional.empty();
     }
 
     private static String query(String name, String value) {

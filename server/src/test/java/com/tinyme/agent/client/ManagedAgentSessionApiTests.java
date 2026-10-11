@@ -140,6 +140,45 @@ class ManagedAgentSessionApiTests {
     }
 
     @Test
+    void readsMemoryContentByPathAndReturnsEmptyWhenMissing() throws Exception {
+        var queries = new CopyOnWriteArrayList<String>();
+        var paths = new CopyOnWriteArrayList<String>();
+        var server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        server.createContext("/v1/memory_stores/memstore_test/memories", exchange -> {
+            String requestPath = exchange.getRequestURI().getPath();
+            paths.add(requestPath);
+            String body;
+            if (requestPath.endsWith("/mem_kenji")) {
+                body = "{\"id\":\"mem_kenji\",\"path\":\"/people/kenji.md\",\"content\":\"Kenji notes\"}";
+            } else {
+                queries.add(exchange.getRequestURI().getRawQuery());
+                body = "{\"data\":[{\"type\":\"memory\",\"id\":\"mem_kenji\","
+                        + "\"path\":\"/people/kenji.md\",\"content\":null}],\"next_page\":null}";
+            }
+            byte[] bytes = body.getBytes(StandardCharsets.UTF_8);
+            exchange.getResponseHeaders().set("Content-Type", "application/json");
+            exchange.sendResponseHeaders(200, bytes.length);
+            exchange.getResponseBody().write(bytes);
+            exchange.close();
+        });
+        server.start();
+        try {
+            var api = new ManagedAgentApi("test", base(server));
+            assertThat(api.readMemory("memstore_test", "people/kenji.md")).contains("Kenji notes");
+            assertThat(api.readMemory("memstore_test", "people/absent.md")).isEmpty();
+            assertThat(queries).hasSize(2);
+            assertThat(queries).allSatisfy(query -> assertThat(query)
+                    .contains("path_prefix=%2Fpeople%2F", "view=basic", "limit=100"));
+            assertThat(paths).containsExactly(
+                    "/v1/memory_stores/memstore_test/memories",
+                    "/v1/memory_stores/memstore_test/memories/mem_kenji",
+                    "/v1/memory_stores/memstore_test/memories");
+        } finally {
+            server.stop(0);
+        }
+    }
+
+    @Test
     void onlyTheStreamOmitsTheNormalRequestTimeout() throws Exception {
         HttpClient client = mock(HttpClient.class);
         doReturn(response(200, "{\"id\":\"sesn_test\"}", "application/json"),

@@ -9,7 +9,11 @@ import com.tinyme.domain.entries.model.aggregate.AggregateResult;
 import com.tinyme.domain.entries.model.aggregate.Bucket;
 import com.tinyme.domain.entries.model.aggregate.GroupBy;
 import com.tinyme.domain.entries.model.query.EntryQuery;
+import com.tinyme.domain.entries.model.query.EntryFilters;
 import com.tinyme.domain.entries.model.query.EntryQueryResult;
+import com.tinyme.domain.entries.service.EntryCursorCodec;
+import com.tinyme.domain.entries.service.EntryService;
+import com.tinyme.api.entries.EntryController;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -45,6 +49,12 @@ class EntryRepositoryTests {
 
     @Autowired
     EntryRepository entries;
+
+    @Autowired
+    EntryService entryService;
+
+    @Autowired
+    EntryController entryController;
 
     @Test
     void insertsChatEntryAndSumsLiveQuantitiesByOptionalType() {
@@ -251,17 +261,78 @@ class EntryRepositoryTests {
             ids.add(insertQueryEntry(kind, day.plusDays(1), "2026-10-09T09:00:00Z", "Had another beer", Map.of("type", "beer")));
             jdbc.update("UPDATE entries SET deleted_at = now() WHERE id = ?", ids.get(2));
 
-            EntryQueryResult beer = entries.find(new EntryQuery(kind, null, Map.of("type", "beer"),
+            EntryQueryResult beer = entries.find(new EntryQuery(kind, "beer", Map.of("type", "beer"),
                     day, day, 1));
             assertThat(beer.kindKnown()).isTrue();
             assertThat(beer.entries()).hasSize(1);
             assertThat(beer.entries().getFirst().id()).isEqualTo(ids.get(1));
             assertThat(beer.entries().getFirst().ts()).isEqualTo(Instant.parse("2026-10-08T23:30:00Z"));
             assertThat(beer.truncated()).isFalse();
+            var apiBeer = entryController.list(kind, day, day, "beer", "{\"type\":\"beer\"}", null, 50);
+            assertThat(apiBeer.entries()).extracting(EntryController.EntryResponse::id)
+                    .containsExactly(ids.get(1).toString());
 
             EntryQueryResult all = entries.find(new EntryQuery(kind, null, Map.of(), null, null, 1));
             assertThat(all.entries()).extracting(EntrySnapshot::id).containsExactly(ids.get(1));
             assertThat(all.truncated()).isTrue();
+        } finally {
+            cleanup(kind, ids);
+        }
+    }
+
+    @Test
+    void pagesThroughOneHundredTwentyEntriesWithoutDuplicates() {
+        String kind = createKind();
+        LocalDate day = LocalDate.of(2026, 10, 9);
+        List<UUID> ids = new ArrayList<>();
+        try {
+            Instant start = Instant.parse("2026-10-09T00:00:00Z");
+            for (int i = 0; i < 120; i++) {
+                Map<String, Object> data = i % 10 == 0 ? Map.of("type", "tea") : Map.of("type", "coffee");
+                ids.add(insertQueryEntry(kind, day, start.plusSeconds(i).toString(), "page " + i, data));
+            }
+
+            var first = entryService.page(new EntryFilters(kind, null, Map.of(), day, day), 50, null);
+            var second = entryService.page(new EntryFilters(kind, null, Map.of(), day, day), 50,
+                    EntryCursorCodec.decode(first.nextCursor()));
+            var third = entryService.page(new EntryFilters(kind, null, Map.of(), day, day), 50,
+                    EntryCursorCodec.decode(second.nextCursor()));
+
+            assertThat(first.entries()).hasSize(50);
+            assertThat(second.entries()).hasSize(50);
+            assertThat(third.entries()).hasSize(20);
+            var all = new ArrayList<EntrySnapshot>();
+            all.addAll(first.entries());
+            all.addAll(second.entries());
+            all.addAll(third.entries());
+            assertThat(all).extracting(EntrySnapshot::id).doesNotHaveDuplicates().hasSize(120);
+            assertThat(first.entries().getFirst().ts()).isAfter(first.entries().getLast().ts());
+            assertThat(second.nextCursor()).isNotNull();
+            assertThat(third.nextCursor()).isNull();
+
+            EntryQuery filter = new EntryQuery(kind, null, Map.of("type", "tea"), day, day, 20);
+            var queryRows = entries.find(filter).entries();
+            var pageRows = entryService.page(filter.filters(), 100, null).entries();
+            assertThat(pageRows).extracting(EntrySnapshot::id)
+                    .containsExactlyElementsOf(queryRows.stream().map(EntrySnapshot::id).toList());
+        } finally {
+            cleanup(kind, ids);
+        }
+    }
+
+    @Test
+    void apiReturnsFullJournalTextWhileToolQueryTruncatesIt() {
+        String kind = createKind();
+        LocalDate day = LocalDate.of(2026, 10, 9);
+        List<UUID> ids = new ArrayList<>();
+        try {
+            String fullText = "j".repeat(1000);
+            ids.add(insertQueryEntry(kind, day, "2026-10-09T12:00:00Z", fullText, Map.of()));
+            var apiPage = entryController.list(kind, day, day, null, null, null, 50);
+            var toolPage = entries.find(new EntryQuery(kind, null, Map.of(), day, day, 10));
+
+            assertThat(apiPage.entries().getFirst().text()).hasSize(1000);
+            assertThat(toolPage.entries().getFirst().text()).hasSize(280);
         } finally {
             cleanup(kind, ids);
         }

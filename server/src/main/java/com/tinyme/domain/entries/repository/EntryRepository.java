@@ -9,6 +9,7 @@ import com.tinyme.domain.entries.model.aggregate.Bucket;
 import com.tinyme.domain.entries.model.EntrySnapshot;
 import com.tinyme.domain.entries.model.query.EntryQuery;
 import com.tinyme.domain.entries.model.query.EntryQueryResult;
+import com.tinyme.domain.entries.model.query.EntryFilters;
 import com.tinyme.domain.entries.entity.EntryEntity;
 import org.springframework.stereotype.Repository;
 import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
@@ -17,7 +18,6 @@ import org.springframework.transaction.annotation.Transactional;
 import tools.jackson.databind.json.JsonMapper;
 import tools.jackson.core.type.TypeReference;
 
-import javax.swing.text.html.Option;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.LocalDate;
@@ -80,35 +80,64 @@ public class EntryRepository {
     @Transactional(readOnly = true)
     public EntryQueryResult find(EntryQuery query) {
         Objects.requireNonNull(query, "query");
-        MapSqlParameterSource parameters = new MapSqlParameterSource()
-                .addValue("fetch", query.limit() + 1);
+        var filters = query.filters();
+        var fetched = findRows(filters, query.limit() + 1, null, null, 280);
+        boolean truncated = fetched.size() > query.limit();
+        List<EntrySnapshot> visible = truncated
+                ? new ArrayList<>(fetched.subList(0, query.limit()))
+                : fetched;
+        return new EntryQueryResult(true, visible, truncated);
+    }
+
+    @Transactional(readOnly = true)
+    public EntryPageRows findPage(EntryFilters filters, int limit, EntryCursor cursor) {
+        Objects.requireNonNull(filters, "filters");
+        if (limit < 1 || limit > 100) throw new IllegalArgumentException("limit must be between 1 and 100");
+        var fetched = findRows(filters, limit + 1, cursor == null ? null : cursor.ts(),
+                cursor == null ? null : cursor.id(), null);
+        boolean hasMore = fetched.size() > limit;
+        List<EntrySnapshot> visible = hasMore
+                ? new ArrayList<>(fetched.subList(0, limit))
+                : fetched;
+        return new EntryPageRows(visible, hasMore);
+    }
+
+    private List<EntrySnapshot> findRows(EntryFilters filters, int fetch,
+                                         Instant cursorTs, UUID cursorId, Integer maxTextLength) {
+        MapSqlParameterSource parameters = new MapSqlParameterSource().addValue("fetch", fetch);
+        String textExpression = maxTextLength == null ? "e.text" : "left(e.text, " + maxTextLength + ")";
         StringBuilder sql = new StringBuilder("SELECT e.id, e.ts, e.local_day, e.kind, e.quantity, ")
-                .append("left(e.text, 280) AS text, e.data::text AS data FROM entries e ")
+                .append(textExpression).append(" AS text, e.data::text AS data FROM entries e ")
                 .append("WHERE e.deleted_at IS NULL");
 
-        if (query.kind() != null) {
+        if (filters.kind() != null) {
             sql.append(" AND e.kind = :kind");
-            parameters.addValue("kind", query.kind());
+            parameters.addValue("kind", filters.kind());
         }
-        if (query.from() != null) {
+        if (filters.from() != null) {
             sql.append(" AND e.local_day >= :from");
-            parameters.addValue("from", query.from());
+            parameters.addValue("from", filters.from());
         }
-        if (query.to() != null) {
+        if (filters.to() != null) {
             sql.append(" AND e.local_day <= :to");
-            parameters.addValue("to", query.to());
+            parameters.addValue("to", filters.to());
         }
-        if (!query.where().isEmpty()) {
+        if (!filters.where().isEmpty()) {
             sql.append(" AND e.data @> CAST(:where AS jsonb)");
-            parameters.addValue("where", JSON.writeValueAsString(query.where()));
+            parameters.addValue("where", JSON.writeValueAsString(filters.where()));
         }
-        if (query.text() != null) {
+        if (filters.text() != null) {
             sql.append(" AND (e.search @@ websearch_to_tsquery('simple', :text) OR e.text % :text)");
-            parameters.addValue("text", query.text());
+            parameters.addValue("text", filters.text());
+        }
+        if (cursorTs != null) {
+            sql.append(" AND (e.ts, e.id) < (:cursorTs, :cursorId)");
+            parameters.addValue("cursorTs", OffsetDateTime.ofInstant(cursorTs, java.time.ZoneOffset.UTC));
+            parameters.addValue("cursorId", cursorId);
         }
         sql.append(" ORDER BY e.ts DESC, e.id DESC LIMIT :fetch");
 
-        List<EntrySnapshot> fetched = jdbc.query(sql.toString(), parameters, (result, row) ->
+        return jdbc.query(sql.toString(), parameters, (result, row) ->
                 new EntrySnapshot(result.getObject("id", UUID.class),
                         result.getObject("ts", OffsetDateTime.class).toInstant(),
                         result.getObject("local_day", LocalDate.class),
@@ -116,11 +145,11 @@ public class EntryRepository {
                         result.getObject("quantity", BigDecimal.class),
                         result.getString("text"),
                         JSON.readValue(result.getString("data"), DATA_TYPE)));
-        boolean truncated = fetched.size() > query.limit();
-        List<EntrySnapshot> visible = truncated
-                ? new ArrayList<>(fetched.subList(0, query.limit()))
-                : fetched;
-        return new EntryQueryResult(true, visible, truncated);
+    }
+
+    public record EntryCursor(Instant ts, UUID id) { }
+    public record EntryPageRows(List<EntrySnapshot> entries, boolean hasMore) {
+        public EntryPageRows { entries = List.copyOf(entries); }
     }
 
     @Transactional(readOnly = true)

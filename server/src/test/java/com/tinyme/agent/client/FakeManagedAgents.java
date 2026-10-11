@@ -13,6 +13,7 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Objects;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -39,6 +40,7 @@ public final class FakeManagedAgents implements ManagedAgents {
     private final int listFailureStatus;
     private final AtomicInteger listFailuresRemaining;
     private final Map<String, FailurePlan> sendFailures;
+    private final Map<String, String> memories;
 
     public FakeManagedAgents(List<String> fixtureEvents) {
         this(builder(fixtureEvents));
@@ -60,6 +62,7 @@ public final class FakeManagedAgents implements ManagedAgents {
         this.listFailureStatus = builder.listFailureStatus;
         this.listFailuresRemaining = new AtomicInteger(builder.listFailures);
         this.sendFailures = builder.sendFailures;
+        this.memories = Map.copyOf(builder.memories);
     }
 
     public static Builder builder(List<String> fixtureEvents) {
@@ -144,6 +147,12 @@ public final class FakeManagedAgents implements ManagedAgents {
         return number < catchupFixtures.size() ? catchupFixtures.get(number) : List.of();
     }
 
+    @Override
+    public Optional<String> readMemory(String memoryStoreId, String path) {
+        String normalized = path.startsWith("/") ? path.substring(1) : path;
+        return Optional.ofNullable(memories.get(normalized));
+    }
+
     public List<List<? extends Map<String, ?>>> sentEvents() {
         return List.copyOf(sentEvents);
     }
@@ -194,6 +203,8 @@ public final class FakeManagedAgents implements ManagedAgents {
         private int listFailures;
         private final java.util.concurrent.ConcurrentHashMap<String, FailurePlan> sendFailures =
                 new java.util.concurrent.ConcurrentHashMap<>();
+        private final java.util.concurrent.ConcurrentHashMap<String, String> memories =
+                new java.util.concurrent.ConcurrentHashMap<>();
 
         private Builder(List<List<String>> streamFixtures, List<List<JsonNode>> catchupFixtures,
                         Runnable beforeFirstUserMessage, IntConsumer onOpen) {
@@ -243,6 +254,11 @@ public final class FakeManagedAgents implements ManagedAgents {
             return this;
         }
 
+        public Builder memory(String path, String content) {
+            memories.put(path.startsWith("/") ? path.substring(1) : path, content);
+            return this;
+        }
+
         public FakeManagedAgents build() {
             return new FakeManagedAgents(this);
         }
@@ -255,6 +271,7 @@ public final class FakeManagedAgents implements ManagedAgents {
             listFailureStatus = from.listFailureStatus;
             listFailures = from.listFailures;
             sendFailures.putAll(from.sendFailures);
+            memories.putAll(from.memories);
             return this;
         }
 

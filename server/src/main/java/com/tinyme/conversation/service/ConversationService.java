@@ -3,12 +3,12 @@ package com.tinyme.conversation.service;
 import com.tinyme.agent.model.SessionRef;
 import com.tinyme.agent.model.TurnRequest;
 import com.tinyme.agent.model.TurnResult;
-import com.tinyme.agent.repository.AgentSettingsRepository;
 import com.tinyme.agent.repository.AgentSessionRepository;
 import com.tinyme.agent.repository.MessageRepository;
 import com.tinyme.agent.service.SessionManager;
 import com.tinyme.agent.service.TurnListener;
 import com.tinyme.agent.service.TurnRunner;
+import com.tinyme.agent.service.UserZone;
 import com.tinyme.conversation.model.ConversationMessageRequest;
 import com.tinyme.conversation.model.ConversationHistory;
 import com.tinyme.conversation.model.ConversationHistoryMessage;
@@ -26,21 +26,20 @@ import java.util.concurrent.CompletableFuture;
 
 @Service
 public class ConversationService implements ConversationOperations {
-    private static final String DEFAULT_ZONE = "Asia/Tokyo";
 
     private final SessionManager sessions;
     private final MessageRepository messages;
-    private final AgentSettingsRepository settings;
+    private final UserZone userZone;
     private final TurnRunner turns;
     private final AgentSessionRepository agentSessions;
     private final Clock clock;
 
     public ConversationService(SessionManager sessions, MessageRepository messages,
-                               AgentSettingsRepository settings, TurnRunner turns,
-                               AgentSessionRepository agentSessions, Clock clock) {
+                               TurnRunner turns,
+                               AgentSessionRepository agentSessions, Clock clock, UserZone userZone) {
         this.sessions = Objects.requireNonNull(sessions, "sessions");
         this.messages = Objects.requireNonNull(messages, "messages");
-        this.settings = Objects.requireNonNull(settings, "settings");
+        this.userZone = Objects.requireNonNull(userZone, "userZone");
         this.turns = Objects.requireNonNull(turns, "turns");
         this.agentSessions = Objects.requireNonNull(agentSessions, "agentSessions");
         this.clock = Objects.requireNonNull(clock, "clock");
@@ -49,7 +48,7 @@ public class ConversationService implements ConversationOperations {
     @Override
     @Transactional(readOnly = true)
     public ConversationHistory history(LocalDate requestedDay) {
-        ZoneId zone = resolveZone(null);
+        ZoneId zone = userZone.current();
         LocalDate day = requestedDay == null ? LocalDate.now(clock.withZone(zone)) : requestedDay;
         var sessionIds = agentSessions.findChatSessionIds(day);
         var rows = messages.findForSessions(sessionIds);
@@ -100,12 +99,7 @@ public class ConversationService implements ConversationOperations {
                 throw new InvalidClientTimezoneException("client_context.tz must be a valid time zone", invalidZone);
             }
         }
-        String configured = settings.userTimezone().orElse(DEFAULT_ZONE);
-        try {
-            return ZoneId.of(configured);
-        } catch (DateTimeException invalidZone) {
-            throw new IllegalStateException("The configured user.tz setting must be a valid time zone", invalidZone);
-        }
+        return userZone.current();
     }
 
     public sealed interface Acceptance permits Accepted, Duplicate {

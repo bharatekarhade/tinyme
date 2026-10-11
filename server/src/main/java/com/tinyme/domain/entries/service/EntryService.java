@@ -8,6 +8,8 @@ import com.tinyme.domain.entries.model.aggregate.AggregateQuery;
 import com.tinyme.domain.entries.model.aggregate.AggregateResult;
 import com.tinyme.domain.entries.model.query.EntryQuery;
 import com.tinyme.domain.entries.model.query.EntryQueryResult;
+import com.tinyme.domain.entries.model.query.EntryPage;
+import com.tinyme.domain.entries.model.query.EntryFilters;
 import com.tinyme.domain.entries.model.add.NewEntry;
 import com.tinyme.domain.entries.model.update.EntryPatch;
 import com.tinyme.domain.entries.repository.EntryKindRepository;
@@ -22,6 +24,7 @@ import java.time.ZoneId;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.List;
 
 @Service
 public class EntryService {
@@ -65,6 +68,20 @@ public class EntryService {
         Optional<String> resolved = entryKinds.resolveExisting(query.kind());
         if (resolved.isEmpty()) return new EntryQueryResult(false, java.util.List.of(), false);
         return entries.find(query.withKind(resolved.get()));
+    }
+
+    @Transactional(readOnly = true)
+    public EntryPage page(EntryFilters filters, int limit, EntryRepository.EntryCursor cursor) {
+        Objects.requireNonNull(filters, "filters");
+        if (filters.kind() != null) {
+            Optional<String> resolved = entryKinds.resolveExisting(filters.kind());
+            if (resolved.isEmpty()) return new EntryPage(false, List.of(), null);
+            filters = filters.withKind(resolved.get());
+        }
+        var rows = entries.findPage(filters, limit, cursor);
+        String nextCursor = rows.hasMore() && !rows.entries().isEmpty()
+                ? EntryCursorCodec.encode(rows.entries().getLast()) : null;
+        return new EntryPage(true, rows.entries(), nextCursor);
     }
 
     @Transactional

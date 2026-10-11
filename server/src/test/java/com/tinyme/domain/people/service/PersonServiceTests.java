@@ -104,6 +104,17 @@ assertThat(people.get("Kenji").match()).isEqualTo(PersonMatchType.NONE);
     }
 
     @Test
+    void listReturnsLivePeopleInDisplayNameOrder() {
+        insertPerson("person-test-zeta", "Zeta", "{}", null);
+        insertPerson("person-test-alpha", "Alpha", "{}", null);
+        insertPerson("person-test-hidden", "Hidden", "{}", null);
+        jdbc.update("UPDATE people SET deleted_at = now() WHERE slug = 'person-test-hidden'");
+
+        assertThat(people.list()).extracting(person -> person.displayName())
+                .containsExactly("Alpha", "Zeta");
+    }
+
+    @Test
     void lastSeenUsesOnlyLiveEntries() {
         insertPerson("person-test-last-seen", "Last Seen", "{}", null);
         jdbc.update("INSERT INTO entry_kinds (kind) VALUES ('person_test')");

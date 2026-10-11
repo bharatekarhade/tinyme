@@ -109,6 +109,26 @@ class AuthFlowTests {
     }
 
     @Test
+    void readEndpointsRequireAuthenticationAndEntriesRejectInvalidFilters() throws Exception {
+        mvc.perform(get("/entries")).andExpect(status().isUnauthorized());
+        mvc.perform(get("/people")).andExpect(status().isUnauthorized());
+
+        String bearer = "Bearer " + tokens.issue("api-read-tests").token();
+        mvc.perform(get("/entries").header("Authorization", bearer).param("limit", "0"))
+                .andExpect(status().isBadRequest());
+        mvc.perform(get("/entries").header("Authorization", bearer).param("limit", "101"))
+                .andExpect(status().isBadRequest());
+        mvc.perform(get("/entries").header("Authorization", bearer).param("where", "not-json"))
+                .andExpect(status().isBadRequest());
+        mvc.perform(get("/entries").header("Authorization", bearer)
+                        .param("from", "2026-10-10").param("to", "2026-10-09"))
+                .andExpect(status().isBadRequest());
+        mvc.perform(get("/people").header("Authorization", bearer)).andExpect(status().isOk());
+        mvc.perform(get("/people/no-such-person").header("Authorization", bearer))
+                .andExpect(status().isNotFound());
+    }
+
+    @Test
     void authenticationRejectsMissingUnknownRevokedAndExpiredTokensAndLogoutIsPerDevice() throws Exception {
         mvc.perform(post("/auth/logout")).andExpect(status().isUnauthorized());
         mvc.perform(post("/auth/logout").header("Authorization", "Bearer unknown"))
