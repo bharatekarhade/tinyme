@@ -1,0 +1,5 @@
+// Copy to TinyMe.xcconfig (git-ignored) and fill in your own values.
+DEVELOPMENT_TEAM = YOUR_TEAM_ID
+PRODUCT_BUNDLE_IDENTIFIER = com.$(DEVELOPMENT_TEAM).tinyme   // unique per installer
+TINYME_DEFAULT_SERVER_URL = https:/$()/tinyme.your-tailnet.ts.net
+TINYME_PUSH_ENABLED = NO                                     // YES only with a paid account

@@ -1,0 +1,8 @@
+// Defaults so a fresh clone still builds for the simulator.
+// Per-installer values live in TinyMe.xcconfig (git-ignored); create it from TinyMe.xcconfig.template.
+DEVELOPMENT_TEAM =
+PRODUCT_BUNDLE_IDENTIFIER = com.example.tinyme
+TINYME_DEFAULT_SERVER_URL =
+TINYME_PUSH_ENABLED = NO
+
+#include? "TinyMe.xcconfig"

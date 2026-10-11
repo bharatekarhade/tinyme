@@ -15,6 +15,6 @@ __pycache__/
 /deploy/.gitkeep
 /docs/.gitkeep
 /ios/.gitkeep
-/ios/Local.xcconfig
+/ios/Config/TinyMe.xcconfig
 /server/src/main/resources/seed/.gitkeep
 /server/.gitkeep
