@@ -1,4 +1,6 @@
 .DS_Store
+xcuserdata/
+*.xcworkspace/xcuserdata
 .idea/
 *.iml
 **/target/
@@ -13,5 +15,6 @@ __pycache__/
 /deploy/.gitkeep
 /docs/.gitkeep
 /ios/.gitkeep
+/ios/Local.xcconfig
 /server/src/main/resources/seed/.gitkeep
 /server/.gitkeep
