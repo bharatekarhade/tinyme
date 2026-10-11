@@ -14,6 +14,14 @@ import java.util.Optional;
 import java.util.UUID;
 
 interface EntryJpaRepository extends JpaRepository<EntryEntity, UUID> {
+    @Query("select e.kind.kind as kind, count(e) as entryCount from EntryEntity e " +
+            "where e.deletedAt is null and e.localDay between :from and :to " +
+            "group by e.kind.kind having count(e) >= :minimum " +
+            "order by count(e) desc, e.kind.kind asc")
+    List<RecentKindCount> recentKinds(@Param("from") LocalDate from,
+                                     @Param("to") LocalDate to,
+                                     @Param("minimum") long minimum);
+
     @Query(value = """
             SELECT COALESCE(SUM(quantity), 0)
             FROM entries
@@ -41,6 +49,11 @@ interface EntryJpaRepository extends JpaRepository<EntryEntity, UUID> {
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select entry from EntryEntity entry where entry.id = :id")
     Optional<EntryEntity> findLockedById(@Param("id") UUID id);
+}
+
+interface RecentKindCount {
+    String getKind();
+    long getEntryCount();
 }
 
 interface TodayTotalProjection {

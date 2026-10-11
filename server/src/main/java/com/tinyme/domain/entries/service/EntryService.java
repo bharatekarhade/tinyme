@@ -93,6 +93,11 @@ public class EntryService {
     }
 
     @Transactional(readOnly = true)
+    public List<String> recentKinds(LocalDate from, LocalDate to, long minimumEntries) {
+        return entries.recentKinds(from, to, minimumEntries);
+    }
+
+    @Transactional(readOnly = true)
     public boolean hasDataField(String kind, String field) {
         Objects.requireNonNull(kind, "kind");
         Objects.requireNonNull(field, "field");

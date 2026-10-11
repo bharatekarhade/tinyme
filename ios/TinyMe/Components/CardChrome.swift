@@ -54,7 +54,7 @@ struct OpenButton: View {
                 .background(background, in: Circle())
                 .frame(width: 44, height: 44)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.pressable)
         .accessibilityLabel(label)
     }
 }

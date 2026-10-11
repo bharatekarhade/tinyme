@@ -9,10 +9,14 @@ struct HomeView: View {
                 HomeHeader(name: HomeSample.userName, subtitle: range.subtitle)
                     .padding(.bottom, Space.s2)
                 RangeSwitcher(selection: $range)
-                JournalCard(stat: HomeSample.journal)
-                CaloriesCard(stat: HomeSample.calories)
-                SpendingCard(stat: HomeSample.spending)
-                GymCard(stat: HomeSample.gym)
+                // New identity per range, so every chart fills again on switch.
+                Group {
+                    JournalCard(stat: HomeSample.journal)
+                    CaloriesCard(stat: HomeSample.calories)
+                    SpendingCard(stat: HomeSample.spending)
+                    GymCard(stat: HomeSample.gym)
+                }
+                .id(range)
                 AddTrackerCard(ideas: HomeSample.trackerIdeas)
             }
             .padding(.horizontal, Space.s4)
@@ -63,7 +67,7 @@ private struct HomeHeader: View {
                 }
                 .accessibilityLabel("Profile")
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.pressable)
 
             Text("Hey \(name)")
                 .textStyle(.display)
@@ -109,6 +113,7 @@ private struct RangeSwitcher: View {
         }
         .padding(4)
         .background(Palette.surfaceSunken, in: Capsule())
+        .sensoryFeedback(.selection, trigger: selection)
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Range")
     }
@@ -118,6 +123,7 @@ private struct RangeSwitcher: View {
 
 private struct JournalCard: View {
     var stat: JournalStat
+    @State private var shown = false
 
     private var maxEntries: Int { max(stat.days.map(\.entries).max() ?? 1, 1) }
 
@@ -128,8 +134,10 @@ private struct JournalCard: View {
                     Label("Journal · pinned", systemImage: "pin.fill")
                         .labelStyle(.titleAndIcon)
                         .textStyle(.label, weight: .semibold)
-                    Text(stat.total, format: .number)
+                    Text(shown ? stat.total : 0, format: .number)
                         .textStyle(.numeral)
+                        .contentTransition(.numericText(value: Double(shown ? stat.total : 0)))
+                        .growIn(shown)
                     HStack(spacing: Space.s2) {
                         Text("entries this week")
                             .textStyle(.label)
@@ -159,6 +167,7 @@ private struct JournalCard: View {
         .padding(Space.s6)
         .foregroundStyle(Palette.onBrand)
         .background(Palette.brand, in: RoundedRectangle(cornerRadius: Radius.lg, style: .continuous))
+        .revealOnScroll($shown)
     }
 
     private func bar(for day: JournalStat.Day) -> some View {
@@ -176,6 +185,7 @@ private struct JournalCard: View {
                     .padding(.horizontal, 7)
                     .padding(.vertical, 1)
                     .background(Palette.surfaceRaised, in: Capsule())
+                    .opacity(shown ? 1 : 0)
             }
             Group {
                 if isToday {
@@ -188,11 +198,12 @@ private struct JournalCard: View {
                 }
             }
             .frame(maxWidth: 34)
-            .frame(height: height)
+            .frame(height: shown ? height : 10)
             Text(day.label)
                 .textStyle(.caption, weight: .semibold)
         }
         .frame(maxWidth: .infinity)
+        .growIn(shown, delay: Double(day.id) * 0.06)
     }
 
     private var chartSummary: String {
@@ -207,6 +218,7 @@ private struct JournalCard: View {
 
 private struct CaloriesCard: View {
     var stat: CaloriesStat
+    @State private var shown = false
 
     private let gaugeWidth: CGFloat = 22
 
@@ -220,17 +232,20 @@ private struct CaloriesCard: View {
                 Hatch(color: Palette.accentSoft, stripe: 2.5, gap: 3.5)
                     .mask(HalfArc(lineWidth: gaugeWidth).stroke(style: gaugeStroke))
                 HalfArc(lineWidth: gaugeWidth)
-                    .trim(from: 0, to: stat.progress)
+                    .trim(from: 0, to: shown ? stat.progress : 0)
                     .stroke(Palette.accent, style: gaugeStroke)
+                    .opacity(shown ? 1 : 0)
                 VStack(spacing: 0) {
-                    Text(stat.eaten, format: .number)
+                    Text(shown ? stat.eaten : 0, format: .number)
                         .textStyle(.display)
+                        .contentTransition(.numericText(value: Double(shown ? stat.eaten : 0)))
                     Text("of \(stat.goal.formatted()) kcal · \(stat.remaining.formatted()) left")
                         .textStyle(.caption)
                         .foregroundStyle(Palette.inkMuted)
                 }
             }
             .frame(width: 240, height: 128)
+            .growIn(shown)
             .accessibilityElement(children: .ignore)
             .accessibilityLabel(
                 "\(stat.eaten.formatted()) of \(stat.goal.formatted()) calories eaten, \(Int((stat.progress * 100).rounded())) percent"
@@ -249,7 +264,7 @@ private struct CaloriesCard: View {
                                 GeometryReader { geo in
                                     Capsule()
                                         .fill(color(for: macro.kind))
-                                        .frame(width: geo.size.width * macro.progress)
+                                        .frame(width: geo.size.width * (shown ? macro.progress : 0))
                                 }
                             }
                         Text("\(macro.grams) / \(macro.goal)g")
@@ -261,8 +276,10 @@ private struct CaloriesCard: View {
                 }
             }
             .padding(.top, 4)
+            .growIn(shown, delay: 0.15)
         }
         .raisedCard()
+        .revealOnScroll($shown)
     }
 
     private var gaugeStroke: StrokeStyle {
@@ -282,6 +299,7 @@ private struct CaloriesCard: View {
 
 private struct SpendingCard: View {
     var stat: SpendingStat
+    @State private var shown = false
 
     private let segmentSpacing: CGFloat = 4
 
@@ -316,6 +334,10 @@ private struct SpendingCard: View {
                 }
             }
             .frame(height: 14)
+            .mask {
+                Rectangle().scaleEffect(x: shown ? 1 : 0, anchor: .leading)
+            }
+            .growIn(shown)
             .accessibilityHidden(true)
 
             LazyVGrid(columns: [GridItem(.flexible(), spacing: Space.s4), GridItem(.flexible())], spacing: Space.s2) {
@@ -334,6 +356,7 @@ private struct SpendingCard: View {
             }
         }
         .raisedCard()
+        .revealOnScroll($shown)
     }
 
     @ViewBuilder
@@ -358,6 +381,7 @@ private struct SpendingCard: View {
 
 private struct GymCard: View {
     var stat: GymStat
+    @State private var shown = false
 
     private var muted: Color { Palette.onInk.opacity(0.7) }
 
@@ -381,6 +405,9 @@ private struct GymCard: View {
                 ForEach(stat.days) { day in
                     VStack(spacing: 6) {
                         dot(for: day.status)
+                            .scaleEffect(shown ? 1 : 0.3)
+                            .opacity(shown ? 1 : 0)
+                            .growIn(shown, delay: Double(day.id) * 0.06)
                         Text(day.label)
                             .textStyle(.caption, weight: .semibold)
                             .foregroundStyle(muted)
@@ -409,6 +436,7 @@ private struct GymCard: View {
         .padding(Space.s6)
         .foregroundStyle(Palette.onInk)
         .background(Palette.ink, in: RoundedRectangle(cornerRadius: Radius.lg, style: .continuous))
+        .revealOnScroll($shown)
     }
 
     @ViewBuilder
@@ -484,7 +512,7 @@ private struct AddTrackerCard: View {
                             .cardShadow()
                             .frame(minHeight: 44)
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(.pressable)
                 }
             }
         }

@@ -87,6 +87,7 @@ public class CardManagementService {
         boolean alreadyActive = false;
         boolean wasActive = false;
         boolean specChanged = false;
+        List<String> warnings = List.of();
 
         if (created) {
             if (specNode == null || specNode.isNull()) {
@@ -112,19 +113,40 @@ public class CardManagementService {
             } else if (!activate) {
                 throw new IllegalArgumentException("provide a spec or status: active");
             }
-            if (activate && card.getStatus() != CardStatus.ACTIVE) {
-                card.activate(cards.nextActivePosition(), now);
-                activatedNow = true;
-            } else if (activate) {
-                alreadyActive = !specChanged;
+            if (activate) {
+                ActivationResult activation = activate(id, now)
+                        .orElseThrow(() -> new IllegalStateException("Card disappeared during activation"));
+                card = activation.card();
+                activatedNow = activation.activatedNow();
+                warnings = activation.warnings();
+                alreadyActive = wasActive && !specChanged;
+            } else {
+                card = cards.save(card);
+                if (spec == null) spec = parse(card);
+                warnings = inspectAndPrepareKinds(spec, wasActive && specChanged);
             }
-            card = cards.save(card);
-            if (spec == null) spec = parser.parse(JSON.valueToTree(card.getSpec()));
         }
 
-        List<String> warnings = inspectAndPrepareKinds(spec, activatedNow || (wasActive && specChanged));
+        if (created) warnings = inspectAndPrepareKinds(spec, false);
         CardView preview = evaluator.evaluate(card, com.tinyme.domain.entries.model.aggregate.Range.WEEK);
         return new SaveOutcome.Saved(preview, warnings, created, activatedNow, alreadyActive);
+    }
+
+    @Transactional
+    public java.util.Optional<ActivationResult> activate(UUID id, Instant now) {
+        Objects.requireNonNull(id, "id");
+        Objects.requireNonNull(now, "now");
+        CardEntity card = cards.findById(id).orElse(null);
+        if (card == null) return java.util.Optional.empty();
+
+        boolean activatedNow = card.getStatus() != CardStatus.ACTIVE;
+        if (activatedNow) {
+            card.activate(cards.nextActivePosition(), now);
+            cards.save(card);
+        }
+        CardSpec spec = parse(card);
+        List<String> warnings = inspectAndPrepareKinds(spec, true);
+        return java.util.Optional.of(new ActivationResult(card, warnings, activatedNow));
     }
 
     @Transactional
@@ -187,6 +209,7 @@ public class CardManagementService {
 
     private static void addMetricHints(MetricSpec metric, Map<String, Map<String, String>> hints) {
         metric.kinds().forEach(kind -> {
+            if (!"*".equals(kind)) hints.computeIfAbsent(kind, ignored -> new LinkedHashMap<>());
             if (metric.field() != null) addHint(hints, kind, metric.field(), "number");
             metric.where().forEach((field, value) -> addHint(hints, kind, field, typeOf(value)));
         });
@@ -218,6 +241,15 @@ public class CardManagementService {
 
     private Map<String, Object> stored(CardSpec spec) {
         return JSON.convertValue(writer.write(spec), MAP_TYPE);
+    }
+
+    private CardSpec parse(CardEntity card) {
+        var node = JSON.valueToTree(card.getSpec());
+        return card.isSystem() ? parser.parseTrusted(node) : parser.parse(node);
+    }
+
+    public record ActivationResult(CardEntity card, List<String> warnings, boolean activatedNow) {
+        public ActivationResult { warnings = List.copyOf(warnings); }
     }
 
     public sealed interface SaveOutcome permits SaveOutcome.Saved, SaveOutcome.Duplicate,

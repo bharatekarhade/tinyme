@@ -93,6 +93,15 @@ public class EntryRepository {
     }
 
     @Transactional(readOnly = true)
+    public List<String> recentKinds(LocalDate from, LocalDate to, long minimumEntries) {
+        Objects.requireNonNull(from, "from");
+        Objects.requireNonNull(to, "to");
+        if (from.isAfter(to)) throw new IllegalArgumentException("from must be on or before to");
+        if (minimumEntries < 1) throw new IllegalArgumentException("minimumEntries must be positive");
+        return entries.recentKinds(from, to, minimumEntries).stream().map(RecentKindCount::getKind).toList();
+    }
+
+    @Transactional(readOnly = true)
     public EntryQueryResult find(EntryQuery query) {
         Objects.requireNonNull(query, "query");
         var filters = query.filters();

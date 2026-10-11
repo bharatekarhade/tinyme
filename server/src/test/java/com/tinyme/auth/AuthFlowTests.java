@@ -6,6 +6,9 @@ import com.tinyme.auth.repository.DeviceTokenRepository;
 import com.tinyme.auth.service.AccountBootstrap;
 import com.tinyme.auth.service.DeviceTokenService;
 import com.tinyme.auth.service.PasswordService;
+import com.tinyme.domain.cards.entity.CardEntity;
+import com.tinyme.domain.cards.model.CardStatus;
+import com.tinyme.domain.cards.repository.CardRepository;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.ApplicationArguments;
@@ -25,6 +28,9 @@ import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.time.Instant;
 import java.util.Base64;
+import java.util.List;
+import java.util.Map;
+import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -48,6 +54,7 @@ class AuthFlowTests {
     @Autowired AccountRepository accounts;
     @Autowired DeviceTokenRepository tokenRepository;
     @Autowired PasswordService passwords;
+    @Autowired CardRepository cards;
 
     @Test
     void loginIgnoresEmailCaseAndStoresOnlyTheTokenHash() throws Exception {
@@ -112,6 +119,8 @@ class AuthFlowTests {
     void readEndpointsRequireAuthenticationAndEntriesRejectInvalidFilters() throws Exception {
         mvc.perform(get("/entries")).andExpect(status().isUnauthorized());
         mvc.perform(get("/people")).andExpect(status().isUnauthorized());
+        mvc.perform(get("/cards")).andExpect(status().isUnauthorized());
+        mvc.perform(get("/cards/suggestions")).andExpect(status().isUnauthorized());
 
         String bearer = "Bearer " + tokens.issue("api-read-tests").token();
         mvc.perform(get("/entries").header("Authorization", bearer).param("limit", "0"))
@@ -126,6 +135,48 @@ class AuthFlowTests {
         mvc.perform(get("/people").header("Authorization", bearer)).andExpect(status().isOk());
         mvc.perform(get("/people/no-such-person").header("Authorization", bearer))
                 .andExpect(status().isNotFound());
+        mvc.perform(get("/cards").header("Authorization", bearer).param("range", "quarter"))
+                .andExpect(status().isBadRequest());
+        mvc.perform(get("/cards").header("Authorization", bearer))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.range").value("week"))
+                .andExpect(jsonPath("$.cards[0].slug").value("journal"));
+        mvc.perform(get("/cards/suggestions").header("Authorization", bearer))
+                .andExpect(status().isOk());
+    }
+
+    @Test
+    void cardDraftCanBeReadActivatedAndDeletedThroughTheAuthenticatedApi() throws Exception {
+        String suffix = UUID.randomUUID().toString().substring(0, 8);
+        String slug = "api-card-" + suffix;
+        Map<String, Object> spec = Map.of(
+                "v", 1, "title", "API card", "icon", "bed", "accent", "mint", "tone", "surface",
+                "blocks", List.of(Map.of("type", "stat", "label", "sleeps", "period", "range",
+                        "metric", Map.of("kinds", List.of("sleep"), "op", "count"))));
+        CardEntity draft = cards.save(new CardEntity(slug, "API card", spec, CardStatus.DRAFT,
+                false, 0, null));
+        String bearer = "Bearer " + tokens.issue("card-api-test").token();
+
+        mvc.perform(get("/cards/" + draft.getId()).header("Authorization", bearer))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("draft"));
+        mvc.perform(post("/cards/" + draft.getId() + "/activate").header("Authorization", bearer))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("active"));
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM entry_kinds WHERE kind = 'sleep'", Long.class))
+                .isEqualTo(1L);
+        mvc.perform(post("/cards/" + draft.getId() + "/activate").header("Authorization", bearer))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("active"));
+        mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders
+                        .delete("/cards/" + draft.getId()).header("Authorization", bearer))
+                .andExpect(status().isNoContent());
+        mvc.perform(get("/cards/" + draft.getId()).header("Authorization", bearer))
+                .andExpect(status().isNotFound());
+        UUID journalId = cards.findBySlug("journal").orElseThrow().getId();
+        mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders
+                        .delete("/cards/" + journalId).header("Authorization", bearer))
+                .andExpect(status().isConflict());
     }
 
     @Test
