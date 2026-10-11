@@ -163,6 +163,10 @@ class AuthFlowTests {
         mvc.perform(post("/cards/" + draft.getId() + "/activate").header("Authorization", bearer))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("active"));
+        mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put("/cards/order")
+                        .header("Authorization", bearer).contentType("application/json")
+                        .content("{\"ids\":[\"" + UUID.randomUUID() + "\"]}"))
+                .andExpect(status().isBadRequest());
         assertThat(jdbc.queryForObject("SELECT count(*) FROM entry_kinds WHERE kind = 'sleep'", Long.class))
                 .isEqualTo(1L);
         mvc.perform(post("/cards/" + draft.getId() + "/activate").header("Authorization", bearer))

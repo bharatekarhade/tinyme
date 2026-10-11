@@ -7,6 +7,8 @@ import com.tinyme.domain.cards.model.CardStatus;
 import com.tinyme.domain.cards.model.view.BreakdownView;
 import com.tinyme.domain.cards.model.view.ChartView;
 import com.tinyme.domain.cards.model.view.CheckinsView;
+import com.tinyme.domain.cards.model.view.GoalsView;
+import com.tinyme.domain.cards.model.view.LatestView;
 import com.tinyme.domain.cards.model.view.ProgressView;
 import com.tinyme.domain.cards.model.view.StatView;
 import com.tinyme.domain.cards.repository.CardRepository;
@@ -80,6 +82,8 @@ class CardEvaluatorIntegrationTests {
         add("expense", WEDNESDAY, LocalTime.of(13, 0), Map.of("amount", 3320, "category", "shopping"));
         add("expense", WEDNESDAY, LocalTime.of(14, 0), Map.of("amount", 2580));
         add("expense", LocalDate.of(2026, 9, 28), LocalTime.NOON, Map.of("amount", 20930, "category", "food"));
+        // A previous-period comparison on Wednesday must exclude the prior Sunday's entry.
+        add("expense", LocalDate.of(2026, 10, 4), LocalTime.NOON, Map.of("amount", 7000, "category", "food"));
 
         add("workout", LocalDate.of(2026, 10, 5), LocalTime.of(8, 0), Map.of("type", "Leg day", "minutes", 50));
         add("workout", LocalDate.of(2026, 10, 6), LocalTime.of(8, 0), Map.of("type", "Run", "minutes", 30));
@@ -92,11 +96,16 @@ class CardEvaluatorIntegrationTests {
         assertThat(journalChart.points()).hasSize(7);
         assertThat(journalChart.points().getFirst().period()).isEqualTo(LocalDate.of(2026, 10, 5)); // Monday start.
         assertThat(journalChart.points().getFirst().value()).isEqualByComparingTo("2");
+        assertThat(journalChart.points().getFirst().state()).isEqualTo("past");
+        assertThat(journalChart.points().get(2).period()).isEqualTo(WEDNESDAY);
+        assertThat(journalChart.points().get(2).state()).isEqualTo("current");
+        assertThat(journalChart.points().get(3).state()).isEqualTo("future");
         assertThat(journalChart.points().getLast().value()).isEqualByComparingTo("0");
-        assertThat(journalChart.points().getLast().state()).isEqualTo("future");
 
         var calories = evaluator.evaluate(saveExample("calories", CALORIES), Range.WEEK);
         assertThat(((ProgressView) calories.blocks().getFirst()).value()).isEqualByComparingTo("155");
+        assertThat(((GoalsView) calories.blocks().get(1)).items()).hasSize(3);
+        assertThat(((GoalsView) calories.blocks().get(1)).items().getFirst().value()).isEqualByComparingTo("45");
 
         var spending = evaluator.evaluate(saveExample("spending", SPENDING), Range.WEEK);
         assertThat(((StatView) spending.blocks().getFirst()).value()).isEqualByComparingTo("18420");
@@ -111,7 +120,12 @@ class CardEvaluatorIntegrationTests {
         assertThat(checkins.slots()).hasSize(7);
         assertThat(checkins.slots().getFirst().period()).isEqualTo(LocalDate.of(2026, 10, 5));
         assertThat(checkins.doneCount()).isEqualTo(3);
+        assertThat(checkins.slots().get(2).period()).isEqualTo(WEDNESDAY);
+        assertThat(checkins.slots().get(2).state()).isEqualTo("current");
+        assertThat(checkins.slots().get(3).state()).isEqualTo("future");
         assertThat(checkins.slots().getLast().done()).isFalse();
+        var latest = (LatestView) gym.blocks().get(1);
+        assertThat(latest.entry().data()).containsEntry("type", "Push day").containsEntry("minutes", 70);
 
         assertThat(jdbc.queryForObject("SELECT local_day FROM entries WHERE kind = 'drink'", LocalDate.class))
                 .isEqualTo(WEDNESDAY);

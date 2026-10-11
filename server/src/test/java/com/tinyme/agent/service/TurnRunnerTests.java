@@ -207,6 +207,37 @@ class TurnRunnerTests {
     }
 
     @Test
+    void buildCaloriesCardFixtureListsBeforeSavingAndExposesCardReference() throws Exception {
+        var fake = FakeManagedAgents.fromResource(getClass(), "/streams/build-calories-card.json").build();
+        var cardId = UUID.randomUUID().toString();
+        when(dispatcher.dispatch(anyString(), anyString(), any(), any())).thenAnswer(invocation -> {
+            String tool = invocation.getArgument(1);
+            if (tool.equals("cards_save")) {
+                return new DispatchOutcome("{\"ok\":true,\"data\":{\"id\":\"" + cardId
+                        + "\",\"status\":\"draft\",\"title\":\"Calories\"},\"summary\":\"Saved draft card · Calories\"}",
+                        false, Map.of("card_id", cardId));
+            }
+            return new DispatchOutcome("{\"ok\":true,\"data\":[],\"summary\":\"No cards\"}", false);
+        });
+        when(messages.insert(eq(session.sessionRowId()), eq(MessageRole.ASSISTANT), anyString(), anyList()))
+                .thenReturn(UUID.randomUUID());
+        var observed = new ArrayList<TurnEvent>();
+
+        var result = runner(Duration.ofSeconds(5), fake).run(request("make me a calories card"), observed::add);
+
+        assertThat(result.toolCalls()).isEqualTo(2);
+        var names = org.mockito.ArgumentCaptor.forClass(String.class);
+        verify(dispatcher, times(2)).dispatch(anyString(), names.capture(), any(), any());
+        assertThat(names.getAllValues()).containsExactly("cards_list", "cards_save");
+        assertThat(observed.get(1)).isEqualTo(new TurnEvent.ActionDone("cards_save",
+                "Saved draft card · Calories", false, Map.of("card_id", cardId)));
+        verify(messages).insert(session.sessionRowId(), MessageRole.ASSISTANT, result.replyText(), List.of(
+                Map.of("tool", "cards_list", "summary", "No cards", "is_error", false),
+                Map.of("tool", "cards_save", "summary", "Saved draft card · Calories", "is_error", false,
+                        "ref", Map.of("card_id", cardId))));
+    }
+
+    @Test
     void serializesTwoTurnsOnTheSameSessionUntilFirstEndTurn() throws Exception {
         var firstMessageSent = new CountDownLatch(1);
         var continueFirstTurn = new CountDownLatch(1);
