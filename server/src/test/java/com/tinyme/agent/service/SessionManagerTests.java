@@ -107,11 +107,29 @@ class SessionManagerTests {
     }
 
     @Test
-    void reusesExistingSessionWithoutLoadingResourcesOrCallingApi() throws Exception {
-        UUID rowId = seed("sesn_existing", "chat", "active", TODAY);
-        jdbc.update("DELETE FROM settings WHERE key IN ('env.default', 'agent.chat', 'memory.main')");
-        assertThat(manager.todaySession(TOKYO)).isEqualTo(new SessionRef(rowId, "sesn_existing"));
+    void reusesExistingSessionWhenAgentVersionMatches() throws Exception {
+        UUID rowId = seed("sesn_existing", "chat", "active", TODAY, 3);
+        assertThat(manager.todaySession(TOKYO)).isEqualTo(new SessionRef(rowId, "sesn_existing", 3));
         verifyNoInteractions(api);
+    }
+
+    @Test
+    void replacesTodaysSessionWhenChatYamlProvisionedANewAgentVersion() throws Exception {
+        UUID oldId = seed("sesn_old", "chat", "active", TODAY, 2);
+        when(api.createSession(anyMap())).thenReturn("sesn_new_version");
+
+        SessionRef result = manager.todaySession(TOKYO);
+
+        assertThat(result.anthropicSessionId()).isEqualTo("sesn_new_version");
+        assertThat(result.agentVersion()).isEqualTo(3);
+        assertThat(jdbc.queryForObject("SELECT status FROM agent_sessions WHERE id = ?", String.class, oldId))
+                .isEqualTo("ended");
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM agent_sessions WHERE local_day = ? AND status = 'active'",
+                Integer.class, TODAY)).isEqualTo(1);
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM agent_sessions WHERE local_day = ?", Integer.class, TODAY))
+                .isEqualTo(2);
+        assertThat(manager.todaySession(TOKYO)).isEqualTo(result);
+        verify(api, times(1)).createSession(anyMap());
     }
 
     @Test
@@ -193,10 +211,14 @@ class SessionManagerTests {
     }
 
     private UUID seed(String remoteId, String kind, String status, LocalDate day) {
+        return seed(remoteId, kind, status, day, 2);
+    }
+
+    private UUID seed(String remoteId, String kind, String status, LocalDate day, int agentVersion) {
         return jdbc.queryForObject("""
                 INSERT INTO agent_sessions (anthropic_session_id, agent, agent_version, kind, status, local_day)
-                VALUES (?, 'chat', 2, ?, ?, ?) RETURNING id
-                """, UUID.class, remoteId, kind, status, day);
+                VALUES (?, 'chat', ?, ?, ?, ?) RETURNING id
+                """, UUID.class, remoteId, agentVersion, kind, status, day);
     }
 
     private int activeChatsToday() {

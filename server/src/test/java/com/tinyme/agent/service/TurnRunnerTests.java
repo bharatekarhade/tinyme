@@ -54,7 +54,7 @@ class TurnRunnerTests {
     private final ToolDispatcher dispatcher = mock(ToolDispatcher.class);
     private final SessionTurnLock sessionTurnLock = new SessionTurnLock();
     private final MessageRepository messages = mock(MessageRepository.class);
-    private final SessionRef session = new SessionRef(UUID.randomUUID(), "sesn_test");
+    private final SessionRef session = new SessionRef(UUID.randomUUID(), "sesn_test", 1);
     private static final UUID USER_MESSAGE_ID = UUID.fromString("5d589013-d823-4d72-aa14-3888c191872c");
 
     private TurnRunner runner(Duration timeout) throws Exception {

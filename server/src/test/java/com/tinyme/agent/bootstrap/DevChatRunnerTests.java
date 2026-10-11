@@ -38,7 +38,7 @@ class DevChatRunnerTests {
     private final SessionManager sessions = mock(SessionManager.class);
     private final MessageRepository messages = mock(MessageRepository.class);
     private final ConfigurableApplicationContext context = mock(ConfigurableApplicationContext.class);
-    private final SessionRef session = new SessionRef(UUID.randomUUID(), "sesn_test");
+    private final SessionRef session = new SessionRef(UUID.randomUUID(), "sesn_test", 1);
     private static final UUID USER_MESSAGE_ROW_ID = UUID.fromString("29228cb9-f347-4230-a9d3-04f8ad69a862");
 
     @TempDir

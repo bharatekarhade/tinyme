@@ -26,7 +26,9 @@ struct HalfArc: Shape {
 
     func path(in rect: CGRect) -> Path {
         let inset = lineWidth / 2
-        let radius = min(rect.width / 2, rect.height) - inset
+        // The centre sits `inset` above the bottom edge, so the height left for the radius is two insets
+        // short: one for the centre's offset and one for the half-stroke that sticks out past the top.
+        let radius = min(rect.width / 2 - inset, rect.height - 2 * inset)
         var path = Path()
         path.addArc(
             center: CGPoint(x: rect.midX, y: rect.maxY - inset),

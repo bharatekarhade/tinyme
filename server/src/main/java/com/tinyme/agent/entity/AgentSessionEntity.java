@@ -7,6 +7,7 @@ import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 import org.hibernate.annotations.UuidGenerator;
 
+import java.time.Instant;
 import java.time.LocalDate;
 import java.util.UUID;
 
@@ -36,6 +37,9 @@ public class AgentSessionEntity {
     @Column(nullable = false)
     private String status;
 
+    @Column(name = "ended_at")
+    private Instant endedAt;
+
     protected AgentSessionEntity() {
     }
 
@@ -56,5 +60,20 @@ public class AgentSessionEntity {
 
     public String getAnthropicSessionId() {
         return anthropicSessionId;
+    }
+
+    public int getAgentVersion() {
+        return agentVersion;
+    }
+
+    public String getStatus() {
+        return status;
+    }
+
+    public void end(Instant now) {
+        if ("active".equals(status)) {
+            status = "ended";
+            endedAt = now;
+        }
     }
 }

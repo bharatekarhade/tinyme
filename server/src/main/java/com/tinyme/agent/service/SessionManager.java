@@ -36,10 +36,10 @@ public class SessionManager {
     public SessionRef todaySession(ZoneId zone) throws IOException, InterruptedException {
         Objects.requireNonNull(zone, "zone");
         LocalDate today = LocalDate.now(clock.withZone(zone));
-        var existing = sessions.findActiveChat(today);
-        if (existing.isPresent()) return existing.get();
-
         var ids = resources.load();
+        var existing = sessions.findActiveChat(today);
+        if (existing.isPresent() && existing.get().agentVersion() == ids.agentVersion()) return existing.get();
+
         String sessionId = api.createSession(Map.of(
                 "agent", Map.of("type", "agent", "id", ids.agentId(), "version", ids.agentVersion()),
                 "environment_id", ids.environmentId(),
@@ -50,6 +50,10 @@ public class SessionManager {
                         "instructions", "Read me/profile.md, me/preferences.md and me/rules.md relative to this store's mount_path. "
                                 + "Keep durable user facts up to date; update existing facts instead of duplicating them."))));
         try {
+            if (existing.isPresent()) {
+                return sessions.replaceChat(existing.get().sessionRowId(), sessionId, ids.agentVersion(), today,
+                        clock.instant());
+            }
             return sessions.insertChat(sessionId, ids.agentVersion(), today);
         } catch (DataIntegrityViolationException conflict) {
             if (!isDailySessionConflict(conflict)) throw conflict;

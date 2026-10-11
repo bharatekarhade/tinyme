@@ -253,7 +253,7 @@ class ConversationControllerTests {
         private void reset() {
             request = null;
             acceptance = new ConversationService.Accepted(
-                    new SessionRef(UUID.randomUUID(), "sesn_test"), UUID.randomUUID(),
+                    new SessionRef(UUID.randomUUID(), "sesn_test", 1), UUID.randomUUID(),
                     "had a coffee", ZoneId.of("Asia/Tokyo"));
             acceptCalled = false;
             runCalled = false;
