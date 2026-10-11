@@ -5,6 +5,14 @@ struct HomeView: View {
     @Environment(\.scenePhase) private var scenePhase
     @State private var model: HomeModel
     @State private var showsSettings = false
+    @State private var chat: ChatDraft?
+    @State private var cardToRemove: CardDTO?
+
+    /// What chat opens with: empty from the + button, a suggestion's text from "Track something new".
+    private struct ChatDraft: Identifiable {
+        let id = UUID()
+        var text = ""
+    }
 
     init(api: APIClient) {
         _model = State(initialValue: HomeModel(api: api))
@@ -34,18 +42,28 @@ struct HomeView: View {
                         }
                     case .loaded:
                         ForEach(model.cards) { card in
-                            CardView(card: card, range: model.range)
+                            HomeCardRow(
+                                card: card,
+                                range: model.range,
+                                onRemove: { cardToRemove = card },
+                                onDrop: { droppedId in
+                                    Task { await model.move(droppedId, onto: card.id) }
+                                }
+                            )
                         }
                     }
                 }
                 .id(model.range)
 
-                AddTrackerCard(ideas: model.suggestions.map(\.text))
+                AddTrackerCard(ideas: model.suggestions.map(\.text)) { idea in
+                    chat = ChatDraft(text: idea)
+                }
             }
             .padding(.horizontal, Space.s4)
             .padding(.top, Space.s2)
             .padding(.bottom, Space.s6)
             .animation(.snappy(duration: 0.3), value: model.phase)
+            .animation(.snappy(duration: 0.3), value: model.cards.map(\.id))
         }
         .scrollIndicators(.hidden)
         .refreshable {
@@ -54,7 +72,41 @@ struct HomeView: View {
         .foregroundStyle(Palette.ink)
         .background(Palette.surface.ignoresSafeArea())
         .safeAreaInset(edge: .bottom) {
-            HomeTabBar()
+            HomeTabBar(onNewChat: { chat = ChatDraft() })
+        }
+        .fullScreenCover(item: $chat) { draft in
+            if let api = environment.session.api, let stream = environment.session.stream {
+                ChatView(api: api, stream: stream, draft: draft.text, serverName: serverName) { [model] in
+                    model.invalidate()
+                }
+            }
+        }
+        .overlay(alignment: .top) {
+            if let banner = model.banner {
+                Label(banner, systemImage: "exclamationmark.circle")
+                    .textStyle(.label)
+                    .foregroundStyle(Palette.onAccentSoft)
+                    .padding(.horizontal, Space.s4)
+                    .padding(.vertical, Space.s3)
+                    .background(Palette.accentSoft, in: Capsule())
+                    .cardShadow()
+                    .padding(.top, Space.s2)
+                    .transition(.move(edge: .top).combined(with: .opacity))
+            }
+        }
+        .animation(.snappy(duration: 0.3), value: model.banner)
+        .confirmationDialog(
+            "Remove \(cardToRemove?.title ?? "this card") from Home?",
+            isPresented: Binding(get: { cardToRemove != nil }, set: { if !$0 { cardToRemove = nil } }),
+            titleVisibility: .visible,
+            presenting: cardToRemove
+        ) { card in
+            Button("Remove", role: .destructive) {
+                Task { await model.remove(card) }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: { _ in
+            Text("What you've logged stays. Ask me any time to build the card again.")
         }
         .overlay {
             SettingsSheet(isPresented: $showsSettings, session: environment.session)
@@ -72,11 +124,54 @@ struct HomeView: View {
         }
     }
 
+    private var serverName: String {
+        if case .signedIn(let server, _) = environment.session.state {
+            return server.host() ?? server.absoluteString
+        }
+        return ""
+    }
+
     private var profileInitial: String {
         if case .signedIn(_, let email) = environment.session.state {
             return email.prefix(1).uppercased()
         }
         return ""
+    }
+}
+
+/// A card on Home. Your own cards can be removed (long-press) and dragged onto another to reorder; Journal stays put.
+private struct HomeCardRow: View {
+    let card: CardDTO
+    let range: HomeRange
+    var onRemove: () -> Void
+    var onDrop: (String) -> Void
+
+    @State private var isDropTarget = false
+
+    private var shape: RoundedRectangle { RoundedRectangle(cornerRadius: Radius.lg, style: .continuous) }
+
+    var body: some View {
+        if card.system == true {
+            CardView(card: card, range: range)
+        } else {
+            CardView(card: card, range: range)
+                .contentShape(.contextMenuPreview, shape)
+                .contentShape(.dragPreview, shape)
+                .contextMenu {
+                    Button("Remove from Home", systemImage: "minus.circle", role: .destructive, action: onRemove)
+                }
+                .draggable(card.id)
+                .dropDestination(for: String.self) { ids, _ in
+                    guard let id = ids.first else { return false }
+                    onDrop(id)
+                    return true
+                } isTargeted: { isDropTarget = $0 }
+                .overlay {
+                    if isDropTarget {
+                        shape.strokeBorder(Palette.brandStrong, lineWidth: 2)
+                    }
+                }
+        }
     }
 }
 

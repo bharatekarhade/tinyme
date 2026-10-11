@@ -71,6 +71,10 @@ actor APIClient {
         try decode(try await data(for: try await authorizedRequest(endpoint, body: body), endpoint), endpoint)
     }
 
+    func send<T: Decodable & Sendable>(_ endpoint: Endpoint) async throws -> T {
+        try decode(try await data(for: try await authorizedRequest(endpoint), endpoint), endpoint)
+    }
+
     /// For calls that answer 204.
     func send(_ endpoint: Endpoint, body: some Encodable & Sendable) async throws {
         _ = try await data(for: try await authorizedRequest(endpoint, body: body), endpoint)

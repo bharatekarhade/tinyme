@@ -15,6 +15,16 @@ enum HomeRange: String, CaseIterable, Identifiable, Sendable {
         }
     }
 
+    /// "today", "this week", … for captions under a number.
+    var periodPhrase: String {
+        switch self {
+        case .day: "today"
+        case .week: "this week"
+        case .month: "this month"
+        case .year: "this year"
+        }
+    }
+
     var subtitle: String {
         switch self {
         case .day: "Here's how your day is going."
@@ -45,11 +55,14 @@ final class HomeModel {
     private(set) var phase: Phase = .loading
     private(set) var cards: [CardDTO] = []
     private(set) var suggestions: [SuggestionDTO] = []
+    /// A short-lived message when a change couldn't be saved.
+    private(set) var banner: String?
 
     private let api: APIClient
     /// Switching back to a range shows its last result at once, then refreshes it.
     private var cache: [HomeRange: CardListDTO] = [:]
     private var loadTask: Task<Void, Never>?
+    private var bannerTask: Task<Void, Never>?
 
     init(api: APIClient) {
         self.api = api
@@ -75,6 +88,55 @@ final class HomeModel {
     func invalidate() {
         cache.removeAll()
         load()
+    }
+
+    // MARK: - Remove and reorder
+
+    /// Takes a card off Home at once, and puts it back if the server refuses.
+    func remove(_ card: CardDTO) async {
+        guard card.system != true, let index = cards.firstIndex(where: { $0.id == card.id }) else { return }
+        cards.remove(at: index)
+        cache.removeAll()
+        do {
+            try await api.send(.deleteCard(card.id))
+        } catch APIError.server(status: 404, _, _), APIError.http(status: 404) {
+            // Already gone on the server: nothing to undo.
+        } catch {
+            cards.insert(card, at: min(index, cards.count))
+            show(banner: "Couldn't remove \(card.title).")
+        }
+    }
+
+    /// Moves a card to where another one is, and saves the new order.
+    func move(_ cardId: String, onto targetId: String) async {
+        guard cardId != targetId,
+              let from = cards.firstIndex(where: { $0.id == cardId }),
+              let to = cards.firstIndex(where: { $0.id == targetId }),
+              cards[from].system != true, cards[to].system != true else { return }
+        let card = cards.remove(at: from)
+        cards.insert(card, at: to)
+        cache.removeAll()
+        do {
+            try await api.send(.cardOrder, body: CardOrderBody(ids: cards.filter { $0.system != true && $0.status == "active" }.map(\.id)))
+        } catch {
+            show(banner: "Couldn't save the new order.")
+            load()
+        }
+    }
+
+    private struct CardOrderBody: Encodable, Sendable {
+        let ids: [String]
+    }
+
+    private func show(banner message: String) {
+        banner = message
+        bannerTask?.cancel()
+        bannerTask = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(4))
+            if !Task.isCancelled {
+                self?.banner = nil
+            }
+        }
     }
 
     private func performLoad() async {

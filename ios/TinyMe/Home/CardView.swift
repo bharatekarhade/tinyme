@@ -10,6 +10,8 @@ struct CardStyle: Sendable {
     /// The colour of bars, rings and segments.
     let accent: Color
     let tile: Color
+    /// Marks drawn on top of an `accent` fill (the tick in a done day).
+    let onAccent: Color
     /// Small value labels sitting on the card.
     let pillBackground: Color
     let pillForeground: Color
@@ -31,6 +33,7 @@ struct CardStyle: Sendable {
             muted = Palette.onInk.opacity(0.7)
             track = Palette.onInk.opacity(0.12)
             self.accent = accent == "ink" ? Palette.onInk : strong
+            onAccent = accent == "ink" ? Palette.ink : Palette.onBrand
             tile = Palette.onInk.opacity(0.12)
             pillBackground = Palette.onInk
             pillForeground = Palette.ink
@@ -42,6 +45,7 @@ struct CardStyle: Sendable {
             muted = Palette.onBrand.opacity(0.75)
             track = Palette.onBrand.opacity(0.18)
             self.accent = Palette.onBrand
+            onAccent = Palette.brand
             tile = Palette.onBrand.opacity(0.12)
             pillBackground = Palette.surfaceRaised
             pillForeground = Palette.ink
@@ -53,6 +57,7 @@ struct CardStyle: Sendable {
             muted = Palette.inkMuted
             track = Palette.surfaceSunken
             self.accent = strong
+            onAccent = accent == "ink" ? Palette.onInk : Palette.onBrand
             tile = soft
             pillBackground = Palette.ink
             pillForeground = Palette.onInk
@@ -77,6 +82,8 @@ extension EnvironmentValues {
 struct CardView: View {
     let card: CardDTO
     let range: HomeRange
+    /// A draft shown in chat: a "Preview" pill takes the badge's place.
+    var isPreview = false
 
     private var style: CardStyle { CardStyle(tone: card.tone, accent: card.accent) }
 
@@ -92,7 +99,9 @@ struct CardView: View {
                     .textStyle(.heading)
                     .lineLimit(1)
                 Spacer(minLength: Space.s2)
-                if let badge = card.badge {
+                if isPreview {
+                    Pill(text: "Preview", background: style.track, foreground: style.muted)
+                } else if let badge = card.badge {
                     BadgeView(badge: badge)
                 }
             }

@@ -1,0 +1,27 @@
+import SwiftUI
+
+/// Something TinyMe did during a reply: "✓ Logged drink (2 today)".
+struct ActionChip: View {
+    let action: ActionDTO
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Image(systemName: action.isError ? "exclamationmark.circle" : "checkmark")
+                .font(.system(size: 12, weight: .bold))
+                .foregroundStyle(action.isError ? Palette.danger : Palette.brandStrong)
+                .accessibilityHidden(true)
+            Text(action.summary)
+                .textStyle(.caption, weight: .semibold)
+                .lineLimit(2)
+        }
+        .padding(.horizontal, Space.s3)
+        .frame(minHeight: 30)
+        .background {
+            Capsule()
+                .fill(Palette.surfaceRaised)
+                .cardShadow()
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(action.isError ? "Couldn't do it: \(action.summary)" : action.summary)
+    }
+}

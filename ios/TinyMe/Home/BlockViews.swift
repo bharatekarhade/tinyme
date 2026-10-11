@@ -8,10 +8,10 @@ struct BlockView: View {
     var body: some View {
         switch block {
         case .stat(let stat):
-            StatBlockView(label: stat.label, unit: stat.unit, value: stat.value, goal: stat.goal, entries: stat.entries)
+            StatBlockView(label: stat.label, unit: stat.unit, value: stat.value, goal: stat.goal, entries: stat.entries, range: range)
         case .progress(let progress):
             if progress.goal == nil {
-                StatBlockView(label: progress.label, unit: progress.unit, value: progress.value, goal: nil, entries: progress.entries)
+                StatBlockView(label: progress.label, unit: progress.unit, value: progress.value, goal: nil, entries: progress.entries, range: range)
             } else {
                 ProgressBlockView(block: progress)
             }
@@ -19,8 +19,12 @@ struct BlockView: View {
             ChartBlockView(block: chart, range: range)
         case .latest(let latest):
             LatestBlockView(block: latest)
-        case .goals, .checkins, .breakdown:
-            BlockNote("This part isn't shown in the app yet")
+        case .goals(let goals):
+            GoalsBlockView(block: goals)
+        case .checkins(let checkins):
+            CheckinsBlockView(block: checkins, range: range)
+        case .breakdown(let breakdown):
+            BreakdownBlockView(block: breakdown)
         case .unavailable:
             BlockNote("This part couldn't load")
         case .unknown:
@@ -54,6 +58,7 @@ struct StatBlockView: View {
     let value: Double?
     let goal: Double?
     let entries: Int
+    let range: HomeRange
 
     @Environment(\.cardStyle) private var style
     @State private var shown = false
@@ -88,8 +93,9 @@ struct StatBlockView: View {
     }
 
     private var caption: String {
-        guard entries > 0 else { return "No entries yet" }
-        var parts = [label]
+        guard entries > 0 else { return "No entries \(range.periodPhrase)" }
+        // Say which period the number covers.
+        var parts = ["\(label) \(range.periodPhrase)"]
         if let unit, !unit.isEmpty, unit != "JPY", unit != label {
             parts.insert(unit, at: 0)
         }
@@ -246,9 +252,11 @@ struct ChartBlockView: View {
 
     private var bars: some View {
         VStack(alignment: .leading, spacing: Space.s2) {
-            Text(isEmpty ? "\(block.label) · No entries yet" : block.label)
-                .textStyle(.caption)
-                .foregroundStyle(style.muted)
+            if isEmpty {
+                Text("No entries yet")
+                    .textStyle(.caption)
+                    .foregroundStyle(style.muted)
+            }
             GeometryReader { geometry in
                 HStack(alignment: .bottom, spacing: spacing) {
                     ForEach(Array(block.points.enumerated()), id: \.offset) { index, point in
@@ -320,16 +328,18 @@ struct ChartBlockView: View {
     private func valueLabel(index: Int, point: ChartBlock.Point) -> String? {
         let value = point.value ?? 0
         let isCurrent = point.state == "current"
-        let number = Formatters.number(value)
+        let isCrowded = block.points.count > 12
+        let number = isCurrent ? "\(Formatters.number(value)) so far" : Formatters.number(value)
+        // Thin bars have sparse axis labels, so say which period this is.
+        let text = isCrowded ? "\(Self.shortDay(point.period)) · \(number)" : number
         if let selected {
-            guard index == selected else { return nil }
-            let text = isCurrent ? "\(number) so far" : number
-            // Thin bars have sparse axis labels, so say which period this is.
-            return block.points.count > 12 ? "\(Self.shortDay(point.period)) · \(text)" : text
+            return index == selected ? text : nil
         }
-        guard block.points.count <= 12, point.state != "future", value > 0 else { return nil }
-        if isCurrent { return "\(number) so far" }
-        return index == block.peakIndex ? number : nil
+        // Nothing selected: the highlighted (peak) bar always carries its number,
+        // and so does today when there is room for a second label.
+        guard point.state != "future", value > 0 else { return nil }
+        if index == block.peakIndex { return text }
+        return isCurrent && !isCrowded ? text : nil
     }
 
     private func select(at x: CGFloat, width: CGFloat) {
@@ -485,7 +495,10 @@ struct LatestBlockView: View {
     private var valueText: String {
         guard let entry = block.entry else { return "Nothing logged yet" }
         // JSON objects have no order, so sort the keys to keep the line stable between loads.
-        var parts = entry.data.keys.sorted().compactMap { Self.text(for: entry.data[$0]) }
+        // Words first, then numbers: "Push day · 70 min".
+        let keys = entry.data.keys.sorted()
+        var parts = keys.compactMap { key in entry.data[key]?.stringValue.flatMap { $0.isEmpty ? nil : $0 } }
+        parts += keys.compactMap { key in Self.number(entry.data[key], key: key) }
         if let text = entry.text, !text.isEmpty {
             parts.append(text)
         }
@@ -494,13 +507,17 @@ struct LatestBlockView: View {
         return line.prefix(1).uppercased() + line.dropFirst()
     }
 
-    private static func text(for value: JSONValue?) -> String? {
-        switch value {
-        case .string(let string): string.isEmpty ? nil : string
-        case .number(let number): Formatters.number(number)
-        case .bool(let bool): bool ? "yes" : "no"
+    /// A numeric field with the unit its name implies: minutes → "70 min", protein_g → "32 g".
+    private static func number(_ value: JSONValue?, key: String) -> String? {
+        guard case .number(let number) = value else { return nil }
+        let unit: String? = switch key {
+        case "minutes": "min"
+        case "kcal": "kcal"
+        case "amount": "JPY"
+        case _ where key.hasSuffix("_g"): "g"
         default: nil
         }
+        return Formatters.value(number, unit: unit)
     }
 
     /// "Sat" within the last week, otherwise "12 Oct".
@@ -512,5 +529,308 @@ struct LatestBlockView: View {
             return date.formatted(.dateTime.weekday(.abbreviated))
         }
         return date.formatted(.dateTime.day().month(.abbreviated))
+    }
+}
+
+// MARK: - Goals
+
+/// Up to four small bars side by side, each a value against its goal: "Protein · 92 / 120 g".
+struct GoalsBlockView: View {
+    let block: GoalsBlock
+
+    @Environment(\.cardStyle) private var style
+    @State private var shown = false
+
+    private var items: [GoalsBlock.Item] { Array(block.items.prefix(4)) }
+
+    var body: some View {
+        HStack(alignment: .top, spacing: Space.s3) {
+            ForEach(Array(items.enumerated()), id: \.offset) { index, item in
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(item.label)
+                        .textStyle(.caption)
+                        .foregroundStyle(style.muted)
+                        .lineLimit(1)
+                    Capsule()
+                        .fill(style.track)
+                        .frame(height: 6)
+                        .overlay(alignment: .leading) {
+                            GeometryReader { geometry in
+                                Capsule()
+                                    .fill(color(at: index))
+                                    .frame(width: geometry.size.width * (shown ? fraction(item) : 0))
+                            }
+                        }
+                    Text(text(for: item))
+                        .textStyle(.label, weight: .semibold)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.8)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel("\(item.label): \(text(for: item))")
+            }
+        }
+        .growIn(shown, delay: 0.15)
+        .revealOnScroll($shown)
+    }
+
+    private func fraction(_ item: GoalsBlock.Item) -> Double {
+        if let pct = item.pct { return min(max(pct / 100, 0), 1) }
+        guard let value = item.value, let goal = item.goal, goal > 0 else { return 0 }
+        return min(max(value / goal, 0), 1)
+    }
+
+    private func text(for item: GoalsBlock.Item) -> String {
+        let value = item.value.map(Formatters.number) ?? "–"
+        guard let goal = item.goal else { return item.value.map { Formatters.value($0, unit: item.unit) } ?? "–" }
+        return "\(value) / \(Formatters.value(goal, unit: item.unit))"
+    }
+
+    /// Each bar gets its own colour so three goals can be told apart at a glance.
+    private func color(at index: Int) -> Color {
+        [style.foreground, Palette.accent, Palette.sunny, Palette.brand][index % 4]
+    }
+}
+
+// MARK: - Check-ins
+
+/// A dot per day: ticked when done, faint when missed, outlined when still to come.
+struct CheckinsBlockView: View {
+    let block: CheckinsBlock
+    let range: HomeRange
+
+    @Environment(\.cardStyle) private var style
+    @State private var shown = false
+
+    /// A week fits in one row with letters underneath; longer ranges become a grid with the label inside each dot.
+    private var isRow: Bool { block.slots.count <= 7 }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: Space.s4) {
+            VStack(alignment: .leading, spacing: 0) {
+                if let goal = block.goal {
+                    Text("\(block.doneCount)\(Text(" of \(goal)").foregroundStyle(style.muted))")
+                        .textStyle(.display)
+                } else {
+                    Text("\(block.doneCount)")
+                        .textStyle(.display)
+                }
+                Text(caption)
+                    .textStyle(.label)
+                    .foregroundStyle(style.muted)
+            }
+
+            if isRow {
+                HStack(spacing: 6) {
+                    ForEach(Array(block.slots.enumerated()), id: \.offset) { index, slot in
+                        VStack(spacing: 6) {
+                            dot(slot, size: 34, index: index)
+                            Text(letter(for: slot.period))
+                                .textStyle(.caption, weight: .semibold)
+                                .foregroundStyle(style.muted)
+                        }
+                        .frame(maxWidth: .infinity)
+                    }
+                }
+            } else {
+                LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 6), count: min(block.slots.count, 7)), spacing: 6) {
+                    ForEach(Array(block.slots.enumerated()), id: \.offset) { index, slot in
+                        dot(slot, size: 30, index: index, label: gridLabel(for: slot.period))
+                    }
+                }
+            }
+        }
+        .revealOnScroll($shown)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("\(block.label): \(block.doneCount)\(block.goal.map { " of \($0)" } ?? "") done. \(caption)")
+    }
+
+    @ViewBuilder
+    private func dot(_ slot: CheckinsBlock.Slot, size: CGFloat, index: Int, label: String? = nil) -> some View {
+        Group {
+            if slot.done {
+                ZStack {
+                    Circle().fill(style.accent)
+                    if let label {
+                        Text(label).textStyle(.caption, weight: .semibold)
+                    } else {
+                        Image(systemName: "checkmark").font(.system(size: 13, weight: .bold))
+                    }
+                }
+                .foregroundStyle(style.onAccent)
+            } else {
+                ZStack {
+                    switch slot.state {
+                    case "future":
+                        Circle().strokeBorder(style.accent.opacity(0.6), style: StrokeStyle(lineWidth: 1.5, dash: [4, 3]))
+                    case "current":
+                        Circle().strokeBorder(style.accent, lineWidth: 1.5)
+                    default:
+                        Circle().fill(style.track)
+                    }
+                    if let label {
+                        Text(label).textStyle(.caption).foregroundStyle(style.muted)
+                    }
+                }
+            }
+        }
+        .frame(width: size, height: size)
+        .scaleEffect(shown ? 1 : 0.3)
+        .opacity(shown ? 1 : 0)
+        .growIn(shown, delay: min(Double(index) * 0.04, 0.6))
+    }
+
+    private var caption: String {
+        guard let goal = block.goal else { return block.label }
+        let left = goal - block.doneCount
+        return left > 0 ? "\(block.label) · \(left) more to hit your goal" : "\(block.label) · goal reached"
+    }
+
+    private func letter(for day: LocalDay) -> String {
+        let calendar = Calendar.current
+        guard let date = day.date(in: calendar) else { return "" }
+        return calendar.veryShortWeekdaySymbols[calendar.component(.weekday, from: date) - 1]
+    }
+
+    private func gridLabel(for day: LocalDay) -> String {
+        range == .year ? Calendar.current.veryShortMonthSymbols[day.month - 1] : "\(day.day)"
+    }
+}
+
+// MARK: - Breakdown
+
+/// How a total splits by category: one segmented bar (or a bar per category) with a legend.
+struct BreakdownBlockView: View {
+    let block: BreakdownBlock
+
+    @Environment(\.cardStyle) private var style
+    @State private var shown = false
+
+    private struct Part: Identifiable {
+        let id: Int
+        let name: String
+        let value: Double?
+        let pct: Double
+        /// "Other" is everything too small to name, drawn hatched.
+        let isOther: Bool
+    }
+
+    private var parts: [Part] {
+        var parts = block.slices.enumerated().map { index, slice in
+            Part(id: index, name: Self.name(slice.key), value: slice.value, pct: max(slice.pct ?? 0, 0), isOther: false)
+        }
+        if let other = block.other, (other.pct ?? 0) > 0 || (other.value ?? 0) > 0 {
+            parts.append(Part(id: parts.count, name: "Other", value: other.value, pct: max(other.pct ?? 0, 0), isOther: true))
+        }
+        return parts
+    }
+
+    private var isEmpty: Bool { (block.total ?? 0) == 0 || parts.isEmpty }
+
+    var body: some View {
+        Group {
+            if isEmpty {
+                BlockNote("\(block.label) · No entries yet")
+            } else if block.style == "bars" {
+                bars
+            } else {
+                segmented
+            }
+        }
+        .growIn(shown)
+        .revealOnScroll($shown)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(summary)
+    }
+
+    private var segmented: some View {
+        VStack(alignment: .leading, spacing: Space.s3) {
+            GeometryReader { geometry in
+                let total = max(parts.map(\.pct).reduce(0, +), 1)
+                let available = geometry.size.width - 4 * CGFloat(max(parts.count - 1, 0))
+                HStack(spacing: 4) {
+                    ForEach(parts) { part in
+                        swatch(part)
+                            .frame(width: max(available * part.pct / total, 4))
+                    }
+                }
+            }
+            .frame(height: 14)
+            .mask {
+                Rectangle().scaleEffect(x: shown ? 1 : 0, anchor: .leading)
+            }
+
+            LazyVGrid(columns: [GridItem(.flexible(), spacing: Space.s4), GridItem(.flexible())], spacing: Space.s2) {
+                ForEach(parts) { part in
+                    HStack(spacing: Space.s2) {
+                        swatch(part)
+                            .frame(width: 8, height: 8)
+                        Text(part.name)
+                            .textStyle(.label, weight: .regular)
+                            .lineLimit(1)
+                        Spacer(minLength: 0)
+                        Text(valueText(part))
+                            .textStyle(.label, weight: .semibold)
+                    }
+                }
+            }
+        }
+    }
+
+    private var bars: some View {
+        VStack(alignment: .leading, spacing: Space.s3) {
+            ForEach(parts) { part in
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack {
+                        Text(part.name)
+                            .textStyle(.label, weight: .regular)
+                        Spacer(minLength: Space.s2)
+                        Text(valueText(part))
+                            .textStyle(.label, weight: .semibold)
+                    }
+                    Capsule()
+                        .fill(style.track)
+                        .frame(height: 8)
+                        .overlay(alignment: .leading) {
+                            GeometryReader { geometry in
+                                swatch(part)
+                                    .frame(width: geometry.size.width * (shown ? min(part.pct / 100, 1) : 0))
+                            }
+                        }
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func swatch(_ part: Part) -> some View {
+        if part.isOther {
+            Hatch(color: style.muted.opacity(0.35))
+                .clipShape(Capsule())
+                .overlay(Capsule().strokeBorder(style.muted.opacity(0.35), lineWidth: 1))
+        } else {
+            Capsule().fill(color(at: part.id))
+        }
+    }
+
+    /// Categories take the palette's colours in turn; they differ in lightness as well as hue.
+    private func color(at index: Int) -> Color {
+        let colors = [Palette.accent, Palette.brand, Palette.sunny, style.foreground.opacity(0.7)]
+        return colors[index % colors.count].opacity(index < colors.count ? 1 : 0.5)
+    }
+
+    private func valueText(_ part: Part) -> String {
+        part.value.map { Formatters.value($0, unit: block.unit) } ?? Formatters.percent(part.pct)
+    }
+
+    private static func name(_ key: String?) -> String {
+        guard let key, !key.isEmpty else { return "Unlabeled" }
+        return key.prefix(1).uppercased() + key.dropFirst()
+    }
+
+    private var summary: String {
+        guard !isEmpty else { return "\(block.label): no entries yet" }
+        return "\(block.label): " + parts.map { "\($0.name) \(Formatters.percent($0.pct))" }.joined(separator: ", ")
     }
 }

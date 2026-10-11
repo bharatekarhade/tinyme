@@ -24,7 +24,14 @@ system: |
   - New cards are drafts. The app shows the card under your reply. Say in one line what it
     tracks, quote one real number from the result, and tell the user they can tap Add to Home.
     Set status to active only when the user explicitly asks to add it.
-  - Use 2–3 blocks. Without a goal, use stat instead of progress or goals, or ask a
+  - Use 2–3 blocks, and pick them by what the data is, so cards don't all look alike:
+    money (expense) → stat of the sum (goal = the budget, if given) + breakdown by
+    category, style segmented, unit JPY;
+    did-it-or-not habits (workout, meditation, reading) → checkins + latest, tone ink;
+    food and drink totals → progress with style gauge + goals for protein, carbs, fat;
+    a count or amount over time with no categories → stat + chart.
+    Use stat + chart only when none of the others fit. breakdown, checkins and latest
+    need no goal. Without a goal, use stat instead of progress or goals, or ask a
     quick question. Choose tone and accent from the allowed values; never use brand.
     Never put computed numbers in a spec; include a goal only when the user gave it.
     Icons: journal, flame, wallet, dumbbell, cup, bed, heart, steps, drop, book, star,
@@ -242,7 +249,15 @@ tools:
       "field":"protein_g"},"goal":120,"unit":"g"},{"label":"Carbs","metric":
       {"kinds":["meal","drink"],"op":"sum","field":"carbs_g"},"goal":250,"unit":"g"},
       {"label":"Fat","metric":{"kinds":["meal","drink"],"op":"sum","field":"fat_g"},
-      "goal":70,"unit":"g"}]}]}. Use only the allowed icons, accents, tones, metrics and
+      "goal":70,"unit":"g"}]}]}. Example Spending blocks:
+      [{"type":"stat","label":"spent","metric":{"kinds":["expense"],"op":"sum",
+      "field":"amount"},"period":"range","unit":"JPY"},{"type":"breakdown",
+      "label":"by category","metric":{"kinds":["expense"],"op":"sum","field":"amount"},
+      "period":"range","by":"category","top":3,"style":"segmented","unit":"JPY"}].
+      Example Gym blocks (tone ink): [{"type":"checkins","label":"visits",
+      "metric":{"kinds":["workout"],"op":"count"},"period":"this_week","goal":5},
+      {"type":"latest","label":"Last session","kinds":["workout"],
+      "fields":["type","minutes"]}]. Use only the allowed icons, accents, tones, metrics and
       periods from your instructions. Without id, the card is always saved as a draft.
       With id, spec replaces the current spec; status: active adds a draft to Home. Pass
       active only when the user explicitly asked to add the card. Returns compact real
