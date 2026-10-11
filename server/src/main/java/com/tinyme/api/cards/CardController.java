@@ -30,22 +30,25 @@ public class CardController {
     }
 
     @GetMapping
-    public CardsResponse list(@RequestParam(defaultValue = "week") String range) {
+    public CardsResponse list(@RequestParam(defaultValue = "week") String range,
+                              @RequestParam(required = false) LocalDate date) {
         Range resolved = parseRange(range);
-        var result = cards.list(resolved);
+        var result = cards.list(resolved, date);
         return new CardsResponse(resolved.name().toLowerCase(Locale.ROOT), result.from(), result.to(), result.cards());
     }
 
     @GetMapping("/{id}")
     public CardView get(@PathVariable UUID id,
-                        @RequestParam(defaultValue = "week") String range) {
-        return cards.get(id, parseRange(range)).orElseThrow(() -> notFound("Card not found"));
+                        @RequestParam(defaultValue = "week") String range,
+                        @RequestParam(required = false) LocalDate date) {
+        return cards.get(id, parseRange(range), date).orElseThrow(() -> notFound("Card not found"));
     }
 
     @PostMapping("/{id}/activate")
     public CardView activate(@PathVariable UUID id,
-                             @RequestParam(defaultValue = "week") String range) {
-        return cards.activate(id, parseRange(range)).orElseThrow(() -> notFound("Card not found"));
+                             @RequestParam(defaultValue = "week") String range,
+                             @RequestParam(required = false) LocalDate date) {
+        return cards.activate(id, parseRange(range), date).orElseThrow(() -> notFound("Card not found"));
     }
 
     @DeleteMapping("/{id}")

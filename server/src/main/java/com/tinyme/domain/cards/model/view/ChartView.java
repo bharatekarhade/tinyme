@@ -7,6 +7,7 @@ import java.util.List;
 
 public record ChartView(String label, String unit, String style, List<Point> points,
                         @JsonProperty("goal_line") BigDecimal goalLine,
-                        @JsonProperty("peak_index") Integer peakIndex) implements BlockView {
+                        @JsonProperty("peak_index") Integer peakIndex,
+                        @JsonProperty("average_day") AverageDayView averageDay) implements BlockView {
     public ChartView { points = List.copyOf(points); }
 }

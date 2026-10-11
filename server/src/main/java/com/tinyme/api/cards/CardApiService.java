@@ -65,21 +65,40 @@ public class CardApiService {
 
     @Transactional(readOnly = true)
     public CardList list(Range range) {
-        LocalDate today = today();
-        DateRange dates = Period.RANGE.resolve(range, today);
-        List<CardView> views = cards.activeCards().stream().map(card -> evaluator.evaluate(card, range)).toList();
+        return list(range, null);
+    }
+
+    @Transactional(readOnly = true)
+    public CardList list(Range range, LocalDate selectedDate) {
+        LocalDate anchor = selectedDate == null ? today() : selectedDate;
+        DateRange dates = Period.RANGE.resolve(range, anchor);
+        List<CardView> views = cards.activeCards().stream()
+                .map(card -> selectedDate == null ? evaluator.evaluate(card, range)
+                        : evaluator.evaluate(card, range, selectedDate)).toList();
         return new CardList(range, dates.from(), dates.to(), views);
     }
 
     @Transactional(readOnly = true)
     public Optional<CardView> get(UUID id, Range range) {
-        return cards.findById(id).map(card -> evaluator.evaluate(card, range));
+        return get(id, range, null);
+    }
+
+    @Transactional(readOnly = true)
+    public Optional<CardView> get(UUID id, Range range, LocalDate selectedDate) {
+        return cards.findById(id).map(card -> selectedDate == null ? evaluator.evaluate(card, range)
+                : evaluator.evaluate(card, range, selectedDate));
     }
 
     @Transactional
     public Optional<CardView> activate(UUID id, Range range) {
+        return activate(id, range, null);
+    }
+
+    @Transactional
+    public Optional<CardView> activate(UUID id, Range range, LocalDate selectedDate) {
         return management.activate(id, Instant.now(clock))
-                .map(activation -> evaluator.evaluate(activation.card(), range));
+                .map(activation -> selectedDate == null ? evaluator.evaluate(activation.card(), range)
+                        : evaluator.evaluate(activation.card(), range, selectedDate));
     }
 
     @Transactional

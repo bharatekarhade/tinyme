@@ -14,6 +14,7 @@ import org.junit.jupiter.api.Test;
 
 import java.time.Clock;
 import java.time.Instant;
+import java.time.LocalDate;
 import java.time.ZoneId;
 import java.util.List;
 import java.util.Map;
@@ -54,6 +55,22 @@ class CardApiServiceTests {
 
         verify(management).activate(id, clock.instant());
         verify(evaluator).evaluate(draft, Range.WEEK);
+    }
+
+    @Test
+    void selectedDateAnchorsListPeriodAndCardEvaluation() {
+        LocalDate selected = LocalDate.parse("2026-10-07");
+        var card = new CardEntity("sleep", "Sleep", Map.of("v", 1), CardStatus.ACTIVE,
+                false, 0, clock.instant());
+        when(cards.activeCards()).thenReturn(List.of(card));
+        when(evaluator.evaluate(card, Range.WEEK, selected)).thenReturn(new CardView(null, "sleep", "Sleep",
+                "bed", "mint", "surface", "active", false, null, List.of(), null));
+
+        var result = service().list(Range.WEEK, selected);
+
+        assertThat(result.from()).isEqualTo(LocalDate.parse("2026-10-05"));
+        assertThat(result.to()).isEqualTo(LocalDate.parse("2026-10-11"));
+        verify(evaluator).evaluate(card, Range.WEEK, selected);
     }
 
     @Test

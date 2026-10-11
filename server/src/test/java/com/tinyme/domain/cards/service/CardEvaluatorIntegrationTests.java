@@ -76,6 +76,7 @@ class CardEvaluatorIntegrationTests {
                 "fat_g", 10, "type", "breakfast"));
         add("drink", WEDNESDAY, LocalTime.of(0, 30), Map.of("kcal", 55, "protein_g", 5, "carbs_g", 10,
                 "fat_g", 2, "type", "coffee"));
+        add("drink", LocalDate.of(2026, 10, 4), LocalTime.of(12, 0), Map.of("kcal", 100));
 
         add("expense", LocalDate.of(2026, 10, 5), LocalTime.NOON, Map.of("amount", 8470, "category", "food"));
         add("expense", LocalDate.of(2026, 10, 6), LocalTime.NOON, Map.of("amount", 4050, "category", "transport"));
@@ -103,7 +104,10 @@ class CardEvaluatorIntegrationTests {
         assertThat(journalChart.points().getLast().value()).isEqualByComparingTo("0");
 
         var calories = evaluator.evaluate(saveExample("calories", CALORIES), Range.WEEK);
-        assertThat(((ProgressView) calories.blocks().getFirst()).value()).isEqualByComparingTo("155");
+        var calorieProgress = (ProgressView) calories.blocks().getFirst();
+        assertThat(calorieProgress.value()).isEqualByComparingTo("155");
+        assertThat(calorieProgress.averageDay().baseline()).isEqualByComparingTo("3.33");
+        assertThat(calorieProgress.averageDay().currentPerDay()).isEqualByComparingTo("155.00");
         assertThat(((GoalsView) calories.blocks().get(1)).items()).hasSize(3);
         assertThat(((GoalsView) calories.blocks().get(1)).items().getFirst().value()).isEqualByComparingTo("45");
 
@@ -127,7 +131,8 @@ class CardEvaluatorIntegrationTests {
         var latest = (LatestView) gym.blocks().get(1);
         assertThat(latest.entry().data()).containsEntry("type", "Push day").containsEntry("minutes", 70);
 
-        assertThat(jdbc.queryForObject("SELECT local_day FROM entries WHERE kind = 'drink'", LocalDate.class))
+        assertThat(jdbc.queryForObject("SELECT local_day FROM entries WHERE kind = 'drink' AND local_day = ?",
+                LocalDate.class, WEDNESDAY))
                 .isEqualTo(WEDNESDAY);
     }
 

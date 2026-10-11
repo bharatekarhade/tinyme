@@ -72,6 +72,13 @@ class CardEvaluatorTests {
                 """);
         when(entries.aggregate(any())).thenAnswer(invocation -> {
             AggregateQuery query = invocation.getArgument(0);
+            if (query.groupBy() == GroupBy.DAY) {
+                List<Bucket> buckets = new ArrayList<>();
+                for (LocalDate date = query.from(); !date.isAfter(query.to()); date = date.plusDays(1)) {
+                    buckets.add(new Bucket(date, BigDecimal.ONE, 1));
+                }
+                return aggregate(query, null, null, buckets);
+            }
             assertThat(query.from()).isIn(TODAY.minusDays(6), TODAY.minusDays(13));
             assertThat(query.to()).isIn(TODAY, TODAY.minusDays(7));
             return aggregate(query, query.from().equals(TODAY.minusDays(6)) ? "18420" : "20930", 23, List.of());
@@ -101,6 +108,9 @@ class CardEvaluatorTests {
                 """);
         when(entries.aggregate(any())).thenAnswer(invocation -> {
             AggregateQuery query = invocation.getArgument(0);
+            if (query.groupBy() == GroupBy.DAY) {
+                return aggregate(query, null, null, List.of());
+            }
             assertThat(query.from()).isEqualTo(TODAY);
             assertThat(query.to()).isEqualTo(TODAY);
             return aggregate(query, "2", 2, List.of());
@@ -112,7 +122,46 @@ class CardEvaluatorTests {
         assertThat(stat.previous()).isNull();
         assertThat(stat.deltaPct()).isNull();
         assertThat(view.badge()).isNull();
-        verify(entries, times(1)).aggregate(any());
+        verify(entries, times(2)).aggregate(any());
+    }
+
+    @Test
+    void selectedDateAnchorsEvaluationAndComparesWithThePreviousThirtyDayAverage() {
+        LocalDate selected = LocalDate.of(2026, 10, 8);
+        CardEntity card = card("""
+                {"v":1,"title":"Journal","icon":"journal","accent":"mint","tone":"surface","blocks":[
+                  {"type":"stat","label":"entries","metric":{"kinds":["drink"],"op":"count"},
+                   "period":"range","compare":"previous_period"}
+                ]}
+                """);
+        when(entries.aggregate(any())).thenAnswer(invocation -> {
+            AggregateQuery query = invocation.getArgument(0);
+            if (query.groupBy() == GroupBy.DAY) {
+                assertThat(query.from()).isEqualTo(selected.minusDays(30));
+                assertThat(query.to()).isEqualTo(selected.minusDays(1));
+                List<Bucket> buckets = new ArrayList<>();
+                for (LocalDate date = query.from(); !date.isAfter(query.to()); date = date.plusDays(1)) {
+                    buckets.add(new Bucket(date, BigDecimal.valueOf(2), 1));
+                }
+                return aggregate(query, null, null, buckets);
+            }
+            if (query.from().equals(selected)) {
+                assertThat(query.to()).isEqualTo(selected);
+                return aggregate(query, "4", 4, List.of());
+            }
+            assertThat(query.from()).isEqualTo(selected.minusDays(1));
+            assertThat(query.to()).isEqualTo(selected.minusDays(1));
+            return aggregate(query, "2", 2, List.of());
+        });
+
+        var view = evaluator.evaluate(card, Range.DAY, selected);
+
+        var stat = (StatView) view.blocks().getFirst();
+        assertThat(stat.value()).isEqualByComparingTo("4");
+        assertThat(stat.previous()).isEqualByComparingTo("2");
+        assertThat(stat.averageDay().baseline()).isEqualByComparingTo("2.00");
+        assertThat(stat.averageDay().currentPerDay()).isEqualByComparingTo("4.00");
+        assertThat(stat.averageDay().deltaPct()).isEqualByComparingTo("100.00");
     }
 
     @Test
@@ -141,6 +190,9 @@ class CardEvaluatorTests {
                 """);
         when(entries.aggregate(any())).thenAnswer(invocation -> {
             AggregateQuery query = invocation.getArgument(0);
+            if (query.groupBy() == GroupBy.DAY && !query.from().equals(TODAY.minusDays(6))) {
+                return aggregate(query, null, null, List.of());
+            }
             assertThat(query.from()).isEqualTo(TODAY.minusDays(6));
             assertThat(query.to()).isEqualTo(TODAY);
             assertThat(query.groupBy()).isEqualTo(GroupBy.DAY);
@@ -216,7 +268,9 @@ class CardEvaluatorTests {
         when(entries.aggregate(any())).thenAnswer(invocation -> {
             AggregateQuery query = invocation.getArgument(0);
             if (query.groupBy() == GroupBy.DAY) {
-                assertThat(query.from()).isEqualTo(TODAY.minusDays(399));
+                if (!query.from().equals(TODAY.minusDays(399))) {
+                    return aggregate(query, null, null, List.of());
+                }
                 assertThat(query.to()).isEqualTo(TODAY);
                 List<Bucket> buckets = new ArrayList<>(400);
                 for (LocalDate date = query.from(); !date.isAfter(query.to()); date = date.plusDays(1)) {

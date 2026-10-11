@@ -20,10 +20,10 @@ class CardControllerTests {
     @Test
     void defaultsListToWeekAndUsesLowercaseRange() {
         CardApiService service = mock(CardApiService.class);
-        when(service.list(Range.WEEK)).thenReturn(new CardApiService.CardList(Range.WEEK,
+        when(service.list(Range.WEEK, null)).thenReturn(new CardApiService.CardList(Range.WEEK,
                 LocalDate.parse("2026-10-05"), LocalDate.parse("2026-10-11"), List.of()));
 
-        var result = new CardController(service).list("week");
+        var result = new CardController(service).list("week", null);
 
         assertThat(result.range()).isEqualTo("week");
         assertThat(result.from()).isEqualTo(LocalDate.parse("2026-10-05"));
@@ -31,8 +31,21 @@ class CardControllerTests {
     }
 
     @Test
+    void acceptsSelectedDateAndUsesItToAnchorTheRequestedRange() {
+        CardApiService service = mock(CardApiService.class);
+        LocalDate selected = LocalDate.parse("2026-10-07");
+        when(service.list(Range.WEEK, selected)).thenReturn(new CardApiService.CardList(Range.WEEK,
+                LocalDate.parse("2026-10-05"), LocalDate.parse("2026-10-11"), List.of()));
+
+        var result = new CardController(service).list("week", selected);
+
+        assertThat(result.from()).isEqualTo(LocalDate.parse("2026-10-05"));
+        assertThat(result.to()).isEqualTo(LocalDate.parse("2026-10-11"));
+    }
+
+    @Test
     void invalidRangeReturnsBadRequest() {
-        assertThatThrownBy(() -> new CardController(mock(CardApiService.class)).list("quarter"))
+        assertThatThrownBy(() -> new CardController(mock(CardApiService.class)).list("quarter", null))
                 .isInstanceOf(ResponseStatusException.class)
                 .hasFieldOrPropertyWithValue("statusCode", HttpStatus.BAD_REQUEST);
     }
@@ -40,11 +53,11 @@ class CardControllerTests {
     @Test
     void deletedOrUnknownCardReturnsNotFound() {
         CardApiService service = mock(CardApiService.class);
-        when(service.get(UUID.fromString("00000000-0000-0000-0000-000000000001"), Range.WEEK))
+        when(service.get(UUID.fromString("00000000-0000-0000-0000-000000000001"), Range.WEEK, null))
                 .thenReturn(Optional.empty());
 
         assertThatThrownBy(() -> new CardController(service)
-                .get(UUID.fromString("00000000-0000-0000-0000-000000000001"), "week"))
+                .get(UUID.fromString("00000000-0000-0000-0000-000000000001"), "week", null))
                 .isInstanceOf(ResponseStatusException.class)
                 .hasFieldOrPropertyWithValue("statusCode", HttpStatus.NOT_FOUND);
     }

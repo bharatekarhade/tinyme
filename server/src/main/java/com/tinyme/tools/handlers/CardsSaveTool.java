@@ -86,20 +86,23 @@ public class CardsSaveTool implements ToolHandler {
         if (card.blocks() == null) return result;
         for (BlockView block : card.blocks()) {
             switch (block) {
-                case StatView stat -> result.add(headline("stat", stat.label(), stat.value(), stat.goal()));
-                case ProgressView progress -> result.add(headline("progress", progress.label(), progress.value(), progress.goal()));
+                case StatView stat -> result.add(headline("stat", stat.label(), stat.value(), stat.goal(), stat.averageDay()));
+                case ProgressView progress -> result.add(headline("progress", progress.label(), progress.value(), progress.goal(), progress.averageDay()));
                 case GoalsView goals -> goals.items().forEach(item ->
-                        result.add(headline("goals", item.label(), item.value(), item.goal())));
+                        result.add(headline("goals", item.label(), item.value(), item.goal(), item.averageDay())));
                 case ChartView chart -> chart.points().stream().filter(point -> !"future".equals(point.state()))
                         .reduce((first, last) -> last).ifPresent(point -> {
-                            Map<String, Object> item = headline("chart", chart.label(), point.value(), null);
+                            Map<String, Object> item = headline("chart", chart.label(), point.value(), null,
+                                    chart.averageDay());
                             item.put("period", point.period());
                             result.add(item);
                         });
                 case CheckinsView checkins -> result.add(headline("checkins", checkins.label(),
                         java.math.BigDecimal.valueOf(checkins.doneCount()),
-                        checkins.goal() == null ? null : java.math.BigDecimal.valueOf(checkins.goal())));
-                case BreakdownView breakdown -> result.add(headline("breakdown", breakdown.label(), breakdown.total(), null));
+                        checkins.goal() == null ? null : java.math.BigDecimal.valueOf(checkins.goal()),
+                        checkins.averageDay()));
+                case BreakdownView breakdown -> result.add(headline("breakdown", breakdown.label(), breakdown.total(),
+                        null, breakdown.averageDay()));
                 case LatestView latest -> result.add(headline("latest", latest.label(), null, null));
                 case UnavailableView ignored -> { }
             }
@@ -109,11 +112,24 @@ public class CardsSaveTool implements ToolHandler {
 
     private static Map<String, Object> headline(String block, String label,
                                                  java.math.BigDecimal value, java.math.BigDecimal goal) {
+        return headline(block, label, value, goal, null);
+    }
+
+    private static Map<String, Object> headline(String block, String label,
+                                                 java.math.BigDecimal value, java.math.BigDecimal goal,
+                                                 com.tinyme.domain.cards.model.view.AverageDayView averageDay) {
         Map<String, Object> item = new LinkedHashMap<>();
         item.put("block", block);
         item.put("label", label);
         item.put("value", value);
         if (goal != null) item.put("goal", goal);
+        if (averageDay != null) {
+            Map<String, Object> comparison = new LinkedHashMap<>();
+            comparison.put("baseline", averageDay.baseline());
+            comparison.put("current_per_day", averageDay.currentPerDay());
+            if (averageDay.deltaPct() != null) comparison.put("delta_pct", averageDay.deltaPct());
+            item.put("average_day", comparison);
+        }
         return item;
     }
 

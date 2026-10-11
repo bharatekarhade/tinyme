@@ -1,6 +1,7 @@
 package com.tinyme.tools.handlers;
 
 import com.tinyme.domain.cards.model.view.CardView;
+import com.tinyme.domain.cards.model.view.AverageDayView;
 import com.tinyme.domain.cards.model.view.ChartView;
 import com.tinyme.domain.cards.model.view.Point;
 import com.tinyme.domain.cards.model.view.StatView;
@@ -65,7 +66,8 @@ class CardsSaveToolTests {
                 "draft", false, null,
                 List.of(
                         new StatView("kcal", "kcal", new BigDecimal("155"), new BigDecimal("2200"), 2,
-                                null, null),
+                                null, null, new AverageDayView(new BigDecimal("120.00"), new BigDecimal("155.00"),
+                                new BigDecimal("29.17"))),
                         new ChartView("daily", "JPY", "bars", List.of(
                                 new Point(LocalDate.of(2026, 10, 5), BigDecimal.ONE, 1, "past"),
                                 new Point(LocalDate.of(2026, 10, 6), BigDecimal.TWO, 1, "past"),
@@ -74,7 +76,7 @@ class CardsSaveToolTests {
                                 new Point(LocalDate.of(2026, 10, 9), BigDecimal.TEN, 1, "past"),
                                 new Point(LocalDate.of(2026, 10, 10), BigDecimal.ZERO, 0, "past"),
                                 new Point(LocalDate.of(2026, 10, 11), BigDecimal.valueOf(3), 1, "current")),
-                                null, null)), null);
+                                null, null, null)), null);
         when(cards.save(isNull(), any(), eq(false), any())).thenReturn(
                 new CardManagementService.SaveOutcome.Saved(view, List.of("no meal entries yet"), true, false, false));
 
@@ -84,7 +86,8 @@ class CardsSaveToolTests {
         var data = (java.util.Map<String, Object>) result.data();
         assertThat(data).containsOnlyKeys("id", "status", "title", "headline", "warnings");
         assertThat(data).doesNotContainKey("card");
-        assertThat(data.get("headline").toString()).contains("stat", "kcal", "155", "2200");
+        assertThat(data.get("headline").toString()).contains("stat", "kcal", "155", "2200", "average_day",
+                "120.00", "155.00", "29.17");
         assertThat(data.get("headline").toString()).contains("chart", "daily", "2026-10-11").doesNotContain("2026-10-05");
         assertThat(result.ref()).containsEntry("card_id", ID.toString());
         assertThat(result.summary()).isEqualTo("Saved draft card · Calories");
