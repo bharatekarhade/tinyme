@@ -11,6 +11,7 @@
 		7A0000000000000000000010 /* Base.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Base.xcconfig; sourceTree = "<group>"; };
 		7A0000000000000000000011 /* TinyMe.xcconfig.template */ = {isa = PBXFileReference; lastKnownFileType = text; path = TinyMe.xcconfig.template; sourceTree = "<group>"; };
 		7A0000000000000000000012 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		7A0000000000000000000014 /* Info-Debug.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = "Info-Debug.plist"; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -55,6 +56,7 @@
 				7A0000000000000000000010 /* Base.xcconfig */,
 				7A0000000000000000000011 /* TinyMe.xcconfig.template */,
 				7A0000000000000000000012 /* Info.plist */,
+				7A0000000000000000000014 /* Info-Debug.plist */,
 			);
 			path = Config;
 			sourceTree = "<group>";
@@ -200,7 +202,7 @@
 				CURRENT_PROJECT_VERSION = 1;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_FILE = Config/Info.plist;
+				INFOPLIST_FILE = "Config/Info-Debug.plist";
 				INFOPLIST_KEY_CFBundleDisplayName = TinyMe;
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;

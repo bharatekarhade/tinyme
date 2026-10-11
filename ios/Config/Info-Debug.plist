@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>TINYME_DEFAULT_SERVER_URL</key>
+	<string>$(TINYME_DEFAULT_SERVER_URL)</string>
+	<key>TINYME_PUSH_ENABLED</key>
+	<string>$(TINYME_PUSH_ENABLED)</string>
+	<!-- Debug only: lets the phone reach the dev Mac over plain http on the LAN. Release requires HTTPS. -->
+	<key>NSAppTransportSecurity</key>
+	<dict>
+		<key>NSAllowsLocalNetworking</key>
+		<true/>
+	</dict>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>TinyMe connects to your own server on this network.</string>
+</dict>
+</plist>

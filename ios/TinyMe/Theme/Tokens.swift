@@ -26,6 +26,10 @@ enum Palette {
     static let sunny = Color(light: 0xffd166, dark: 0xffd166)
     static let sunnySoft = Color(light: 0xfff1c7, dark: 0x3a3015)
     static let danger = Color(light: 0xd92d20, dark: 0xff7a6e)
+    /// Text on accent-soft (error banners).
+    static let onAccentSoft = Color(light: 0x7a2e12, dark: 0xffd2bf)
+    /// shadow-press: the hard edge under the mic and the hero button.
+    static let pressEdge = Color(light: 0x0a7d6c, dark: 0x0a7d6c)
 }
 
 enum Space {
