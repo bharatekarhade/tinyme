@@ -47,9 +47,15 @@ public final class SseTurnSink implements TurnListener {
     public synchronized void on(TurnEvent event) {
         if (closed) return;
         switch (event) {
-            case TurnEvent.ActionDone action -> sendJson(Map.of(
-                    "type", "action_done", "tool", action.tool(), "summary", action.summary(),
-                    "is_error", action.isError()));
+            case TurnEvent.ActionDone action -> {
+                var payload = new LinkedHashMap<String, Object>();
+                payload.put("type", "action_done");
+                payload.put("tool", action.tool());
+                payload.put("summary", action.summary());
+                payload.put("is_error", action.isError());
+                if (!action.ref().isEmpty()) payload.put("ref", action.ref());
+                sendJson(payload);
+            }
             case TurnEvent.Text text -> sendJson(Map.of("type", "text", "text", text.text()));
             case TurnEvent.Failed failure -> {
                 failed = true;

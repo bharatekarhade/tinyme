@@ -98,7 +98,8 @@ class ConversationControllerTests {
         assertThat(sse.indexOf("\"type\":\"action_done\"")).isLessThan(sse.indexOf("\"type\":\"text\""));
         assertThat(sse.indexOf("\"type\":\"text\"")).isLessThan(sse.indexOf("\"type\":\"done\""));
         assertThat(sse).contains("\"type\":\"done\"", "\"reply_text\":\"Logged coffee.\"",
-                "\"tool_calls\":1", "\"assistant_message_id\":\"" + assistantMessageId + "\"");
+                "\"tool_calls\":1", "\"assistant_message_id\":\"" + assistantMessageId + "\"",
+                "\"ref\":{\"card_id\":\"card-1\"}");
         assertThat(sse.lines().filter(line -> line.startsWith("data:")).count()).isEqualTo(4);
 
         assertThat(service.acceptCalled).isTrue();
@@ -172,7 +173,8 @@ class ConversationControllerTests {
                 new ConversationHistoryMessage(UUID.randomUUID(), "USER", "had a coffee", List.of(),
                         Instant.parse("2026-10-10T00:01:00Z")),
                 new ConversationHistoryMessage(UUID.randomUUID(), "ASSISTANT", "Logged coffee.",
-                        List.of(java.util.Map.of("tool", "entries_add", "summary", "Logged drink", "is_error", false)),
+                        List.of(java.util.Map.of("tool", "entries_add", "summary", "Logged drink", "is_error", false,
+                                "ref", java.util.Map.of("card_id", "card-1"))),
                         Instant.parse("2026-10-10T00:01:02Z"))));
 
         mvc.perform(get("/conversations").param("day", "2026-10-10"))
@@ -181,6 +183,7 @@ class ConversationControllerTests {
                 .andExpect(jsonPath("$.messages[0].content").value("had a coffee"))
                 .andExpect(jsonPath("$.messages[1].role").value("assistant"))
                 .andExpect(jsonPath("$.messages[1].actions[0].tool").value("entries_add"))
+                .andExpect(jsonPath("$.messages[1].actions[0].ref.card_id").value("card-1"))
                 .andExpect(jsonPath("$.messages[1].created_at").value("2026-10-10T00:01:02Z"));
         assertThat(service.historyDay).isEqualTo(LocalDate.of(2026, 10, 10));
 
@@ -285,7 +288,8 @@ class ConversationControllerTests {
             runCalled = true;
             runCount++;
             if (persistEffects) entryCreated = true;
-            listener.on(new TurnEvent.ActionDone("entries_add", "Logged drink", false));
+            listener.on(new TurnEvent.ActionDone("entries_add", "Logged drink", false,
+                    java.util.Map.of("card_id", "card-1")));
             listener.on(new TurnEvent.Text("Logged coffee."));
             if (persistEffects) assistantStored = true;
             if (emitFailure) listener.on(new TurnEvent.Failed(

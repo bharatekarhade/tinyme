@@ -68,7 +68,6 @@ public class CardsSaveTool implements ToolHandler {
         output.put("title", saved.card().title());
         output.put("headline", headlines(saved.card()));
         output.put("warnings", saved.warnings());
-        output.put("ref", Map.of("card_id", saved.card().id().toString()));
         String summary;
         if (saved.created()) {
             summary = "Saved draft card · " + saved.card().title();
@@ -79,7 +78,7 @@ public class CardsSaveTool implements ToolHandler {
         } else {
             summary = "Updated card · " + saved.card().title();
         }
-        return new ToolResult.Ok(output, summary);
+        return new ToolResult.Ok(output, summary, Map.of("card_id", saved.card().id().toString()));
     }
 
     private static java.util.List<Map<String, Object>> headlines(CardView card) {

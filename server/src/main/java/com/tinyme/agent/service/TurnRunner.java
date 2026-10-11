@@ -23,6 +23,7 @@ import java.time.Clock;
 import java.time.Duration;
 import java.time.LocalDate;
 import java.util.List;
+import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.ArrayList;
 import java.util.Objects;
@@ -195,9 +196,13 @@ public class TurnRunner {
                             var result = dispatcher.dispatch(id, name, input, context);
                             toolCalls++;
                             String summary = actionSummary(result);
-                            actions.add(Map.of("tool", name, "summary", summary,
-                                    "is_error", result.isError()));
-                            listener.on(new TurnEvent.ActionDone(name, summary, result.isError()));
+                            var action = new LinkedHashMap<String, Object>();
+                            action.put("tool", name);
+                            action.put("summary", summary);
+                            action.put("is_error", result.isError());
+                            if (!result.ref().isEmpty()) action.put("ref", result.ref());
+                            actions.add(action);
+                            listener.on(new TurnEvent.ActionDone(name, summary, result.isError(), result.ref()));
                             state.checkCancelled();
                             api.sendEvents(session.anthropicSessionId(), List.of(Map.of(
                                     "type", "user.custom_tool_result", "custom_tool_use_id", id,

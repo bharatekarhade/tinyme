@@ -14,6 +14,7 @@ import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Component;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
+import tools.jackson.core.type.TypeReference;
 
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -98,7 +99,8 @@ public class ToolDispatcher {
                 if (stored.isError()) {
                     logError(toolName, eventId, storedErrorCode(stored));
                 }
-                return new DispatchOutcome(JSON.writeValueAsString(stored.result()), stored.isError());
+                return new DispatchOutcome(JSON.writeValueAsString(stored.result()), stored.isError(),
+                        storedRef(stored.result()));
             }
             logError(toolName, eventId, "internal_error");
             return new DispatchOutcome(errorJson("internal_error", "Stored tool result is missing"), true);
@@ -139,7 +141,8 @@ public class ToolDispatcher {
         if (isError) {
             logError(toolName, eventId, code);
         }
-        return new DispatchOutcome(resultJson, isError);
+        return new DispatchOutcome(resultJson, isError,
+                !isError && result instanceof ToolResult.Ok success ? success.ref() : Map.of());
     }
 
     private static String envelopeJson(ToolResult result) {
@@ -148,6 +151,7 @@ public class ToolDispatcher {
             envelope.put("ok", true);
             envelope.put("data", success.data());
             envelope.put("summary", success.summary());
+            if (!success.ref().isEmpty()) envelope.put("ref", success.ref());
         } else {
             ToolResult.Err error = (ToolResult.Err) result;
             envelope.put("ok", false);
@@ -167,6 +171,12 @@ public class ToolDispatcher {
         var error = stored.result().get("error");
         var code = error == null ? null : error.get("code");
         return code != null && code.isString() ? code.stringValue() : "tool_error";
+    }
+
+    private static Map<String, Object> storedRef(JsonNode result) {
+        JsonNode ref = result.get("ref");
+        return ref == null || !ref.isObject() ? Map.of()
+                : JSON.convertValue(ref, new TypeReference<Map<String, Object>>() {});
     }
 
     private static void logError(String toolName, String eventId, String code) {

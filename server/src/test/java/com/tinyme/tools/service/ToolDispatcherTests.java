@@ -26,6 +26,7 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneId;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -52,7 +53,7 @@ class ToolDispatcherTests {
         when(fixture.registry.find("entries_add")).thenReturn(Optional.of(registration));
         when(fixture.validator.validate("entries_add", fixture.input)).thenReturn(List.of());
         when(fixture.handler.handle(eq(fixture.input), any(ToolContext.class)))
-                .thenReturn(new ToolResult.Ok("entry-1", "Added drink"));
+                .thenReturn(new ToolResult.Ok("entry-1", "Added drink", Map.of("card_id", "card-1")));
 
         DispatchOutcome outcome = fixture.dispatcher().dispatch(
                 fixture.eventId, "entries_add", fixture.input, fixture.base);
@@ -62,6 +63,8 @@ class ToolDispatcherTests {
         assertThat(envelope.get("ok").booleanValue()).isTrue();
         assertThat(envelope.get("data").stringValue()).isEqualTo("entry-1");
         assertThat(envelope.get("summary").stringValue()).isEqualTo("Added drink");
+        assertThat(envelope.get("ref").get("card_id").stringValue()).isEqualTo("card-1");
+        assertThat(outcome.ref()).containsEntry("card_id", "card-1");
 
         var context = org.mockito.ArgumentCaptor.forClass(ToolContext.class);
         verify(fixture.handler).handle(eq(fixture.input), context.capture());
@@ -73,7 +76,7 @@ class ToolDispatcherTests {
     void replaysStoredFinishedResultWithoutRunningToolAgain() {
         Fixture fixture = new Fixture();
         JsonNode savedResult = JSON.readTree("""
-                {"ok":true,"data":{"id":"entry-1"},"summary":"Saved"}
+                {"ok":true,"data":{"id":"entry-1"},"summary":"Saved","ref":{"card_id":"card-1"}}
                 """);
         when(fixture.calls.findByEventId(fixture.eventId)).thenReturn(Optional.of(
                 storedCall("done", savedResult, false)));
@@ -83,6 +86,7 @@ class ToolDispatcherTests {
 
         assertThat(JSON.readTree(outcome.resultJson())).isEqualTo(savedResult);
         assertThat(outcome.isError()).isFalse();
+        assertThat(outcome.ref()).containsEntry("card_id", "card-1");
         verify(fixture.calls, never()).insertRunning(any(), any(), any(), any());
         verifyNoInteractions(fixture.registry, fixture.validator, fixture.handler);
     }

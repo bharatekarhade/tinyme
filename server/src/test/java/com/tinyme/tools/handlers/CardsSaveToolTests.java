@@ -82,11 +82,11 @@ class CardsSaveToolTests {
 
         @SuppressWarnings("unchecked")
         var data = (java.util.Map<String, Object>) result.data();
-        assertThat(data).containsOnlyKeys("id", "status", "title", "headline", "warnings", "ref");
+        assertThat(data).containsOnlyKeys("id", "status", "title", "headline", "warnings");
         assertThat(data).doesNotContainKey("card");
         assertThat(data.get("headline").toString()).contains("stat", "kcal", "155", "2200");
         assertThat(data.get("headline").toString()).contains("chart", "daily", "2026-10-11").doesNotContain("2026-10-05");
-        assertThat(data.get("ref").toString()).contains(ID.toString());
+        assertThat(result.ref()).containsEntry("card_id", ID.toString());
         assertThat(result.summary()).isEqualTo("Saved draft card · Calories");
     }
 

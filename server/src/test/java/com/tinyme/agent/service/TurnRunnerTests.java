@@ -163,8 +163,9 @@ class TurnRunnerTests {
         var fake = new FakeManagedAgents(frames);
         var runner = runner(Duration.ofSeconds(5), fake);
         UUID assistantMessageId = UUID.randomUUID();
+        Map<String, Object> ref = Map.of("card_id", "card-1");
         when(dispatcher.dispatch(anyString(), eq("entries_add"), any(), any()))
-                .thenReturn(new DispatchOutcome("{\"ok\":true,\"summary\":\"Logged drink\"}", false));
+                .thenReturn(new DispatchOutcome("{\"ok\":true,\"summary\":\"Logged drink\"}", false, ref));
         when(messages.insert(eq(session.sessionRowId()), eq(MessageRole.ASSISTANT),
                 anyString(), anyList())).thenReturn(assistantMessageId);
 
@@ -174,11 +175,12 @@ class TurnRunnerTests {
         assertThat(expectedReply).isNotEmpty();
         assertThat(observed).hasSize(2);
         assertThat(observed.get(0)).isInstanceOf(TurnEvent.ActionDone.class)
-                .isEqualTo(new TurnEvent.ActionDone("entries_add", "Logged drink", false));
+                .isEqualTo(new TurnEvent.ActionDone("entries_add", "Logged drink", false, ref));
         assertThat(observed.get(1)).isEqualTo(new TurnEvent.Text(expectedReply.toString()));
         verify(dispatcher).dispatch(anyString(), eq("entries_add"), any(), any());
-        verify(messages).insert(eq(session.sessionRowId()), eq(MessageRole.ASSISTANT),
-                eq(expectedReply.toString()), anyList());
+        verify(messages).insert(session.sessionRowId(), MessageRole.ASSISTANT,
+                expectedReply.toString(), List.of(Map.of("tool", "entries_add", "summary", "Logged drink",
+                        "is_error", false, "ref", ref)));
         assertThat(fake.sentEvents()).anySatisfy(batch -> assertThat(batch.getFirst())
                 .doesNotContainKey("client_msg_id"));
     }
