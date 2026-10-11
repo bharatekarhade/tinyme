@@ -6,6 +6,8 @@ import com.tinyme.domain.entries.model.add.AddCommand;
 import com.tinyme.domain.entries.model.add.AddResult;
 import com.tinyme.domain.entries.model.aggregate.AggregateQuery;
 import com.tinyme.domain.entries.model.aggregate.AggregateResult;
+import com.tinyme.domain.entries.model.aggregate.BreakdownQuery;
+import com.tinyme.domain.entries.model.aggregate.BreakdownResult;
 import com.tinyme.domain.entries.model.query.EntryQuery;
 import com.tinyme.domain.entries.model.query.EntryQueryResult;
 import com.tinyme.domain.entries.model.query.EntryPage;
@@ -25,6 +27,8 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.List;
+import java.util.ArrayList;
+import java.util.LinkedHashSet;
 
 @Service
 public class EntryService {
@@ -52,12 +56,40 @@ public class EntryService {
     @Transactional(readOnly = true)
     public AggregateResult aggregate(AggregateQuery query) {
         Objects.requireNonNull(query, "query");
-        Optional<String> resolved = entryKinds.resolveExisting(query.kind());
-        AggregateQuery resolvedQuery = query.withKind(resolved.orElse(query.kind()));
+        if (query.allKinds()) return entries.aggregate(query);
+        LinkedHashSet<String> resolvedKinds = new LinkedHashSet<>();
+        List<String> unknownKinds = new ArrayList<>();
+        for (String kind : query.kinds()) {
+            Optional<String> resolved = entryKinds.resolveExisting(kind);
+            if (resolved.isPresent()) resolvedKinds.add(resolved.get());
+            else {
+                unknownKinds.add(kind);
+                resolvedKinds.add(kind);
+            }
+        }
+        AggregateQuery resolvedQuery = query.withKinds(List.copyOf(resolvedKinds));
         AggregateResult result = entries.aggregate(resolvedQuery);
-        return new AggregateResult(result.kind(), resolved.isPresent(), result.metric(), result.field(),
-                result.where(), result.from(), result.to(), result.groupBy(), result.value(),
-                result.entries(), result.buckets());
+        return new AggregateResult(result.kinds(), unknownKinds, result.metric(), result.field(), result.where(),
+                result.from(), result.to(), result.groupBy(), result.value(), result.entries(), result.buckets());
+    }
+
+    @Transactional(readOnly = true)
+    public BreakdownResult breakdown(BreakdownQuery query) {
+        Objects.requireNonNull(query, "query");
+        if (query.allKinds()) return entries.breakdown(query);
+        LinkedHashSet<String> resolvedKinds = new LinkedHashSet<>();
+        for (String kind : query.kinds()) resolvedKinds.add(entryKinds.resolveExisting(kind).orElse(kind));
+        return entries.breakdown(new BreakdownQuery(List.copyOf(resolvedKinds), query.metric(), query.field(),
+                query.where(), query.from(), query.to(), query.by(), query.top()));
+    }
+
+    @Transactional(readOnly = true)
+    public Optional<EntrySnapshot> latest(List<String> kinds) {
+        List<String> validated = AggregateQuery.validateKinds(kinds);
+        if (validated.equals(List.of("*"))) return entries.findLatest(validated);
+        LinkedHashSet<String> resolved = new LinkedHashSet<>();
+        for (String kind : validated) resolved.add(entryKinds.resolveExisting(kind).orElse(kind));
+        return entries.findLatest(List.copyOf(resolved));
     }
 
     @Transactional(readOnly = true)

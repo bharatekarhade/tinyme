@@ -49,7 +49,7 @@ class EntriesAggregateToolTests {
     @Test
     void mapsServiceResultToOutputAndActionSummary() {
         LocalDate day = LocalDate.of(2026, 10, 8);
-        when(service.aggregate(any())).thenReturn(new AggregateResult("drink", true, AggregateMetric.COUNT,
+        when(service.aggregate(any())).thenReturn(new AggregateResult(List.of("drink"), List.of(), AggregateMetric.COUNT,
                 null, Map.of("type", "coffee"), day, day, GroupBy.NONE,
                 new BigDecimal("2"), 2L, List.of()));
 
@@ -59,8 +59,8 @@ class EntriesAggregateToolTests {
                 """), null);
 
         assertThat(result).isEqualTo(new ToolResult.Ok(Map.of(
-                "kind", "drink",
-                "kind_known", true,
+                "kinds", List.of("drink"),
+                "unknown_kinds", List.of(),
                 "metric", "count",
                 "where", Map.of("type", "coffee"),
                 "from", "2026-10-08",
@@ -71,10 +71,44 @@ class EntriesAggregateToolTests {
     }
 
     @Test
+    void acceptsMultipleKindsAndRejectsBothKindFormsTogether() {
+        when(service.aggregate(any())).thenReturn(new AggregateResult(List.of("meal", "drink"), List.of(),
+                AggregateMetric.SUM, "kcal", Map.of(), null, null, GroupBy.NONE,
+                new BigDecimal("155"), 2L, List.of()));
+
+        ToolResult result = tool.handle(JSON.readTree("""
+                {"kinds":["meal","drink"],"metric":"sum","field":"kcal"}
+                """), null);
+        assertThat(result).isInstanceOf(ToolResult.Ok.class);
+        ToolResult.Ok ok = (ToolResult.Ok) result;
+        assertThat(ok.data()).isInstanceOf(Map.class);
+        @SuppressWarnings("unchecked")
+        Map<String, Object> data = (Map<String, Object>) ok.data();
+        assertThat(data).containsEntry("kinds", List.of("meal", "drink"))
+                .containsEntry("value", new BigDecimal("155"));
+
+        ToolResult invalid = tool.handle(JSON.readTree("""
+                {"kind":"meal","kinds":["drink"],"metric":"count"}
+                """), null);
+        assertThat(invalid).isEqualTo(new ToolResult.Err("validation_error", "provide exactly one of kind or kinds"));
+
+        ToolResult wildcard = tool.handle(JSON.readTree("""
+                {"kinds":["*"],"metric":"count"}
+                """), null);
+        assertThat(wildcard).isEqualTo(new ToolResult.Err("validation_error",
+                "'*' is reserved for the Journal system card"));
+        ToolResult missing = tool.handle(JSON.readTree("""
+                {"metric":"count"}
+                """), null);
+        assertThat(missing).isEqualTo(new ToolResult.Err("validation_error",
+                "provide exactly one of kind or kinds"));
+    }
+
+    @Test
     void summarizesAverageFieldAndGroupedDateRange() {
         LocalDate from = LocalDate.of(2026, 10, 6);
         LocalDate to = LocalDate.of(2026, 10, 12);
-        when(service.aggregate(any())).thenReturn(new AggregateResult("sleep", true, AggregateMetric.AVG,
+        when(service.aggregate(any())).thenReturn(new AggregateResult(List.of("sleep"), List.of(), AggregateMetric.AVG,
                 "hours", Map.of(), from, to, GroupBy.DAY, null, null,
                 List.of(new Bucket(from, new BigDecimal("7.00"), 5))));
 

@@ -8,6 +8,7 @@ import com.tinyme.domain.entries.model.aggregate.AggregateQuery;
 import com.tinyme.domain.entries.model.aggregate.AggregateResult;
 import com.tinyme.domain.entries.model.aggregate.Bucket;
 import com.tinyme.domain.entries.model.aggregate.GroupBy;
+import com.tinyme.domain.entries.model.aggregate.BreakdownQuery;
 import com.tinyme.domain.entries.model.query.EntryQuery;
 import com.tinyme.domain.entries.model.query.EntryFilters;
 import com.tinyme.domain.entries.model.query.EntryQueryResult;
@@ -167,20 +168,20 @@ class EntryRepositoryTests {
             ids.add(insert(kind, day, "2", Map.of("type", "coffee")));
             ids.add(insert(kind, day, "1", Map.of("type", "tea")));
 
-            AggregateResult coffee = entries.aggregate(new AggregateQuery(kind, AggregateMetric.COUNT,
+            AggregateResult coffee = entries.aggregate(new AggregateQuery(List.of(kind), AggregateMetric.COUNT,
                     null, Map.of("type", "coffee"), day, day, GroupBy.NONE));
             assertThat(coffee.value()).isEqualByComparingTo("2");
             assertThat(coffee.entries()).isEqualTo(1);
 
-            AggregateResult tea = entries.aggregate(new AggregateQuery(kind, AggregateMetric.COUNT,
+            AggregateResult tea = entries.aggregate(new AggregateQuery(List.of(kind), AggregateMetric.COUNT,
                     null, Map.of("type", "tea"), day, day, GroupBy.NONE));
             assertThat(tea.value()).isEqualByComparingTo("1");
-            AggregateResult noSuchType = entries.aggregate(new AggregateQuery(kind, AggregateMetric.COUNT,
+            AggregateResult noSuchType = entries.aggregate(new AggregateQuery(List.of(kind), AggregateMetric.COUNT,
                     null, Map.of("type", "matcha"), day, day, GroupBy.NONE));
             assertThat(noSuchType.value()).isEqualByComparingTo("0");
 
             jdbc.update("UPDATE entries SET deleted_at = now() WHERE id = ?", ids.getFirst());
-            AggregateResult deleted = entries.aggregate(new AggregateQuery(kind, AggregateMetric.COUNT,
+            AggregateResult deleted = entries.aggregate(new AggregateQuery(List.of(kind), AggregateMetric.COUNT,
                     null, Map.of("type", "coffee"), day, day, GroupBy.NONE));
             assertThat(deleted.value()).isEqualByComparingTo("0");
             assertThat(deleted.entries()).isZero();
@@ -232,7 +233,7 @@ class EntryRepositoryTests {
             ids.add(insert(kind, monday, "1", Map.of("type", "coffee")));
             ids.add(insert(kind, monday.plusDays(2), "2", Map.of("type", "coffee")));
 
-            AggregateResult days = entries.aggregate(new AggregateQuery(kind, AggregateMetric.COUNT,
+            AggregateResult days = entries.aggregate(new AggregateQuery(List.of(kind), AggregateMetric.COUNT,
                     null, Map.of(), monday, monday.plusDays(2), GroupBy.DAY));
             assertThat(days.buckets()).hasSize(3);
             assertBucket(days.buckets().get(0), monday, "1", 1);
@@ -241,12 +242,94 @@ class EntryRepositoryTests {
 
             LocalDate nextMonday = monday.plusWeeks(1);
             ids.add(insert(kind, nextMonday.plusDays(1), "1", Map.of("type", "coffee")));
-            AggregateResult weeks = entries.aggregate(new AggregateQuery(kind, AggregateMetric.COUNT,
+            AggregateResult weeks = entries.aggregate(new AggregateQuery(List.of(kind), AggregateMetric.COUNT,
                     null, Map.of(), monday.plusDays(1), nextMonday.plusDays(1), GroupBy.WEEK));
             assertThat(weeks.buckets()).extracting(Bucket::period)
                     .containsExactly(monday, nextMonday);
         } finally {
             cleanup(kind, ids);
+        }
+    }
+
+    @Test
+    void aggregatesAcrossMultipleKinds() {
+        String meal = createKind();
+        String drink = createKind();
+        LocalDate day = LocalDate.of(2026, 10, 8);
+        List<UUID> ids = new ArrayList<>();
+        try {
+            ids.add(insert(meal, day, "1", Map.of("kcal", 100)));
+            ids.add(insert(drink, day, "1", Map.of("kcal", 55)));
+            AggregateResult result = entries.aggregate(new AggregateQuery(List.of(meal, drink),
+                    AggregateMetric.SUM, "kcal", Map.of(), day, day, GroupBy.NONE));
+
+            assertThat(result.value()).isEqualByComparingTo("155");
+            assertThat(result.kinds()).containsExactly(meal, drink);
+            assertThat(result.unknownKinds()).isEmpty();
+        } finally {
+            for (UUID id : ids) jdbc.update("DELETE FROM entries WHERE id = ?", id);
+            jdbc.update("DELETE FROM entry_kinds WHERE kind IN (?, ?)", meal, drink);
+        }
+    }
+
+    @Test
+    void breakdownReturnsTopCategoriesAndCombinesTheRest() {
+        String kind = createKind();
+        LocalDate day = LocalDate.of(2026, 10, 8);
+        List<UUID> ids = new ArrayList<>();
+        try {
+            ids.add(insert(kind, day, "1", Map.of("category", "food", "amount", 100)));
+            ids.add(insert(kind, day, "1", Map.of("category", "rent", "amount", 60)));
+            ids.add(insert(kind, day, "1", Map.of("category", "travel", "amount", 25)));
+            ids.add(insert(kind, day, "1", Map.of("amount", 15)));
+            var result = entries.breakdown(new BreakdownQuery(List.of(kind), AggregateMetric.SUM,
+                    "amount", Map.of(), day, day, "category", 2));
+
+            assertThat(result.slices()).extracting("key").containsExactly("food", "rent");
+            assertThat(result.slices()).extracting("value").containsExactly(new BigDecimal("100"), new BigDecimal("60"));
+            assertThat(result.slices()).extracting("pct").containsExactly(new BigDecimal("50.00"), new BigDecimal("30.00"));
+            assertThat(result.other().value()).isEqualByComparingTo("40");
+            assertThat(result.other().pct()).isEqualByComparingTo("20.00");
+            assertThat(result.total()).isEqualByComparingTo("200");
+        } finally {
+            cleanup(kind, ids);
+        }
+    }
+
+    @Test
+    void emptyBreakdownHasZeroTotalAndEmptyOther() {
+        String kind = createKind();
+        try {
+            var result = entries.breakdown(new BreakdownQuery(List.of(kind), AggregateMetric.SUM,
+                    "amount", Map.of(), LocalDate.of(2026, 10, 8), LocalDate.of(2026, 10, 8),
+                    "category", 3));
+
+            assertThat(result.slices()).isEmpty();
+            assertThat(result.total()).isEqualByComparingTo("0");
+            assertThat(result.other().value()).isEqualByComparingTo("0");
+            assertThat(result.other().pct()).isEqualByComparingTo("0");
+        } finally {
+            cleanup(kind, List.of());
+        }
+    }
+
+    @Test
+    void findsLatestLiveEntryAcrossRequestedKinds() {
+        String first = createKind();
+        String second = createKind();
+        LocalDate day = LocalDate.of(2026, 10, 8);
+        List<UUID> ids = new ArrayList<>();
+        try {
+            ids.add(insertQueryEntry(first, day, "2026-10-08T08:00:00Z", "first", Map.of()));
+            ids.add(insertQueryEntry(second, day, "2026-10-08T09:00:00Z", "latest", Map.of()));
+            assertThat(entries.findLatest(List.of(first, second))).get()
+                    .extracting(EntrySnapshot::text).isEqualTo("latest");
+            jdbc.update("UPDATE entries SET deleted_at = now() WHERE id = ?", ids.get(1));
+            assertThat(entries.findLatest(List.of(first, second))).get()
+                    .extracting(EntrySnapshot::text).isEqualTo("first");
+        } finally {
+            for (UUID id : ids) jdbc.update("DELETE FROM entries WHERE id = ?", id);
+            jdbc.update("DELETE FROM entry_kinds WHERE kind IN (?, ?)", first, second);
         }
     }
 
@@ -369,7 +452,7 @@ class EntryRepositoryTests {
 
     private AggregateResult aggregate(String kind, AggregateMetric metric, String field,
                                       LocalDate from, LocalDate to) {
-        return entries.aggregate(new AggregateQuery(kind, metric, field, Map.of(), from, to, GroupBy.NONE));
+        return entries.aggregate(new AggregateQuery(List.of(kind), metric, field, Map.of(), from, to, GroupBy.NONE));
     }
 
     private UUID insert(String kind, LocalDate day, String quantity, Map<String, Object> data) {

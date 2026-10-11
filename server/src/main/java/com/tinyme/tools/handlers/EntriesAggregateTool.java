@@ -40,10 +40,12 @@ public class EntriesAggregateTool implements ToolHandler {
     public ToolResult handle(JsonNode input, ToolContext context) {
         if (input == null || !input.isObject()) return invalid("Input must be an object");
         try {
-            String kind = ToolInputs.requiredString(input, "kind").trim().toLowerCase(Locale.ROOT);
-            if (!kind.matches("^[a-z][a-z0-9_]{1,31}$")) {
-                return invalid("kind must contain 2–32 lowercase letters, digits or underscores, starting with a letter");
-            }
+            String kind = ToolInputs.optionalString(input, "kind");
+            List<String> kinds = ToolInputs.optionalStringList(input, "kinds");
+            if ((kind == null) == (kinds == null)) throw new IllegalArgumentException("provide exactly one of kind or kinds");
+            if (kind != null) kinds = List.of(kind);
+            kinds = kinds.stream().map(value -> value.trim().toLowerCase(Locale.ROOT)).toList();
+            if (kinds.contains("*")) throw new IllegalArgumentException("'*' is reserved for the Journal system card");
             AggregateMetric metric;
             try {
                 metric = AggregateMetric.valueOf(ToolInputs.requiredString(input, "metric").toUpperCase(Locale.ROOT));
@@ -64,7 +66,7 @@ public class EntriesAggregateTool implements ToolHandler {
                 }
             }
 
-            AggregateQuery query = new AggregateQuery(kind, metric, field, where, from, to, groupBy);
+            AggregateQuery query = new AggregateQuery(kinds, metric, field, where, from, to, groupBy);
             AggregateResult result = entries.aggregate(query);
             return new ToolResult.Ok(output(result), summary(result));
         } catch (IllegalArgumentException exception) {
@@ -74,8 +76,8 @@ public class EntriesAggregateTool implements ToolHandler {
 
     private static Map<String, Object> output(AggregateResult result) {
         Map<String, Object> output = new LinkedHashMap<>();
-        output.put("kind", result.kind());
-        output.put("kind_known", result.kindKnown());
+        output.put("kinds", result.kinds());
+        output.put("unknown_kinds", result.unknownKinds());
         output.put("metric", result.metric().name().toLowerCase(Locale.ROOT));
         if (result.field() != null) output.put("field", result.field());
         if (!result.where().isEmpty()) output.put("where", result.where());
@@ -100,7 +102,11 @@ public class EntriesAggregateTool implements ToolHandler {
     }
 
     private static String summary(AggregateResult result) {
-        StringBuilder label = new StringBuilder(result.kind());
+        StringBuilder label = new StringBuilder(result.kinds().isEmpty()
+                ? "all kinds" : String.join(" + ", result.kinds()));
+        if (!result.unknownKinds().isEmpty()) {
+            label.append(" (unknown: ").append(String.join(", ", result.unknownKinds())).append(')');
+        }
         Object type = result.where().get("type");
         if (type instanceof String typeName) label.append(" · ").append(typeName);
         if (result.metric().requiresField()) {

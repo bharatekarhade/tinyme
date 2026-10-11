@@ -93,12 +93,21 @@ tools:
       `where` filters on exact data values, e.g. {"type":"beer"}. group_by returns one
       value per day, week or month; weeks start Monday. Dates are inclusive and use
       local_day. Omit from and to for all time. For today, pass today's date from
-      [context] as both from and to. Averages are rounded to 2 decimal places.
+      [context] as both from and to. Averages are rounded to 2 decimal places. Use
+      `kind` for one kind or `kinds` for 1–5 kinds (for example meal and drink together),
+      not both.
+      The wildcard is reserved for the Journal card and must not be used here.
     input_schema:
       type: object
-      required: [kind, metric]
+      required: [metric]
+      additionalProperties: false
       properties:
-        kind:     { type: string }
+        kind:     { type: string, pattern: "^[a-z][a-z0-9_]{1,31}$" }
+        kinds:
+          type: array
+          minItems: 1
+          maxItems: 5
+          items: { type: string, pattern: "^[a-z][a-z0-9_]{1,31}$" }
         metric:   { type: string, enum: [count, sum, avg, min, max] }
         field:    { type: string, pattern: "^[a-z][a-z0-9_]{0,31}$", description: "Numeric key in data, e.g. hours, km" }
         where:    { type: object, description: "Exact-match filters on data, e.g. {\"type\":\"beer\"}" }

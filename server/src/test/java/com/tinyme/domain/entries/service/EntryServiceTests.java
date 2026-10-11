@@ -170,11 +170,11 @@ class EntryServiceTests {
         int beverageUseCount = jdbc.queryForObject(
                 "SELECT use_count FROM entry_kinds WHERE kind = 'beverage'", Integer.class);
 
-        var result = service.aggregate(new AggregateQuery("beverage", AggregateMetric.COUNT, null,
+        var result = service.aggregate(new AggregateQuery(List.of("beverage"), AggregateMetric.COUNT, null,
                 Map.of("type", "coffee"), LocalDate.of(2026, 10, 6), LocalDate.of(2026, 10, 6), GroupBy.NONE));
 
-        assertThat(result.kind()).isEqualTo("drink");
-        assertThat(result.kindKnown()).isTrue();
+        assertThat(result.kinds()).containsExactly("drink");
+        assertThat(result.unknownKinds()).isEmpty();
         assertThat(result.value()).isEqualByComparingTo("2");
         assertThat(jdbc.queryForObject(
                 "SELECT use_count FROM entry_kinds WHERE kind = 'drink'", Integer.class)).isEqualTo(drinkUseCount);
@@ -183,16 +183,68 @@ class EntryServiceTests {
     }
 
     @Test
+    void aggregateResolvesSeveralKindsAndDeduplicatesMergedTargets() {
+        String suffix = java.util.UUID.randomUUID().toString().replace("-", "").substring(0, 8);
+        String drink = "drink_" + suffix;
+        String beverage = "beverage_" + suffix;
+        String meal = "meal_" + suffix;
+        jdbc.update("INSERT INTO entry_kinds (kind) VALUES (?)", drink);
+        jdbc.update("INSERT INTO entry_kinds (kind, merged_into) VALUES (?, ?)", beverage, drink);
+        jdbc.update("INSERT INTO entry_kinds (kind) VALUES (?)", meal);
+        try {
+            service.add(new AddCommand(beverage, null, null, Map.of("kcal", 100), List.of(), TS, TOKYO, "chat"));
+            service.add(new AddCommand(meal, null, null, Map.of("kcal", 55), List.of(), TS, TOKYO, "chat"));
+            int drinkUses = jdbc.queryForObject("SELECT use_count FROM entry_kinds WHERE kind = ?", Integer.class, drink);
+            int beverageUses = jdbc.queryForObject("SELECT use_count FROM entry_kinds WHERE kind = ?", Integer.class, beverage);
+
+            var result = service.aggregate(new AggregateQuery(List.of(beverage, drink, meal),
+                    AggregateMetric.SUM, "kcal", Map.of(), LocalDate.of(2026, 10, 6),
+                    LocalDate.of(2026, 10, 6), GroupBy.NONE));
+
+            assertThat(result.kinds()).containsExactly(drink, meal);
+            assertThat(result.unknownKinds()).isEmpty();
+            assertThat(result.value()).isEqualByComparingTo("155");
+            assertThat(jdbc.queryForObject("SELECT use_count FROM entry_kinds WHERE kind = ?", Integer.class, drink))
+                    .isEqualTo(drinkUses);
+            assertThat(jdbc.queryForObject("SELECT use_count FROM entry_kinds WHERE kind = ?", Integer.class, beverage))
+                    .isEqualTo(beverageUses);
+        } finally {
+            jdbc.update("DELETE FROM entries WHERE kind IN (?, ?, ?)", drink, beverage, meal);
+            jdbc.update("UPDATE entry_kinds SET merged_into = NULL WHERE kind = ?", beverage);
+            jdbc.update("DELETE FROM entry_kinds WHERE kind IN (?, ?, ?)", beverage, meal, drink);
+        }
+    }
+
+    @Test
     void unknownKindReturnsEmptyAggregateInsteadOfCreatingKind() {
-        var result = service.aggregate(new AggregateQuery("unknown_kind", AggregateMetric.COUNT,
+        var result = service.aggregate(new AggregateQuery(List.of("unknown_kind"), AggregateMetric.COUNT,
                 null, Map.of(), null, null, GroupBy.NONE));
 
-        assertThat(result.kindKnown()).isFalse();
-        assertThat(result.kind()).isEqualTo("unknown_kind");
+        assertThat(result.unknownKinds()).containsExactly("unknown_kind");
         assertThat(result.value()).isEqualByComparingTo("0");
         assertThat(result.entries()).isZero();
         assertThat(jdbc.queryForObject(
                 "SELECT count(*) FROM entry_kinds WHERE kind = 'unknown_kind'", Integer.class)).isZero();
+    }
+
+    @Test
+    void groupedAggregateWithUnknownKindStillReturnsZeroFilledBuckets() {
+        LocalDate from = LocalDate.of(2026, 10, 5);
+        var result = service.aggregate(new AggregateQuery(List.of("unknown_kind"), AggregateMetric.COUNT,
+                null, Map.of(), from, from.plusDays(2), GroupBy.DAY));
+
+        assertThat(result.unknownKinds()).containsExactly("unknown_kind");
+        assertThat(result.buckets()).hasSize(3);
+        assertThat(result.buckets()).extracting("value")
+                .containsExactly(BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO);
+        assertThat(result.buckets()).extracting("entries").containsExactly(0L, 0L, 0L);
+    }
+
+    @Test
+    void latestRejectsEmptyKinds() {
+        assertThatThrownBy(() -> service.latest(List.of()))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("kinds must contain 1–5 values");
     }
 
     @Test
@@ -353,7 +405,7 @@ class EntryServiceTests {
         assertThat(jdbc.queryForObject("SELECT deleted_at = CAST(? AS timestamptz) FROM entries WHERE id = ?",
                 Boolean.class, deletedAt.toString(), added.id())).isTrue();
 
-        var aggregate = service.aggregate(new AggregateQuery("drink", AggregateMetric.COUNT, null,
+        var aggregate = service.aggregate(new AggregateQuery(List.of("drink"), AggregateMetric.COUNT, null,
                 Map.of("type", "coffee"), added.localDay(), added.localDay(), GroupBy.NONE));
         var query = service.query(new EntryQuery("drink", null, Map.of("type", "coffee"),
                 added.localDay(), added.localDay(), null));

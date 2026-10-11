@@ -5,7 +5,12 @@ import com.tinyme.domain.entries.model.add.NewEntry;
 import com.tinyme.domain.entries.model.aggregate.TodayTotal;
 import com.tinyme.domain.entries.model.aggregate.AggregateQuery;
 import com.tinyme.domain.entries.model.aggregate.AggregateResult;
+import com.tinyme.domain.entries.model.aggregate.AggregateMetric;
 import com.tinyme.domain.entries.model.aggregate.Bucket;
+import com.tinyme.domain.entries.model.aggregate.BreakdownQuery;
+import com.tinyme.domain.entries.model.aggregate.BreakdownResult;
+import com.tinyme.domain.entries.model.aggregate.BreakdownOther;
+import com.tinyme.domain.entries.model.aggregate.BreakdownSlice;
 import com.tinyme.domain.entries.model.EntrySnapshot;
 import com.tinyme.domain.entries.model.query.EntryQuery;
 import com.tinyme.domain.entries.model.query.EntryQueryResult;
@@ -156,28 +161,22 @@ public class EntryRepository {
     @Transactional(readOnly = true)
     public AggregateResult aggregate(AggregateQuery query) {
         Objects.requireNonNull(query, "query");
-        MapSqlParameterSource parameters = new MapSqlParameterSource()
-                .addValue("kind", query.kind());
-        String whereFilter = whereFilter(query, parameters, "e");
-        String fieldFilter = query.metric().sqlFieldFilter("e");
-        if (query.metric().requiresField()) parameters.addValue("field", query.field());
-        if (query.from() != null) parameters.addValue("from", query.from());
-        if (query.to() != null) parameters.addValue("to", query.to());
+        MapSqlParameterSource parameters = new MapSqlParameterSource();
+        String baseFilters = filters(query.kinds(), query.allKinds(), query.from(), query.to(), query.where(),
+                query.metric(), query.field(), "e", parameters);
 
         List<Bucket> buckets = List.of();
         BigDecimal value = null;
         Long rowCount = null;
         if (!query.groupBy().grouped()) {
             String sql = "SELECT " + query.metric().sqlExpression("e") + " AS value, COUNT(*) AS entries "
-                    + "FROM entries e WHERE " + filters(query, "e", whereFilter, fieldFilter);
+                    + "FROM entries e WHERE " + baseFilters;
             var result = jdbc.queryForMap(sql, parameters);
             value = (BigDecimal) result.get("value");
             rowCount = ((Number) result.get("entries")).longValue();
         } else if (query.from() != null && query.to() != null) {
             parameters.addValue("unit", query.groupBy().unit());
             parameters.addValue("step", query.groupBy().stepInterval());
-            String joinFilters = "e.kind = :kind AND e.deleted_at IS NULL "
-                    + "AND e.local_day BETWEEN :from AND :to" + whereFilter + fieldFilter;
             String sql = "WITH periods AS ("
                     + "SELECT generate_series("
                     + "date_trunc(CAST(:unit AS text), CAST(:from AS timestamp)), "
@@ -186,13 +185,13 @@ public class EntryRepository {
                     + "SELECT p.period, " + query.metric().sqlExpression("e") + " AS value, "
                     + "COUNT(e.id) AS entries FROM periods p LEFT JOIN entries e ON "
                     + "date_trunc(CAST(:unit AS text), e.local_day::timestamp)::date = p.period "
-                    + "AND " + joinFilters + " GROUP BY p.period ORDER BY p.period";
+                    + "AND " + baseFilters + " GROUP BY p.period ORDER BY p.period";
             buckets = this.query(sql, parameters);
         } else {
             parameters.addValue("unit", query.groupBy().unit());
             String sql = "SELECT date_trunc(CAST(:unit AS text), e.local_day::timestamp)::date AS period, "
                     + query.metric().sqlExpression("e") + " AS value, COUNT(e.id) AS entries "
-                    + "FROM entries e WHERE " + filters(query, "e", whereFilter, fieldFilter)
+                    + "FROM entries e WHERE " + baseFilters
                     + " GROUP BY period ORDER BY period LIMIT " + MAX_UNBOUNDED_BUCKETS_QUERY;
             buckets = this.query(sql, parameters);
             if (buckets.size() > AggregateQuery.MAX_BUCKETS) {
@@ -202,8 +201,58 @@ public class EntryRepository {
         }
 
         String resultField = query.metric().requiresField() ? query.field() : null;
-        return new AggregateResult(query.kind(), true, query.metric(), resultField, query.where(),
-                query.from(), query.to(), query.groupBy(), value, rowCount, buckets);
+        return new AggregateResult(query.kinds(), List.of(), query.metric(),
+                resultField, query.where(), query.from(), query.to(), query.groupBy(), value, rowCount, buckets);
+    }
+
+    @Transactional(readOnly = true)
+    public BreakdownResult breakdown(BreakdownQuery query) {
+        Objects.requireNonNull(query, "query");
+        MapSqlParameterSource params = new MapSqlParameterSource().addValue("by", query.by());
+        String base = filters(query.kinds(), query.allKinds(), query.from(), query.to(), query.where(),
+                query.metric(), query.field(), "e", params);
+        String expression = query.metric().sqlExpression("e");
+        String sql = "SELECT category_key, value, SUM(value) OVER () AS total FROM ("
+                + "SELECT e.data ->> CAST(:by AS text) AS category_key, " + expression + " AS value "
+                + "FROM entries e WHERE " + base + " GROUP BY 1) g "
+                + "ORDER BY value DESC NULLS LAST LIMIT :top";
+        params.addValue("top", query.top());
+        List<BreakdownSlice> raw = new ArrayList<>();
+        BigDecimal[] resultTotal = {BigDecimal.ZERO};
+        jdbc.query(sql, params, rs -> {
+            BigDecimal sliceValue = rs.getObject("value", BigDecimal.class);
+            resultTotal[0] = rs.getObject("total", BigDecimal.class);
+            raw.add(new BreakdownSlice(rs.getString("category_key"), sliceValue, null));
+        });
+        BigDecimal total = resultTotal[0] == null ? BigDecimal.ZERO : resultTotal[0];
+        BigDecimal topTotal = raw.stream().map(BreakdownSlice::value).filter(Objects::nonNull)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+        List<BreakdownSlice> slices = raw.stream().map(slice -> new BreakdownSlice(slice.key(), slice.value(),
+                percentage(slice.value(), total))).toList();
+        BigDecimal other = total.subtract(topTotal);
+        return new BreakdownResult(slices, new BreakdownOther(other, percentage(other, total)), total);
+    }
+
+    private static BigDecimal percentage(BigDecimal value, BigDecimal total) {
+        if (value == null || total == null || total.signum() == 0) return BigDecimal.ZERO;
+        return value.multiply(BigDecimal.valueOf(100)).divide(total, 2, java.math.RoundingMode.HALF_UP);
+    }
+
+    @Transactional(readOnly = true)
+    public Optional<EntrySnapshot> findLatest(List<String> kinds) {
+        Objects.requireNonNull(kinds, "kinds");
+        MapSqlParameterSource params = new MapSqlParameterSource();
+        String filter = "deleted_at IS NULL";
+        if (!kinds.equals(List.of("*"))) {
+            filter += " AND kind IN (:kinds)";
+            params.addValue("kinds", kinds.stream().distinct().toList());
+        }
+        String sql = "SELECT id, ts, local_day, kind, quantity, text, data::text AS data FROM entries WHERE "
+                + filter + " ORDER BY ts DESC, id DESC LIMIT 1";
+        return jdbc.query(sql, params, (rs, row) -> new EntrySnapshot(rs.getObject("id", UUID.class),
+                rs.getObject("ts", OffsetDateTime.class).toInstant(), rs.getObject("local_day", LocalDate.class),
+                rs.getString("kind"), rs.getObject("quantity", BigDecimal.class), rs.getString("text"),
+                JSON.readValue(rs.getString("data"), DATA_TYPE))).stream().findFirst();
     }
 
     @Transactional(readOnly = true)
@@ -261,19 +310,31 @@ public class EntryRepository {
                 entry.getData());
     }
 
-    private String whereFilter(AggregateQuery query, MapSqlParameterSource parameters, String alias) {
-        if (query.where().isEmpty()) return "";
-        parameters.addValue("where", JSON.writeValueAsString(query.where()));
-        return " AND " + alias + ".data @> CAST(:where AS jsonb)";
-    }
-
-    private static String filters(AggregateQuery query, String alias,
-                                  String whereFilter, String fieldFilter) {
-        StringBuilder sql = new StringBuilder(alias).append(".kind = :kind AND ")
-                .append(alias).append(".deleted_at IS NULL");
-        if (query.from() != null) sql.append(" AND ").append(alias).append(".local_day >= :from");
-        if (query.to() != null) sql.append(" AND ").append(alias).append(".local_day <= :to");
-        return sql.append(whereFilter).append(fieldFilter).toString();
+    private static String filters(List<String> kinds, boolean allKinds, LocalDate from, LocalDate to,
+                                  Map<String, Object> where, AggregateMetric metric, String field,
+                                  String alias, MapSqlParameterSource parameters) {
+        StringBuilder sql = new StringBuilder(alias).append(".deleted_at IS NULL");
+        if (!allKinds) {
+            sql.append(" AND ").append(alias).append(".kind IN (:kinds)");
+            parameters.addValue("kinds", kinds);
+        }
+        if (from != null) {
+            sql.append(" AND ").append(alias).append(".local_day >= :from");
+            parameters.addValue("from", from);
+        }
+        if (to != null) {
+            sql.append(" AND ").append(alias).append(".local_day <= :to");
+            parameters.addValue("to", to);
+        }
+        if (!where.isEmpty()) {
+            sql.append(" AND ").append(alias).append(".data @> CAST(:where AS jsonb)");
+            parameters.addValue("where", JSON.writeValueAsString(where));
+        }
+        if (metric.requiresField()) {
+            sql.append(metric.sqlFieldFilter(alias));
+            parameters.addValue("field", field);
+        }
+        return sql.toString();
     }
 
     private List<Bucket> query(String sql, MapSqlParameterSource parameters) {
