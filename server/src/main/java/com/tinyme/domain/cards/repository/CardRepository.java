@@ -24,6 +24,11 @@ public class CardRepository {
     }
 
     @Transactional(readOnly = true)
+    public Optional<CardEntity> findByIdIncludingDeleted(UUID id) {
+        return cards.findById(Objects.requireNonNull(id, "id"));
+    }
+
+    @Transactional(readOnly = true)
     public Optional<CardEntity> findBySlug(String slug) {
         return cards.findBySlugAndDeletedAtIsNull(Objects.requireNonNull(slug, "slug"));
     }
@@ -31,6 +36,11 @@ public class CardRepository {
     @Transactional(readOnly = true)
     public List<CardEntity> activeCards() {
         return cards.findByStatusAndDeletedAtIsNullOrderBySystemDescPositionAscCreatedAtAsc(CardStatus.ACTIVE);
+    }
+
+    @Transactional(readOnly = true)
+    public List<CardEntity> liveUserCards() {
+        return cards.findBySystemFalseAndDeletedAtIsNullOrderByCreatedAtAsc();
     }
 
     /** Position to assign when a draft is activated. */

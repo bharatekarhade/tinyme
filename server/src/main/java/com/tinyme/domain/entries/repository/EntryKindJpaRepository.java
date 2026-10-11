@@ -18,4 +18,13 @@ interface EntryKindJpaRepository extends JpaRepository<EntryKindEntity, String> 
             ON CONFLICT (kind) DO UPDATE SET use_count = entry_kinds.use_count + 1
             """, nativeQuery = true)
     void upsertAndIncrement(@Param("kind") String kind);
+
+    @Modifying(flushAutomatically = true)
+    @Query(value = """
+            INSERT INTO entry_kinds (kind, description, data_hints, use_count)
+            VALUES (:kind, :description, CAST(:dataHints AS jsonb), 0)
+            ON CONFLICT (kind) DO NOTHING
+            """, nativeQuery = true)
+    void insertCardKindIfMissing(@Param("kind") String kind, @Param("description") String description,
+                                 @Param("dataHints") String dataHints);
 }

@@ -16,6 +16,8 @@ interface CardJpaRepository extends JpaRepository<CardEntity, UUID> {
 
     List<CardEntity> findByStatusAndDeletedAtIsNullOrderBySystemDescPositionAscCreatedAtAsc(CardStatus status);
 
+    List<CardEntity> findBySystemFalseAndDeletedAtIsNullOrderByCreatedAtAsc();
+
     @Query("select coalesce(max(card.position), -1) + 1 from CardEntity card where card.status = :status and card.deletedAt is null")
     int nextActivePosition(CardStatus status);
 }

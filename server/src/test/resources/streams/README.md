@@ -1,6 +1,6 @@
 # Stream fixtures
 
-`had-a-coffee.json` is a raw event recording from a DevChatRunner session. The other named scenarios are replayable sample event sequences; capture fresh API responses into those paths before treating them as verified agent behavior.
+`had-a-coffee.json` is a raw event recording from a DevChatRunner session. The other named scenarios are replayable sample event sequences; `build-calories-card.json` covers the `cards_list` → `cards_save` flow with the valid Calories spec. Capture fresh API responses into those paths before treating them as verified agent behavior.
 
 To capture a real run, set `TINYME_DEV_EVENT_CAPTURE` to the fixture path and run the prompt with the `dev` profile. For example, from `server/`:
 
