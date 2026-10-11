@@ -1,7 +1,6 @@
 package com.tinyme;
 
 
-
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -31,6 +30,9 @@ class TinymeApplicationTests {
                 "SELECT count(*) FROM flyway_schema_history WHERE version = '1' AND success",
                 Integer.class)).isEqualTo(1);
         assertThat(jdbc.queryForObject("SELECT count(*) FROM entries", Integer.class)).isZero();
+        assertThat(jdbc.queryForObject(
+                "SELECT count(*) FROM flyway_schema_history WHERE version = '1.4' AND success",
+                Integer.class)).isEqualTo(1);
     }
 
     @TestConfiguration(proxyBeanMethods = false)

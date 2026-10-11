@@ -1,0 +1,27 @@
+{
+  "v": 1,
+  "title": "Journal",
+  "icon": "journal",
+  "accent": "mint",
+  "tone": "brand",
+  "badge": { "kind": "streak", "block": 0 },
+  "blocks": [
+    {
+      "type": "stat",
+      "label": "entries",
+      "metric": { "kinds": ["*"], "op": "count" },
+      "period": "range",
+      "compare": "previous_period",
+      "better": "higher"
+    },
+    {
+      "type": "chart",
+      "label": "per day",
+      "metric": { "kinds": ["*"], "op": "count" },
+      "period": "range",
+      "bucket": "auto",
+      "style": "bars",
+      "highlight": "peak"
+    }
+  ]
+}
