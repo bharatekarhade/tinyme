@@ -8,7 +8,7 @@ import com.tinyme.agent.repository.MessageRepository;
 import com.tinyme.agent.service.SessionManager;
 import com.tinyme.agent.service.TurnListener;
 import com.tinyme.agent.service.TurnRunner;
-import com.tinyme.agent.service.UserZone;
+import com.tinyme.settings.UserZone;
 import com.tinyme.conversation.model.ConversationMessageRequest;
 import com.tinyme.conversation.model.ConversationHistory;
 import com.tinyme.conversation.model.ConversationHistoryMessage;

@@ -21,7 +21,9 @@ public record AggregateQuery(
 ) {
     private static final Pattern KIND_PATTERN = Pattern.compile("^[a-z][a-z0-9_]{1,31}$");
     private static final Pattern FIELD_PATTERN = Pattern.compile("^[a-z][a-z0-9_]{0,31}$");
-    public static final int MAX_BUCKETS = 366;
+    /** Engine ceiling; the agent-facing tool applies its narrower 366-bucket limit. */
+    public static final int MAX_BUCKETS = 400;
+    public static final int MAX_TOOL_BUCKETS = 366;
 
     public AggregateQuery {
         kinds = List.copyOf(validateKinds(kinds));
@@ -65,7 +67,7 @@ public record AggregateQuery(
         return kinds;
     }
 
-    private static long bucketCount(LocalDate from, LocalDate to, GroupBy groupBy) {
+    public static long bucketCount(LocalDate from, LocalDate to, GroupBy groupBy) {
         return switch (groupBy) {
             case NONE -> 0;
             case DAY -> ChronoUnit.DAYS.between(from, to) + 1;

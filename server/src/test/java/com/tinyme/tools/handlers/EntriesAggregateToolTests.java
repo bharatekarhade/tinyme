@@ -47,6 +47,34 @@ class EntriesAggregateToolTests {
     }
 
     @Test
+    void agentAggregateRejectsMoreThan366Buckets() {
+        ToolResult result = tool.handle(JSON.readTree("""
+                {"kind":"drink","metric":"count","group_by":"day",
+                 "from":"2025-10-01","to":"2026-10-02"}
+                """), null);
+
+        assertThat(result).isEqualTo(new ToolResult.Err("validation_error",
+                "date range may produce at most 366 buckets"));
+        verify(service, never()).aggregate(any());
+    }
+
+    @Test
+    void agentAggregateRejectsMoreThan366UnboundedBuckets() {
+        List<Bucket> buckets = java.util.stream.IntStream.range(0, 367)
+                .mapToObj(day -> new Bucket(LocalDate.of(2025, 1, 1).plusDays(day), BigDecimal.ONE, 1))
+                .toList();
+        when(service.aggregate(any())).thenReturn(new AggregateResult(List.of("drink"), List.of(),
+                AggregateMetric.COUNT, null, Map.of(), null, null, GroupBy.DAY, null, null, buckets));
+
+        ToolResult result = tool.handle(JSON.readTree("""
+                {"kind":"drink","metric":"count","group_by":"day"}
+                """), null);
+
+        assertThat(result).isEqualTo(new ToolResult.Err("validation_error",
+                "query may produce at most 366 buckets"));
+    }
+
+    @Test
     void mapsServiceResultToOutputAndActionSummary() {
         LocalDate day = LocalDate.of(2026, 10, 8);
         when(service.aggregate(any())).thenReturn(new AggregateResult(List.of("drink"), List.of(), AggregateMetric.COUNT,

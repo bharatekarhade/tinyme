@@ -66,8 +66,18 @@ public class EntriesAggregateTool implements ToolHandler {
                 }
             }
 
+            if (groupBy.grouped() && from != null && to != null
+                    && AggregateQuery.bucketCount(from, to, groupBy) > AggregateQuery.MAX_TOOL_BUCKETS) {
+                throw new IllegalArgumentException("date range may produce at most "
+                        + AggregateQuery.MAX_TOOL_BUCKETS + " buckets");
+            }
+
             AggregateQuery query = new AggregateQuery(kinds, metric, field, where, from, to, groupBy);
             AggregateResult result = entries.aggregate(query);
+            if (groupBy.grouped() && result.buckets().size() > AggregateQuery.MAX_TOOL_BUCKETS) {
+                throw new IllegalArgumentException("query may produce at most "
+                        + AggregateQuery.MAX_TOOL_BUCKETS + " buckets");
+            }
             return new ToolResult.Ok(output(result), summary(result));
         } catch (IllegalArgumentException exception) {
             return invalid(exception.getMessage());

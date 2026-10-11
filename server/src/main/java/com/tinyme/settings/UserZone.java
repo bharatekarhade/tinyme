@@ -1,4 +1,4 @@
-package com.tinyme.agent.service;
+package com.tinyme.settings;
 
 import com.tinyme.agent.repository.AgentSettingsRepository;
 import org.springframework.stereotype.Component;
@@ -7,6 +7,7 @@ import java.time.DateTimeException;
 import java.time.ZoneId;
 import java.util.Objects;
 
+/** Resolves the owner's configured time zone, with the product default as a fallback. */
 @Component
 public class UserZone {
     private static final String DEFAULT_ZONE = "Asia/Tokyo";
