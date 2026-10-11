@@ -15,16 +15,6 @@ enum HomeRange: String, CaseIterable, Identifiable, Sendable {
         }
     }
 
-    /// "today", "this week", … for captions under a number.
-    var periodPhrase: String {
-        switch self {
-        case .day: "today"
-        case .week: "this week"
-        case .month: "this month"
-        case .year: "this year"
-        }
-    }
-
     var subtitle: String {
         switch self {
         case .day: "Here's how your day is going."

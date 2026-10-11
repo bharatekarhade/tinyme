@@ -110,7 +110,7 @@ struct CardView: View {
                 BlockNote("Couldn't load this card")
             } else {
                 ForEach(Array((card.blocks ?? []).enumerated()), id: \.offset) { _, block in
-                    BlockView(block: block, range: range)
+                    BlockView(block: block, range: range, period: period, showsChange: card.badge?.kind != "delta")
                 }
             }
         }
@@ -126,6 +126,14 @@ struct CardView: View {
             }
         }
         .environment(\.cardStyle, style)
+    }
+
+    /// The period the card's numbers cover: the one its badge names, otherwise the Home range.
+    private var period: StatPeriod {
+        if card.badge?.kind == "period", let named = StatPeriod(badge: card.badge?.period) {
+            return named
+        }
+        return StatPeriod(range: range)
     }
 
     /// Server icon names → SF Symbols.

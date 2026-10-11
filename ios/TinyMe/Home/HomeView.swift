@@ -27,7 +27,7 @@ struct HomeView: View {
                     showsSettings = true
                 }
                 .padding(.bottom, Space.s2)
-                RangeSwitcher(selection: $model.range)
+                PillSwitcher(options: HomeRange.allCases, selection: $model.range, title: \.title, label: "Range")
 
                 // New identity per range, so every chart fills again on switch.
                 Group {
@@ -208,44 +208,6 @@ private struct HomeHeader: View {
                 .foregroundStyle(Palette.inkMuted)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-    }
-}
-
-private struct RangeSwitcher: View {
-    @Binding var selection: HomeRange
-    @Namespace private var thumb
-
-    var body: some View {
-        HStack(spacing: 0) {
-            ForEach(HomeRange.allCases) { range in
-                let isOn = range == selection
-                Button {
-                    withAnimation(.snappy(duration: 0.25)) { selection = range }
-                } label: {
-                    Text(range.title)
-                        .textStyle(.label, weight: isOn ? .semibold : .medium)
-                        .foregroundStyle(isOn ? Palette.ink : Palette.inkMuted)
-                        .frame(maxWidth: .infinity)
-                        .frame(height: 36)
-                        .background {
-                            if isOn {
-                                Capsule()
-                                    .fill(Palette.surfaceRaised)
-                                    .shadow(color: .black.opacity(0.12), radius: 1.5, y: 1)
-                                    .matchedGeometryEffect(id: "thumb", in: thumb)
-                            }
-                        }
-                        .contentShape(Capsule())
-                }
-                .buttonStyle(.plain)
-                .accessibilityAddTraits(isOn ? .isSelected : [])
-            }
-        }
-        .padding(4)
-        .background(Palette.surfaceSunken, in: Capsule())
-        .sensoryFeedback(.selection, trigger: selection)
-        .accessibilityElement(children: .contain)
-        .accessibilityLabel("Range")
     }
 }
 

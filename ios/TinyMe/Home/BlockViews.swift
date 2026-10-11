@@ -4,14 +4,20 @@ import SwiftUI
 struct BlockView: View {
     let block: BlockDTO
     let range: HomeRange
+    var period: StatPeriod
+    /// False when the card's badge already shows the change against the previous period.
+    var showsChange = true
 
     var body: some View {
         switch block {
         case .stat(let stat):
-            StatBlockView(label: stat.label, unit: stat.unit, value: stat.value, goal: stat.goal, entries: stat.entries, range: range)
+            StatBlockView(
+                label: stat.label, unit: stat.unit, value: stat.value, goal: stat.goal, entries: stat.entries,
+                period: period, previous: showsChange ? stat.previous : nil, deltaPct: showsChange ? stat.deltaPct : nil
+            )
         case .progress(let progress):
             if progress.goal == nil {
-                StatBlockView(label: progress.label, unit: progress.unit, value: progress.value, goal: nil, entries: progress.entries, range: range)
+                StatBlockView(label: progress.label, unit: progress.unit, value: progress.value, goal: nil, entries: progress.entries, period: period)
             } else {
                 ProgressBlockView(block: progress)
             }
@@ -58,7 +64,9 @@ struct StatBlockView: View {
     let value: Double?
     let goal: Double?
     let entries: Int
-    let range: HomeRange
+    let period: StatPeriod
+    var previous: Double?
+    var deltaPct: Double?
 
     @Environment(\.cardStyle) private var style
     @State private var shown = false
@@ -77,14 +85,25 @@ struct StatBlockView: View {
                         .foregroundStyle(style.muted)
                 }
             }
-            Text(caption)
-                .textStyle(.label)
-                .foregroundStyle(isOver ? Palette.accent : style.muted)
+            HStack(spacing: Space.s2) {
+                Text(caption)
+                    .textStyle(.label)
+                    .foregroundStyle(isOver ? Palette.accent : style.muted)
+                if let change {
+                    Text(change)
+                        .textStyle(.caption, weight: .semibold)
+                        .foregroundStyle(style.foreground)
+                        .padding(.horizontal, Space.s2)
+                        .frame(height: 22)
+                        .background(style.track, in: Capsule())
+                        .fixedSize()
+                }
+            }
         }
         .growIn(shown)
         .revealOnScroll($shown)
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("\(Formatters.value(value ?? 0, unit: unit)), \(caption)")
+        .accessibilityLabel("\(Formatters.value(value ?? 0, unit: unit)), \(caption)\(change.map { ", \($0)" } ?? "")")
     }
 
     private var isOver: Bool {
@@ -92,10 +111,22 @@ struct StatBlockView: View {
         return value > goal
     }
 
+    /// "↓ 12% vs last month". The server sends no percentage when the earlier period was zero.
+    private var change: String? {
+        if let deltaPct {
+            if deltaPct == 0 { return "Same as \(period.previousPhrase)" }
+            return "\(deltaPct > 0 ? "↑" : "↓") \(Formatters.percent(deltaPct)) vs \(period.previousPhrase)"
+        }
+        if let previous, previous == 0, let value, value > 0 {
+            return "↑ from 0 \(period.previousPhrase)"
+        }
+        return nil
+    }
+
     private var caption: String {
-        guard entries > 0 else { return "No entries \(range.periodPhrase)" }
+        guard entries > 0 else { return "No entries \(period.phrase)" }
         // Say which period the number covers.
-        var parts = ["\(label) \(range.periodPhrase)"]
+        var parts = ["\(label) \(period.phrase)"]
         if let unit, !unit.isEmpty, unit != "JPY", unit != label {
             parts.insert(unit, at: 0)
         }
@@ -105,6 +136,49 @@ struct StatBlockView: View {
             parts.append(left >= 0 ? "\(Formatters.headline(left, unit: unit)) left" : "\(Formatters.headline(-left, unit: unit)) over")
         }
         return parts.joined(separator: " · ")
+    }
+}
+
+/// A period a number covers, and the one it is compared with.
+enum StatPeriod {
+    case today, week, month, year
+
+    init(range: HomeRange) {
+        switch range {
+        case .day: self = .today
+        case .week: self = .week
+        case .month: self = .month
+        case .year: self = .year
+        }
+    }
+
+    /// From a period badge: "today", "this_week", …
+    init?(badge period: String?) {
+        switch period {
+        case "today": self = .today
+        case "this_week": self = .week
+        case "this_month": self = .month
+        case "this_year": self = .year
+        default: return nil
+        }
+    }
+
+    var phrase: String {
+        switch self {
+        case .today: "today"
+        case .week: "this week"
+        case .month: "this month"
+        case .year: "this year"
+        }
+    }
+
+    var previousPhrase: String {
+        switch self {
+        case .today: "yesterday"
+        case .week: "last week"
+        case .month: "last month"
+        case .year: "last year"
+        }
     }
 }
 

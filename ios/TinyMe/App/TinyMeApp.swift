@@ -3,6 +3,7 @@ import SwiftUI
 @main
 struct TinyMeApp: App {
     @State private var environment = AppEnvironment()
+    @AppStorage(Appearance.storageKey) private var appearance: Appearance = .system
 
     init() {
         Fonts.register()
@@ -12,6 +13,7 @@ struct TinyMeApp: App {
         WindowGroup {
             RootView()
                 .environment(environment)
+                .preferredColorScheme(appearance.colorScheme)
         }
     }
 }

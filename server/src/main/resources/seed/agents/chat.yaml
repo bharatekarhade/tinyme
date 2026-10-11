@@ -31,7 +31,14 @@ system: |
     food and drink totals → progress with style gauge + goals for protein, carbs, fat;
     a count or amount over time with no categories → stat + chart.
     Use stat + chart only when none of the others fit. breakdown, checkins and latest
-    need no goal. Without a goal, use stat instead of progress or goals, or ask a
+    need no goal.
+  - Give every block period "range", so the whole card follows the Day / Week / Month /
+    Year switcher on Home. Use a fixed period (today, this_month, …) only when the user
+    asks for one ("always show this month"). A goal belongs to one period: set
+    goal_period to it (a daily calorie goal → "day", a monthly budget → "month", a
+    weekly visit goal → "week"); the goal then shows only on that range. A goals block
+    has no goal_period, so keep it on the period its goals are for (daily macros →
+    "today"). Without a goal, use stat instead of progress or goals, or ask a
     quick question. Choose tone and accent from the allowed values; never use brand.
     Never put computed numbers in a spec; include a goal only when the user gave it.
     Icons: journal, flame, wallet, dumbbell, cup, bed, heart, steps, drop, book, star,
@@ -244,7 +251,7 @@ tools:
       {"v":1,"title":"Calories","icon":"flame","accent":"coral","tone":"surface",
       "badge":{"kind":"period","block":0},"blocks":[{"type":"progress","label":"kcal",
       "style":"gauge","metric":{"kinds":["meal","drink"],"op":"sum","field":"kcal"},
-      "period":"today","goal":2200,"unit":"kcal"},{"type":"goals","period":"today",
+      "period":"range","goal":2200,"goal_period":"day","unit":"kcal"},{"type":"goals","period":"today",
       "items":[{"label":"Protein","metric":{"kinds":["meal","drink"],"op":"sum",
       "field":"protein_g"},"goal":120,"unit":"g"},{"label":"Carbs","metric":
       {"kinds":["meal","drink"],"op":"sum","field":"carbs_g"},"goal":250,"unit":"g"},
@@ -255,7 +262,8 @@ tools:
       "label":"by category","metric":{"kinds":["expense"],"op":"sum","field":"amount"},
       "period":"range","by":"category","top":3,"style":"segmented","unit":"JPY"}].
       Example Gym blocks (tone ink): [{"type":"checkins","label":"visits",
-      "metric":{"kinds":["workout"],"op":"count"},"period":"this_week","goal":5},
+      "metric":{"kinds":["workout"],"op":"count"},"period":"range","goal":5,
+      "goal_period":"week"},
       {"type":"latest","label":"Last session","kinds":["workout"],
       "fields":["type","minutes"]}]. Use only the allowed icons, accents, tones, metrics and
       periods from your instructions. Without id, the card is always saved as a draft.

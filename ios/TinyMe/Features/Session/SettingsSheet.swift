@@ -49,6 +49,7 @@ private struct SettingsPanel: View {
     var session: SessionModel
     var onClose: () -> Void
 
+    @AppStorage(Appearance.storageKey) private var appearance: Appearance = .system
     @State private var isConfirming = false
     @State private var isSigningOut = false
     @State private var status: ServerStatus = .checking
@@ -103,6 +104,7 @@ private struct SettingsPanel: View {
             if let account {
                 accountCard(email: account.email)
                 serverSection(server: account.server)
+                appearanceSection
             }
 
             Spacer(minLength: Space.s2)
@@ -186,6 +188,16 @@ private struct SettingsPanel: View {
                 }
             }
             .background(card)
+        }
+    }
+
+    private var appearanceSection: some View {
+        VStack(alignment: .leading, spacing: Space.s2) {
+            Text("Appearance")
+                .textStyle(.label, weight: .semibold)
+                .foregroundStyle(Palette.inkMuted)
+                .padding(.horizontal, 4)
+            PillSwitcher(options: Appearance.allCases, selection: $appearance, title: \.title, label: "Appearance")
         }
     }
 
