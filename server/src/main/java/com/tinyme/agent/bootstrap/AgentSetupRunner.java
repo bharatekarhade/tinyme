@@ -25,26 +25,29 @@ class AgentSetupRunner implements ApplicationRunner {
     private final String apiKey;
     private final Map<String, String> configured;
     private final boolean allowNewMemoryStore;
+    private final MemorySeedFiles memorySeeds;
 
     AgentSetupRunner(DataSource datasource, ManagedAgentApi api,
                      @Value("${tinyme.agent.api-key}") String apiKey,
                      @Value("${tinyme.agent.environment-id}") String environmentId,
                      @Value("${tinyme.agent.agent-id}") String agentId,
                      @Value("${tinyme.agent.memory-store-id}") String memoryStoreId,
-                     @Value("${tinyme.agent.allow-new-memory-store:false}") boolean allowNewMemoryStore) {
+                     @Value("${tinyme.agent.allow-new-memory-store:false}") boolean allowNewMemoryStore,
+                     MemorySeedFiles memorySeeds) {
         this.datasource = datasource;
         this.api = api;
         this.apiKey = apiKey;
         this.configured = Map.of("ANTHROPIC_ENVIRONMENT_ID", environmentId, "ANTHROPIC_AGENT_ID", agentId,
                 "ANTHROPIC_MEMORY_STORE_ID", memoryStoreId);
         this.allowNewMemoryStore = allowNewMemoryStore;
+        this.memorySeeds = memorySeeds;
     }
 
     @Override
     public void run(ApplicationArguments args) throws Exception {
         if (apiKey.isBlank()) throw new IllegalStateException("Agent setup requires ANTHROPIC_API_KEY");
         try (var connection = datasource.getConnection()) {
-            new AgentProvisioner(api, allowNewMemoryStore)
+            new AgentProvisioner(api, allowNewMemoryStore, memorySeeds)
                     .provision(connection, configured);
         }
         log.info("Managed Agents setup complete; resource IDs and seed hashes are saved in settings");

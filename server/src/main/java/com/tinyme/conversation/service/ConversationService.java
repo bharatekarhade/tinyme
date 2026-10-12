@@ -9,6 +9,7 @@ import com.tinyme.agent.service.SessionManager;
 import com.tinyme.agent.service.TurnListener;
 import com.tinyme.agent.service.TurnRunner;
 import com.tinyme.settings.UserZone;
+import com.tinyme.maintenance.MaintenanceGate;
 import com.tinyme.conversation.model.ConversationMessageRequest;
 import com.tinyme.conversation.model.ConversationHistory;
 import com.tinyme.conversation.model.ConversationHistoryMessage;
@@ -33,16 +34,19 @@ public class ConversationService implements ConversationOperations {
     private final TurnRunner turns;
     private final AgentSessionRepository agentSessions;
     private final Clock clock;
+    private final MaintenanceGate maintenance;
 
     public ConversationService(SessionManager sessions, MessageRepository messages,
                                TurnRunner turns,
-                               AgentSessionRepository agentSessions, Clock clock, UserZone userZone) {
+                               AgentSessionRepository agentSessions, Clock clock, UserZone userZone,
+                               MaintenanceGate maintenance) {
         this.sessions = Objects.requireNonNull(sessions, "sessions");
         this.messages = Objects.requireNonNull(messages, "messages");
         this.userZone = Objects.requireNonNull(userZone, "userZone");
         this.turns = Objects.requireNonNull(turns, "turns");
         this.agentSessions = Objects.requireNonNull(agentSessions, "agentSessions");
         this.clock = Objects.requireNonNull(clock, "clock");
+        this.maintenance = Objects.requireNonNull(maintenance, "maintenance");
     }
 
     @Override
@@ -61,13 +65,18 @@ public class ConversationService implements ConversationOperations {
     @Override
     public Acceptance accept(ConversationMessageRequest request) throws IOException, InterruptedException {
         Objects.requireNonNull(request, "request");
-        ZoneId zone = resolveZone(request.clientContext());
-        SessionRef session = sessions.todaySession(zone);
+        var permit = maintenance.enterTurn();
         try {
+            ZoneId zone = resolveZone(request.clientContext());
+            SessionRef session = sessions.todaySession(zone);
             UUID userMessageId = messages.insertUser(session.sessionRowId(), request.clientMessageId(), request.text());
-            return new Accepted(session, userMessageId, request.text(), zone);
+            return new Accepted(session, userMessageId, request.text(), zone, permit);
         } catch (MessageRepository.DuplicateMessage duplicate) {
+            permit.close();
             return new Duplicate(duplicate.existingId());
+        } catch (IOException | InterruptedException | RuntimeException | Error failure) {
+            permit.close();
+            throw failure;
         }
     }
 
@@ -76,7 +85,8 @@ public class ConversationService implements ConversationOperations {
         Objects.requireNonNull(accepted, "accepted");
         Objects.requireNonNull(listener, "listener");
         var future = new CompletableFuture<TurnResult>();
-        Thread.ofVirtual().name("tinyme-conversation-turn").start(() -> {
+        try {
+          Thread.ofVirtual().name("tinyme-conversation-turn").start(() -> {
             try {
                 future.complete(turns.run(new TurnRequest(accepted.session(), accepted.userMessageId(),
                         accepted.text(), accepted.zone()), listener));
@@ -85,8 +95,14 @@ public class ConversationService implements ConversationOperations {
                 future.completeExceptionally(interrupted);
             } catch (Throwable failure) {
                 future.completeExceptionally(failure);
+            } finally {
+                accepted.permit().close();
             }
-        });
+          });
+        } catch (RuntimeException | Error failure) {
+            accepted.permit().close();
+            throw failure;
+        }
         return future;
     }
 
@@ -105,8 +121,16 @@ public class ConversationService implements ConversationOperations {
     public sealed interface Acceptance permits Accepted, Duplicate {
     }
 
-    public record Accepted(SessionRef session, UUID userMessageId, String text, ZoneId zone)
+    public record Accepted(SessionRef session, UUID userMessageId, String text, ZoneId zone,
+                           MaintenanceGate.TurnPermit permit)
             implements Acceptance {
+        public Accepted(SessionRef session, UUID userMessageId, String text, ZoneId zone) {
+            this(session, userMessageId, text, zone, MaintenanceGate.detachedPermit());
+        }
+
+        public Accepted {
+            Objects.requireNonNull(permit, "permit");
+        }
     }
 
     public record Duplicate(UUID existingId) implements Acceptance {

@@ -24,14 +24,20 @@ final class AgentProvisioner {
     private static final long LOCK_ID = 724198032;
     private final ManagedAgentApi api;
     private final PathMatchingResourcePatternResolver resources = new PathMatchingResourcePatternResolver();
+    private final MemorySeedFiles memorySeeds;
 
     AgentProvisioner(ManagedAgentApi api) {
         this(api, false);
     }
 
     AgentProvisioner(ManagedAgentApi api, boolean allowNewMemoryStore) {
+        this(api, allowNewMemoryStore, new MemorySeedFiles());
+    }
+
+    AgentProvisioner(ManagedAgentApi api, boolean allowNewMemoryStore, MemorySeedFiles memorySeeds) {
         this.api = api;
         this.allowNewMemoryStore = allowNewMemoryStore;
+        this.memorySeeds = memorySeeds;
     }
 
     Map<String, String> provision(Connection connection, Map<String, String> configured) throws Exception {
@@ -54,11 +60,7 @@ final class AgentProvisioner {
             if (!environment.containsKey("config") || !agent.keySet().containsAll(java.util.List.of("name", "model", "system", "tools"))) {
                 throw new IllegalStateException("Incomplete agent/environment seed configuration");
             }
-            var memories = new LinkedHashMap<String, String>();
-            for (var resource : resources.getResources("classpath*:seed/memories/*.md")) {
-                memories.put("/me/" + resource.getFilename(), resource.getContentAsString(java.nio.charset.StandardCharsets.UTF_8));
-            }
-            if (memories.isEmpty()) throw new IllegalStateException("No classpath memory seeds found");
+            var memories = memorySeeds.load();
             var ids = new LinkedHashMap<String, String>();
             ids.put("ANTHROPIC_ENVIRONMENT_ID", ensure(connection, "env.default", "ANTHROPIC_ENVIRONMENT_ID",
                     "/v1/environments", environment, false, configured));

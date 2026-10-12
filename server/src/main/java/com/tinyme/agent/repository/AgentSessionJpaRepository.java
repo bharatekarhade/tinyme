@@ -11,6 +11,7 @@ import java.util.Optional;
 import java.util.UUID;
 
 interface AgentSessionJpaRepository extends JpaRepository<AgentSessionEntity, UUID> {
+    List<AgentSessionEntity> findAllByOrderByIdAsc();
     Optional<AgentSessionEntity> findByKindAndStatusAndLocalDay(String kind, String status, LocalDate localDay);
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     Optional<AgentSessionEntity> findByIdAndKindAndLocalDay(UUID id, String kind, LocalDate localDay);

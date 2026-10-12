@@ -29,4 +29,8 @@ public class SessionTurnLock {
         }
         lock.unlock();
     }
+
+    public boolean hasActiveTurn() {
+        return locks.values().stream().anyMatch(ReentrantLock::isLocked);
+    }
 }

@@ -4,6 +4,7 @@ import com.tinyme.conversation.model.ConversationMessageRequest;
 import com.tinyme.conversation.model.ConversationHistory;
 import com.tinyme.conversation.service.ConversationOperations;
 import com.tinyme.conversation.service.ConversationService;
+import com.tinyme.maintenance.MaintenanceGate;
 import jakarta.validation.Valid;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
@@ -54,6 +55,9 @@ public class ConversationController {
         final ConversationService.Acceptance acceptance;
         try {
             acceptance = conversations.accept(request);
+        } catch (MaintenanceGate.MaintenanceInProgressException resetting) {
+            throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE,
+                    "TinyMe is resetting, try again in a minute", resetting);
         } catch (ConversationService.InvalidClientTimezoneException invalidZone) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, invalidZone.getMessage(), invalidZone);
         }

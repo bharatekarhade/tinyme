@@ -33,6 +33,13 @@ public class AgentSessionRepository {
                 .toList();
     }
 
+    @Transactional(readOnly = true)
+    public List<String> findAllAnthropicSessionIds() {
+        return sessions.findAllByOrderByIdAsc().stream()
+                .map(AgentSessionEntity::getAnthropicSessionId)
+                .toList();
+    }
+
     // A duplicate insert must finish rolling back before the caller reads the winning row.
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     public SessionRef insertChat(String anthropicSessionId, int agentVersion, LocalDate day) {

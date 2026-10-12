@@ -1,12 +1,17 @@
 package com.tinyme.api.admin;
 
+import com.tinyme.auth.service.CurrentUser;
 import com.tinyme.domain.admin.ExportService;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.validation.Valid;
 import org.springframework.http.CacheControl;
 import org.springframework.http.ContentDisposition;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.server.ResponseStatusException;
@@ -17,9 +22,19 @@ import org.springframework.web.servlet.mvc.method.annotation.StreamingResponseBo
 @RequestMapping("/admin")
 public class AdminController {
     private final ExportService exports;
+    private final DeleteAllService deleteAll;
+    private final CurrentUser currentUser;
 
-    public AdminController(ExportService exports) {
+    public AdminController(ExportService exports, DeleteAllService deleteAll, CurrentUser currentUser) {
         this.exports = exports;
+        this.deleteAll = deleteAll;
+        this.currentUser = currentUser;
+    }
+
+    @PostMapping("/delete-all")
+    public DeleteAllCounts deleteAll(@Valid @RequestBody DeleteAllRequest request, HttpServletRequest servletRequest) {
+        var owner = currentUser.requireOwner();
+        return deleteAll.deleteAll(request.confirm(), request.password(), owner.id(), servletRequest.getRemoteAddr());
     }
 
     @GetMapping(value = "/export", produces = "application/zip")
