@@ -466,6 +466,13 @@ struct ChartBlockView: View {
 
     private var maxValue: Double { max(block.points.compactMap(\.value).max() ?? 0, 0) }
     private var isEmpty: Bool { maxValue == 0 }
+    private var total: Double { block.points.compactMap(\.value).reduce(0, +) }
+    /// What a full-height bar stands for. Daily bars are measured against your usual day too,
+    /// so a lone bar early in the week is tall on a big day and short on a quiet one.
+    private var scaleMax: Double {
+        guard range != .year, let usual = block.averageDay?.baseline else { return maxValue }
+        return max(maxValue, usual)
+    }
     private var today: ChartBlock.Point? { block.points.first { $0.state == "current" } }
 
     private var spacing: CGFloat {
@@ -524,7 +531,9 @@ struct ChartBlockView: View {
         let isPeak = index == block.peakIndex && value > 0
         // With nothing selected, the peak and today carry their value; a selection takes over.
         let isHighlighted = selected == nil ? isPeak : isSelected
-        let fullHeight = maxValue > 0 && !isFuture ? 10 + 78 * value / maxValue : 10
+        // Days with nothing, and days still to come, are a thin line: the eye goes to the bars.
+        let isBlank = isFuture || value <= 0
+        let fullHeight: CGFloat = isBlank ? 3 : 10 + 78 * value / max(scaleMax, value)
         let label = xLabel(index: index, day: point.period)
 
         return VStack(spacing: 6) {
@@ -543,8 +552,8 @@ struct ChartBlockView: View {
                     .zIndex(1)
             }
             Group {
-                if isFuture {
-                    Capsule().strokeBorder(style.accent.opacity(0.3), lineWidth: 1)
+                if isBlank {
+                    Capsule().fill(style.accent.opacity(isFuture ? 0.14 : 0.3))
                 } else if isCurrent && !isSelected {
                     Hatch(color: style.accent.opacity(0.4))
                         .clipShape(Capsule())
@@ -554,7 +563,7 @@ struct ChartBlockView: View {
                 }
             }
             .frame(maxWidth: 34)
-            .frame(height: shown ? fullHeight : 10)
+            .frame(height: shown ? fullHeight : 3)
             Text(label.isEmpty ? " " : label)
                 .textStyle(.caption, weight: .semibold)
                 .fixedSize()
@@ -578,6 +587,8 @@ struct ChartBlockView: View {
         // Nothing selected: the highlighted (peak) bar always carries its number,
         // and so does today when there is room for a second label.
         guard point.state != "future", value > 0 else { return nil }
+        // The only bar with anything in it: its number is the card's headline already.
+        guard value < total else { return nil }
         if index == block.peakIndex { return text }
         return isCurrent && !isCrowded ? text : nil
     }

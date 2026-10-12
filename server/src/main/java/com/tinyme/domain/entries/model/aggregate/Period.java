@@ -24,25 +24,23 @@ public enum Period {
         };
     }
 
+    /**
+     * The whole period before this one: all of last week, last month or last year,
+     * even when the current period has only just begun.
+     */
     public DateRange previous(Range range, LocalDate today) {
         Objects.requireNonNull(today, "today");
         DateRange current = resolve(range, today);
         if (this == THIS_MONTH || this == RANGE && range == Range.MONTH) {
             LocalDate previousFrom = current.from().minusMonths(1);
-            LocalDate end = today.isBefore(current.to()) ? today : current.to();
-            return new DateRange(previousFrom, end.minusMonths(1));
+            return new DateRange(previousFrom, previousFrom.with(TemporalAdjusters.lastDayOfMonth()));
         }
         if (this == THIS_YEAR || this == RANGE && range == Range.YEAR) {
             LocalDate previousFrom = current.from().minusYears(1);
-            LocalDate end = today.isBefore(current.to()) ? today : current.to();
-            return new DateRange(previousFrom, end.minusYears(1));
+            return new DateRange(previousFrom, previousFrom.with(TemporalAdjusters.lastDayOfYear()));
         }
         long span = ChronoUnit.DAYS.between(current.from(), current.to()) + 1L;
-        long elapsed = current.from().isAfter(today) ? span
-                : current.to().isBefore(today) ? span : ChronoUnit.DAYS.between(current.from(), today) + 1L;
-        long days = Math.min(span, elapsed);
-        LocalDate previousFrom = current.from().minusDays(span);
-        return new DateRange(previousFrom, previousFrom.plusDays(days - 1));
+        return new DateRange(current.from().minusDays(span), current.from().minusDays(1));
     }
 
     public static GroupBy autoBucket(Range range) {

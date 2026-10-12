@@ -1,5 +1,6 @@
 package com.tinyme.domain.people.entity;
 
+import com.tinyme.domain.people.model.Birthday;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.GeneratedValue;
@@ -12,6 +13,7 @@ import org.hibernate.generator.EventType;
 import org.hibernate.type.SqlTypes;
 
 import java.time.Instant;
+import java.time.MonthDay;
 import java.util.Arrays;
 import java.util.List;
 import java.util.UUID;
@@ -39,6 +41,15 @@ public class PersonEntity {
 
     @Column(name = "memory_path", nullable = false)
     private String memoryPath;
+
+    @Column(name = "birthday_month")
+    private Short birthdayMonth;
+
+    @Column(name = "birthday_day")
+    private Short birthdayDay;
+
+    @Column(name = "birthday_year")
+    private Short birthdayYear;
 
     @Generated(event = EventType.INSERT)
     @Column(name = "created_at", nullable = false, insertable = false, updatable = false)
@@ -86,6 +97,17 @@ public class PersonEntity {
         return memoryPath;
     }
 
+    public Short getBirthdayMonth() { return birthdayMonth; }
+
+    public Short getBirthdayDay() { return birthdayDay; }
+
+    public Short getBirthdayYear() { return birthdayYear; }
+
+    public Birthday getBirthday() {
+        if (birthdayMonth == null || birthdayDay == null) return null;
+        return new Birthday(MonthDay.of(birthdayMonth, birthdayDay), birthdayYear == null ? null : birthdayYear.intValue());
+    }
+
     public Instant getCreatedAt() {
         return createdAt;
     }
@@ -116,6 +138,12 @@ public class PersonEntity {
 
     public void setMemoryPath(String memoryPath) {
         this.memoryPath = memoryPath;
+    }
+
+    public void setBirthday(Birthday birthday) {
+        this.birthdayMonth = birthday == null ? null : (short) birthday.monthDay().getMonthValue();
+        this.birthdayDay = birthday == null ? null : (short) birthday.monthDay().getDayOfMonth();
+        this.birthdayYear = birthday == null || birthday.year() == null ? null : birthday.year().shortValue();
     }
 
     public void setDeletedAt(Instant deletedAt) {

@@ -55,11 +55,11 @@ class PeriodTests {
     }
 
     @Test
-    void previousToDateOnWednesdayReturnsPreviousMondayThroughWednesday() {
+    void previousWeekOnWednesdayIsTheWholeOfLastWeek() {
         LocalDate monday = LocalDate.of(2026, 10, 5);
         LocalDate wednesday = monday.plusDays(2);
         assertThat(Period.RANGE.previous(Range.WEEK, wednesday))
-                .isEqualTo(new DateRange(monday.minusWeeks(1), monday.minusWeeks(1).plusDays(2)));
+                .isEqualTo(new DateRange(monday.minusWeeks(1), monday.minusDays(1)));
     }
 
     @Test
@@ -67,39 +67,39 @@ class PeriodTests {
         assertThat(Period.THIS_MONTH.previous(Range.MONTH, LocalDate.of(2024, 3, 31)))
                 .isEqualTo(new DateRange(LocalDate.of(2024, 2, 1), LocalDate.of(2024, 2, 29)));
         assertThat(Period.THIS_MONTH.previous(Range.MONTH, LocalDate.of(2026, 10, 15)))
-                .isEqualTo(new DateRange(LocalDate.of(2026, 9, 1), LocalDate.of(2026, 9, 15)));
+                .isEqualTo(new DateRange(LocalDate.of(2026, 9, 1), LocalDate.of(2026, 9, 30)));
         assertThat(Period.THIS_YEAR.previous(Range.YEAR, LocalDate.of(2024, 3, 1)))
-                .isEqualTo(new DateRange(LocalDate.of(2023, 1, 1), LocalDate.of(2023, 3, 1)));
+                .isEqualTo(new DateRange(LocalDate.of(2023, 1, 1), LocalDate.of(2023, 12, 31)));
         assertThat(Period.LAST_30_DAYS.previous(Range.MONTH, LocalDate.of(2026, 9, 30)))
                 .isEqualTo(new DateRange(LocalDate.of(2026, 8, 2), LocalDate.of(2026, 8, 31)));
     }
 
     @Test
-    void previousToDateHandlesAllPeriodsAndRangeEdgesOnWednesday() {
+    void previousHandlesAllPeriodsAndRangeEdgesOnWednesday() {
         assertThat(Period.RANGE.previous(Range.DAY, WEDNESDAY))
                 .isEqualTo(new DateRange(LocalDate.of(2026, 10, 6), LocalDate.of(2026, 10, 6)));
         assertThat(Period.RANGE.previous(Range.WEEK, WEDNESDAY))
-                .isEqualTo(new DateRange(LocalDate.of(2026, 9, 28), LocalDate.of(2026, 9, 30)));
+                .isEqualTo(new DateRange(LocalDate.of(2026, 9, 28), LocalDate.of(2026, 10, 4)));
         assertThat(Period.RANGE.previous(Range.MONTH, WEDNESDAY))
-                .isEqualTo(new DateRange(LocalDate.of(2026, 9, 1), LocalDate.of(2026, 9, 7)));
+                .isEqualTo(new DateRange(LocalDate.of(2026, 9, 1), LocalDate.of(2026, 9, 30)));
         assertThat(Period.RANGE.previous(Range.YEAR, WEDNESDAY))
-                .isEqualTo(new DateRange(LocalDate.of(2025, 1, 1), LocalDate.of(2025, 10, 7)));
+                .isEqualTo(new DateRange(LocalDate.of(2025, 1, 1), LocalDate.of(2025, 12, 31)));
         assertThat(Period.TODAY.previous(Range.WEEK, WEDNESDAY))
                 .isEqualTo(new DateRange(LocalDate.of(2026, 10, 6), LocalDate.of(2026, 10, 6)));
         assertThat(Period.YESTERDAY.previous(Range.WEEK, WEDNESDAY))
                 .isEqualTo(new DateRange(LocalDate.of(2026, 10, 5), LocalDate.of(2026, 10, 5)));
         assertThat(Period.THIS_WEEK.previous(Range.MONTH, WEDNESDAY))
-                .isEqualTo(new DateRange(LocalDate.of(2026, 9, 28), LocalDate.of(2026, 9, 30)));
+                .isEqualTo(new DateRange(LocalDate.of(2026, 9, 28), LocalDate.of(2026, 10, 4)));
         assertThat(Period.LAST_7_DAYS.previous(Range.DAY, WEDNESDAY))
                 .isEqualTo(new DateRange(LocalDate.of(2026, 9, 24), LocalDate.of(2026, 9, 30)));
         assertThat(Period.THIS_MONTH.previous(Range.YEAR, WEDNESDAY))
-                .isEqualTo(new DateRange(LocalDate.of(2026, 9, 1), LocalDate.of(2026, 9, 7)));
+                .isEqualTo(new DateRange(LocalDate.of(2026, 9, 1), LocalDate.of(2026, 9, 30)));
         assertThat(Period.LAST_30_DAYS.previous(Range.MONTH, WEDNESDAY))
                 .isEqualTo(new DateRange(LocalDate.of(2026, 8, 9), LocalDate.of(2026, 9, 7)));
         assertThat(Period.LAST_12_WEEKS.previous(Range.WEEK, WEDNESDAY))
                 .isEqualTo(new DateRange(LocalDate.of(2026, 5, 1), LocalDate.of(2026, 7, 19)));
         assertThat(Period.THIS_YEAR.previous(Range.DAY, WEDNESDAY))
-                .isEqualTo(new DateRange(LocalDate.of(2025, 1, 1), LocalDate.of(2025, 10, 7)));
+                .isEqualTo(new DateRange(LocalDate.of(2025, 1, 1), LocalDate.of(2025, 12, 31)));
     }
 
     @Test

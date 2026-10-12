@@ -86,7 +86,7 @@ class CardEvaluatorIntegrationTests {
         add("expense", WEDNESDAY, LocalTime.of(13, 0), Map.of("amount", 3320, "category", "shopping"));
         add("expense", WEDNESDAY, LocalTime.of(14, 0), Map.of("amount", 2580));
         add("expense", LocalDate.of(2026, 9, 28), LocalTime.NOON, Map.of("amount", 20930, "category", "food"));
-        // A previous-period comparison on Wednesday must exclude the prior Sunday's entry.
+        // Last week's Sunday: counted, because the comparison is with the whole of last week.
         add("expense", LocalDate.of(2026, 10, 4), LocalTime.NOON, Map.of("amount", 7000, "category", "food"));
 
         add("workout", LocalDate.of(2026, 10, 5), LocalTime.of(8, 0), Map.of("type", "Leg day", "minutes", 50));
@@ -117,7 +117,8 @@ class CardEvaluatorIntegrationTests {
 
         var spending = evaluator.evaluate(saveExample("spending", SPENDING), Range.WEEK);
         assertThat(((StatView) spending.blocks().getFirst()).value()).isEqualByComparingTo("18420");
-        assertThat(((StatView) spending.blocks().getFirst()).previous()).isEqualByComparingTo("20930");
+        // The whole of last week, Sunday's 7,000 included, not just its Monday to Wednesday.
+        assertThat(((StatView) spending.blocks().getFirst()).previous()).isEqualByComparingTo("27930");
         var breakdown = (BreakdownView) spending.blocks().get(1);
         assertThat(breakdown.total()).isEqualByComparingTo("18420");
         assertThat(breakdown.slices()).hasSize(3);

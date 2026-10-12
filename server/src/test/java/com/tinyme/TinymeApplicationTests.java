@@ -25,13 +25,13 @@ class TinymeApplicationTests {
     JdbcTemplate jdbc;
 
     @Test
-    void baselineMigrationIsApplied() {
+    void latestMigrationsAreApplied() {
         assertThat(jdbc.queryForObject(
                 "SELECT count(*) FROM flyway_schema_history WHERE version = '1' AND success",
                 Integer.class)).isEqualTo(1);
         assertThat(jdbc.queryForObject("SELECT count(*) FROM entries", Integer.class)).isZero();
         assertThat(jdbc.queryForObject(
-                "SELECT count(*) FROM flyway_schema_history WHERE version = '1.4' AND success",
+                "SELECT count(*) FROM flyway_schema_history WHERE version = '1.5' AND success",
                 Integer.class)).isEqualTo(1);
     }
 

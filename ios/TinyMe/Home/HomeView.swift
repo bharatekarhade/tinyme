@@ -101,14 +101,14 @@ struct HomeView: View {
         }
         .tint(Palette.brandStrong)
         .task {
-            model.load()
+            model.show()
         }
         .onChange(of: model.range) {
-            model.load()
+            model.show()
         }
         .onChange(of: scenePhase) { _, phase in
             if phase == .active {
-                model.load()
+                model.refresh()
             }
         }
     }

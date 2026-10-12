@@ -49,7 +49,7 @@ final class HomeModel {
     private(set) var banner: String?
 
     private let api: APIClient
-    /// Switching back to a range shows its last result at once, then refreshes it.
+    /// The last result per range. Trusted until something changes it (`invalidate`) or the app comes back (`refresh`).
     private var cache: [HomeRange: CardListDTO] = [:]
     private var loadTask: Task<Void, Never>?
     private var bannerTask: Task<Void, Never>?
@@ -57,6 +57,20 @@ final class HomeModel {
     init(api: APIClient) {
         self.api = api
         range = UserDefaults.standard.string(forKey: Self.rangeKey).flatMap(HomeRange.init(rawValue:)) ?? .week
+    }
+
+    /// Shows the current range: from the cache when it has it, without asking the server again.
+    func show() {
+        guard let cached = cache[range] else { return load() }
+        cards = cached.cards
+        phase = .loaded
+    }
+
+    /// The app came back to the front: entries may have changed elsewhere, or the day may have rolled over.
+    /// Reloads this range and forgets the others, so they load fresh when next opened.
+    func refresh() {
+        cache = cache.filter { $0.key == range }
+        load()
     }
 
     /// Starts a load for the current range, cancelling any load still running,
@@ -143,8 +157,10 @@ final class HomeModel {
             async let suggestionsReply: [SuggestionDTO]? = try? api.get(.cardSuggestions)
             let list: CardListDTO = try await api.get(.cards(range: range.rawValue))
             let newSuggestions = await suggestionsReply
-            guard !Task.isCancelled, range == self.range else { return }
+            guard !Task.isCancelled else { return }
+            // Kept even if the user has moved to another range meanwhile: it is fresh for when they come back.
             cache[range] = list
+            guard range == self.range else { return }
             cards = list.cards
             WidgetSnapshot.publish(cards: list.cards, range: range)
             if let newSuggestions {

@@ -97,7 +97,8 @@ class AdminExportTests {
 
         assertThat(files).containsKeys(root + "README.txt", root + "manifest.json",
                 root + "db/entries.jsonl", root + "db/people.jsonl", root + "db/cards.jsonl",
-                root + "db/messages.jsonl", root + "db/tool_calls.jsonl",
+                root + "db/messages.jsonl", root + "db/tool_calls.jsonl", root + "db/plans.jsonl",
+                root + "db/plan_people.jsonl", root + "db/plan_occurrences.jsonl",
                 root + "memory/me/profile.md", root + "memory/me/rules.md", root + "memory/people/kenji.md");
         assertThat(new String(files.get(root + "memory/people/kenji.md"), StandardCharsets.UTF_8))
                 .isEqualTo("Kenji notes");
@@ -121,7 +122,7 @@ class AdminExportTests {
 
         JsonNode manifest = JSON.readTree(files.get(root + "manifest.json"));
         assertThat(manifest.path("format").asString()).isEqualTo("tinyme-export");
-        assertThat(manifest.path("schema_version").asString()).isEqualTo("1.4");
+        assertThat(manifest.path("schema_version").asString()).isEqualTo("1.5");
         assertThat(manifest.path("user_zone").asString()).isEqualTo("Asia/Tokyo");
         assertThat(manifest.path("counts").path("entries").asLong()).isEqualTo(2);
         assertThat(manifest.path("counts").path("people").asLong()).isEqualTo(1);
