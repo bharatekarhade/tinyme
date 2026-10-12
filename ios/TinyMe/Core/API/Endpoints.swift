@@ -10,6 +10,7 @@ struct Endpoint: Sendable {
     static let health = Endpoint(method: "GET", path: "actuator/health", requiresAuth: false)
     static let login = Endpoint(method: "POST", path: "auth/login", requiresAuth: false)
     static let logout = Endpoint(method: "POST", path: "auth/logout")
+    static let dataExport = Endpoint(method: "GET", path: "admin/export")
     static let postMessage = Endpoint(method: "POST", path: "conversations/today/messages")
 
     static let cardSuggestions = Endpoint(method: "GET", path: "cards/suggestions")

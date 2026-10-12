@@ -53,6 +53,10 @@ private struct SettingsPanel: View {
     @AppStorage("voice.sendOnRelease") private var sendOnRelease = false
     @State private var isConfirming = false
     @State private var isSigningOut = false
+    @State private var isExporting = false
+    @State private var exportError: String?
+    @State private var exportNotice: String?
+    @State private var exportFile: DownloadedArchive?
     @State private var status: ServerStatus = .checking
 
     private enum ServerStatus {
@@ -107,6 +111,7 @@ private struct SettingsPanel: View {
                 serverSection(server: account.server)
                 appearanceSection
                 voiceSection
+                dataSection
             }
 
             Spacer(minLength: Space.s2)
@@ -134,6 +139,19 @@ private struct SettingsPanel: View {
         .animation(.snappy(duration: 0.25), value: isConfirming)
         .accessibilityAddTraits(.isModal)
         .task { await checkServer() }
+        .sheet(item: $exportFile, onDismiss: removeExportFile) { file in
+            ActivityShareSheet(items: [file.url])
+                .presentationDetents([.medium, .large])
+                .onDisappear { removeExportFile(file) }
+        }
+        .alert("Couldn't export your data", isPresented: Binding(
+            get: { exportError != nil },
+            set: { if !$0 { exportError = nil } }
+        )) {
+            Button("OK") { exportError = nil }
+        } message: {
+            Text(exportError ?? "Please try again.")
+        }
     }
 
     // MARK: - Pieces
@@ -219,6 +237,48 @@ private struct SettingsPanel: View {
                 }
             }
             .tint(Palette.brand)
+            .padding(.horizontal, 18)
+            .padding(.vertical, 14)
+            .background(card)
+        }
+    }
+
+    private var dataSection: some View {
+        VStack(alignment: .leading, spacing: Space.s2) {
+            Text("Your data")
+                .textStyle(.label, weight: .semibold)
+                .foregroundStyle(Palette.inkMuted)
+                .padding(.horizontal, 4)
+            VStack(alignment: .leading, spacing: Space.s2) {
+                Button(action: exportData) {
+                    HStack(spacing: Space.s2) {
+                        if isExporting {
+                            ProgressView()
+                                .tint(Palette.brand)
+                        } else {
+                            Image(systemName: "square.and.arrow.down")
+                        }
+                        Text(isExporting ? "Preparing your export…" : "Export my data")
+                            .textStyle(.label, weight: .semibold)
+                        Spacer()
+                    }
+                    .frame(maxWidth: .infinity)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.pressable)
+                .disabled(isExporting)
+                .accessibilityHint("Downloads a ZIP of your database and memory notes, then opens the share sheet.")
+
+                Text("Your ZIP includes your journal and memory notes. Its manifest reports if memory notes couldn't be included.")
+                    .textStyle(.caption)
+                    .foregroundStyle(Palette.inkMuted)
+                if let exportNotice {
+                    Text(exportNotice)
+                        .textStyle(.caption, weight: .semibold)
+                        .foregroundStyle(Palette.accent)
+                        .accessibilityAddTraits(.updatesFrequently)
+                }
+            }
             .padding(.horizontal, 18)
             .padding(.vertical, 14)
             .background(card)
@@ -333,6 +393,39 @@ private struct SettingsPanel: View {
         Task {
             await session.signOut()   // RootView swaps to Login, which takes this sheet with it
         }
+    }
+
+    private func exportData() {
+        guard !isExporting, let api = session.api else { return }
+        isExporting = true
+        Task {
+            defer { isExporting = false }
+            do {
+                let archive = try await api.downloadArchive(.dataExport)
+                exportNotice = archive.memoryWarning
+                        ? "Exported, but your memory notes couldn't be included."
+                        : "Export ready. Check manifest.json for memory export status."
+                exportFile = archive
+            } catch APIError.server(status: 409, _, _) {
+                exportError = "An export is already running. Try again in a minute."
+            } catch is URLError {
+                exportError = "Couldn't reach your server. Check your connection and try again."
+            } catch APIError.unauthorized {
+                exportError = "Your sign-in expired. Sign in again to export your data."
+            } catch {
+                exportError = "The export couldn't be prepared. Please try again."
+            }
+        }
+    }
+
+    private func removeExportFile() {
+        guard let exportFile else { return }
+        removeExportFile(exportFile)
+    }
+
+    private func removeExportFile(_ file: DownloadedArchive) {
+        try? FileManager.default.removeItem(at: file.url.deletingLastPathComponent())
+        if exportFile?.id == file.id { exportFile = nil }
     }
 
     // MARK: - Text

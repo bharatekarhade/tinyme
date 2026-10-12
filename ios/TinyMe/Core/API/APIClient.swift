@@ -16,6 +16,20 @@ enum APIError: Error, Equatable {
     case streamEndedEarly
 }
 
+struct DownloadedArchive: Identifiable, Sendable {
+    let id: UUID
+    let url: URL
+    let filename: String
+    let memoryWarning: Bool
+
+    init(url: URL, filename: String, memoryWarning: Bool) {
+        self.id = UUID()
+        self.url = url
+        self.filename = filename
+        self.memoryWarning = memoryWarning
+    }
+}
+
 /// Talks to one server: builds requests, adds the device token, decodes replies and maps failures to `APIError`.
 actor APIClient {
     private static let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "TinyMe", category: "api")
@@ -82,6 +96,39 @@ actor APIClient {
 
     func send(_ endpoint: Endpoint) async throws {
         _ = try await data(for: try await authorizedRequest(endpoint), endpoint)
+    }
+
+    /// Downloads a large response to a uniquely named temporary file instead of loading it into memory.
+    func downloadArchive(_ endpoint: Endpoint) async throws -> DownloadedArchive {
+        var request = try await authorizedRequest(endpoint)
+        request.timeoutInterval = 300
+        let (temporaryURL, response) = try await session.download(for: request)
+        let statusCode = (response as? HTTPURLResponse)?.statusCode ?? 0
+        let errorBody = statusCode >= 400
+                ? (try? Data(contentsOf: temporaryURL)) ?? Data()
+                : Data()
+        do {
+            try await validate(response, data: errorBody, for: endpoint)
+        } catch {
+            try? FileManager.default.removeItem(at: temporaryURL)
+            throw error
+        }
+
+        let http = response as? HTTPURLResponse
+        let suggested = response.suggestedFilename?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let filename = Self.safeDownloadFilename(suggested) ?? "tinyme-export.zip"
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("TinyMeExport-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let destination = directory.appendingPathComponent(filename)
+        do {
+            try FileManager.default.moveItem(at: temporaryURL, to: destination)
+        } catch {
+            try? FileManager.default.removeItem(at: directory)
+            throw error
+        }
+        let warning = http?.value(forHTTPHeaderField: "X-TinyMe-Export-Warnings")
+        return DownloadedArchive(url: destination, filename: filename, memoryWarning: warning == "memory")
     }
 
     func postActionResult(_ actionId: String, _ result: ActionResult) async throws {
@@ -151,6 +198,13 @@ actor APIClient {
             Self.log.error("Couldn't decode the reply from \(endpoint.path, privacy: .public): \(String(describing: error), privacy: .public)")
             throw APIError.decoding(String(describing: error))
         }
+    }
+
+    private static func safeDownloadFilename(_ suggested: String?) -> String? {
+        guard let suggested, !suggested.isEmpty else { return nil }
+        let filename = URL(fileURLWithPath: suggested).lastPathComponent
+        guard !filename.isEmpty, filename != ".", filename != ".." else { return nil }
+        return filename
     }
 }
 
