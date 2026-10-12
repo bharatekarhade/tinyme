@@ -207,8 +207,11 @@ public class CardEvaluator {
         DateRange dates = scope.dates();
         GroupBy groupBy = scope.bucket();
         AggregateResult result = aggregate(scope.metric(), dates, groupBy);
+        Map<LocalDate, String> activities = entries.activityTypesByDay(scope.metric().kinds(),
+                scope.metric().where(), dates.from(), dates.to());
         List<Slot> slots = result.buckets().stream().map(bucket -> new Slot(bucket.period(),
-                state(bucket.period(), groupBy, actualToday), bucket.entries() > 0)).toList();
+                state(bucket.period(), groupBy, actualToday), bucket.entries() > 0,
+                activities.get(bucket.period()))).toList();
         int done = (int) slots.stream().filter(Slot::done).count();
         return new CheckinsView(block.label(), slots, done,
                 applies(block.goalPeriod(), block.period(), BlockScope.checkinsRange(block.period(), range))

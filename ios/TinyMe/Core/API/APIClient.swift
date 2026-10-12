@@ -171,7 +171,7 @@ actor APIClient {
         case 200..<300:
             return
         case 401:
-            if endpoint.requiresAuth, !reportedUnauthorized {
+            if endpoint.requiresAuth, endpoint.signsOutOnUnauthorized, !reportedUnauthorized {
                 reportedUnauthorized = true
                 await onUnauthorized()
             }

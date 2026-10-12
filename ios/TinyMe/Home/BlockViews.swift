@@ -35,8 +35,13 @@ struct BlockView: View {
                 }
             }
         case .chart(let chart):
-            withAverage {
-                ChartBlockView(block: chart, range: range, onOpenDay: onTap.map { tap in { tap(.point($0)) } })
+            // Day charts are widened to a seven-day view for today. For a historical
+            // day selection, that rolling chart is misleading; the stat already shows
+            // the value for the selected date.
+            if range != .day || period.isCurrent {
+                withAverage {
+                    ChartBlockView(block: chart, range: range, onOpenDay: onTap.map { tap in { tap(.point($0)) } })
+                }
             }
         case .latest(let latest):
             tappable { LatestBlockView(block: latest) }
@@ -575,13 +580,172 @@ struct ChartBlockView: View {
 
     var body: some View {
         Group {
-            if range == .day, let today {
+            if block.style == "line" {
+                lineChart
+            } else if block.style == "dots" {
+                dotChart
+            } else if range == .day, let today {
                 TodayMarks(label: block.label, value: today.value ?? 0, best: bestOtherDay)
             } else {
                 bars
             }
         }
         .revealOnScroll($shown)
+    }
+
+    /// A light weekly rhythm view: one mark per period, with size showing volume.
+    private var dotChart: some View {
+        VStack(alignment: .leading, spacing: Space.s3) {
+            if isEmpty {
+                Text("No entries yet")
+                    .textStyle(.caption)
+                    .foregroundStyle(style.muted)
+            }
+            if block.points.count <= 7 {
+                HStack(spacing: 4) {
+                    ForEach(Array(block.points.enumerated()), id: \.offset) { index, point in
+                        dotPoint(index: index, point: point)
+                            .frame(maxWidth: .infinity)
+                    }
+                }
+                .frame(height: 54)
+            } else {
+                LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 4), count: 7), spacing: 8) {
+                    ForEach(Array(block.points.enumerated()), id: \.offset) { index, point in
+                        dotPoint(index: index, point: point)
+                    }
+                }
+            }
+            if let selected, block.points.indices.contains(selected) {
+                selectedCaption(block.points[selected])
+            }
+        }
+        .sensoryFeedback(.selection, trigger: selected)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(summary)
+    }
+
+    private func dotPoint(index: Int, point: ChartBlock.Point) -> some View {
+        let value = max(0, point.value ?? 0)
+        let isSelected = selected == index
+        let isFuture = point.state == "future"
+        let isCurrent = point.state == "current"
+        let diameter: CGFloat = value == 0 ? 9 : 12 + 10 * value / max(scaleMax, 1)
+        return VStack(spacing: 7) {
+            Spacer(minLength: 0)
+            Circle()
+                .fill(isFuture || value == 0 ? style.track : style.accent.opacity(isSelected ? 1 : 0.82))
+                .frame(width: diameter, height: diameter)
+                .overlay {
+                    if isFuture || isCurrent {
+                        Circle().strokeBorder(style.accent.opacity(isFuture ? 0.5 : 0.9),
+                                              style: StrokeStyle(lineWidth: isCurrent ? 2 : 1.5,
+                                                                 dash: isFuture ? [3, 2] : []))
+                    }
+                }
+                .overlay {
+                    if isSelected { Circle().stroke(style.foreground.opacity(0.35), lineWidth: 2).padding(-4) }
+                }
+            Text(dotLabel(index: index, day: point.period))
+                .textStyle(.caption, weight: isCurrent ? .bold : .medium)
+                .foregroundStyle(isCurrent ? style.foreground : style.muted)
+                .lineLimit(1)
+        }
+        .frame(maxWidth: .infinity)
+        .frame(height: 54)
+        .contentShape(Rectangle())
+        .onTapGesture {
+            if index == selected, let onOpenDay { onOpenDay(point.period) }
+            else if !isFuture { withAnimation(.snappy(duration: 0.2)) { selected = index } }
+        }
+        .growIn(shown, delay: min(Double(index) * 0.025, 0.5))
+    }
+
+    private func dotLabel(index: Int, day: LocalDay) -> String {
+        if block.points.count <= 7 { return xLabel(index: index, day: day) }
+        return index % 5 == 0 || index == block.points.count - 1 ? "\(day.day)" : " "
+    }
+
+    /// A quiet, thin trend stroke with distinct markers for today and future dates.
+    private var lineChart: some View {
+        VStack(alignment: .leading, spacing: Space.s2) {
+            if isEmpty {
+                Text("No entries yet")
+                    .textStyle(.caption)
+                    .foregroundStyle(style.muted)
+            }
+            GeometryReader { geometry in
+                let plotHeight = max(geometry.size.height - 22, 1)
+                let coords = lineCoordinates(width: geometry.size.width, height: plotHeight)
+                ZStack(alignment: .topLeading) {
+                    Canvas { context, size in
+                        var baseline = Path()
+                        baseline.move(to: CGPoint(x: 0, y: plotHeight))
+                        baseline.addLine(to: CGPoint(x: size.width, y: plotHeight))
+                        context.stroke(baseline, with: .color(style.track), style: StrokeStyle(lineWidth: 1, dash: [4, 4]))
+                        guard let first = coords.first else { return }
+                        var path = Path()
+                        path.move(to: first.point)
+                        for item in coords.dropFirst() { path.addLine(to: item.point) }
+                        context.stroke(path, with: .color(style.accent), style: StrokeStyle(lineWidth: 3, lineCap: .round, lineJoin: .round))
+                    }
+                    ForEach(coords, id: \.index) { item in
+                        let point = block.points[item.index]
+                        Circle()
+                            .fill(point.state == "current" ? style.pillBackground : style.accent)
+                            .frame(width: selected == item.index ? 13 : 9, height: selected == item.index ? 13 : 9)
+                            .overlay(Circle().stroke(style.accent, lineWidth: point.state == "current" ? 2 : 0))
+                            .position(item.point)
+                    }
+                    HStack(alignment: .bottom, spacing: 0) {
+                        ForEach(Array(block.points.enumerated()), id: \.offset) { index, point in
+                            Text(xLabel(index: index, day: point.period).isEmpty ? " " : xLabel(index: index, day: point.period))
+                                .textStyle(.caption, weight: .semibold)
+                                .foregroundStyle(point.state == "current" ? style.foreground : style.muted)
+                                .lineLimit(1)
+                                .frame(maxWidth: .infinity)
+                        }
+                    }
+                    .frame(height: 18)
+                    .offset(y: plotHeight + 4)
+                }
+                .contentShape(Rectangle())
+                .gesture(SpatialTapGesture().onEnded { tap in
+                    select(at: tap.location.x, width: geometry.size.width)
+                })
+            }
+            .frame(height: 118)
+            if let selected, block.points.indices.contains(selected) {
+                selectedCaption(block.points[selected])
+            }
+        }
+        .sensoryFeedback(.selection, trigger: selected)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(summary)
+    }
+
+    private func lineCoordinates(width: CGFloat, height: CGFloat) -> [LineCoordinate] {
+        guard !block.points.isEmpty else { return [] }
+        let maxY = max(scaleMax, 1)
+        let usableHeight = max(height - 8, 1)
+        return block.points.enumerated().compactMap { index, point in
+            guard point.state != "future", let value = point.value else { return nil }
+            let x = block.points.count == 1 ? width / 2 : width * CGFloat(index) / CGFloat(block.points.count - 1)
+            let y = usableHeight - CGFloat(max(0, value) / maxY) * (usableHeight - 8) + 4
+            return LineCoordinate(index: index, point: CGPoint(x: x, y: y))
+        }
+    }
+
+    private func selectedCaption(_ point: ChartBlock.Point) -> some View {
+        Text("\(point.period.description) · \(Formatters.number(point.value ?? 0))\(point.state == "current" ? " so far" : "")")
+            .textStyle(.caption, weight: .semibold)
+            .foregroundStyle(style.muted)
+    }
+
+    private struct LineCoordinate: Identifiable {
+        let index: Int
+        let point: CGPoint
+        var id: Int { index }
     }
 
     // MARK: Bars
@@ -920,18 +1084,49 @@ struct CheckinsBlockView: View {
                 HStack(spacing: 6) {
                     ForEach(Array(block.slots.enumerated()), id: \.offset) { index, slot in
                         VStack(spacing: 6) {
-                            dot(slot, size: 34, index: index)
+                            dot(slot, size: 16, index: index)
                             Text(letter(for: slot.period))
                                 .textStyle(.caption, weight: .semibold)
                                 .foregroundStyle(style.muted)
+                            if let activity = slot.activity {
+                                Text(activity)
+                                    .font(.system(size: 9, weight: .medium))
+                                    .foregroundStyle(style.muted)
+                                    .lineLimit(1)
+                                    .minimumScaleFactor(0.65)
+                            }
                         }
                         .frame(maxWidth: .infinity)
                     }
                 }
             } else {
-                LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 6), count: min(block.slots.count, 7)), spacing: 6) {
-                    ForEach(Array(block.slots.enumerated()), id: \.offset) { index, slot in
-                        dot(slot, size: 30, index: index, label: gridLabel(for: slot.period))
+                if range == .year {
+                    LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: 4), spacing: 10) {
+                        ForEach(Array(block.slots.enumerated()), id: \.offset) { index, slot in
+                            habitCell(slot, index: index)
+                        }
+                    }
+                } else {
+                    VStack(spacing: 6) {
+                        HStack(spacing: 4) {
+                            ForEach(Calendar.current.veryShortStandaloneWeekdaySymbols.indices, id: \.self) { index in
+                                Text(Calendar.current.veryShortStandaloneWeekdaySymbols[(index + 1) % 7])
+                                    .textStyle(.caption, weight: .semibold)
+                                    .foregroundStyle(style.muted)
+                                    .frame(maxWidth: .infinity)
+                            }
+                        }
+                        LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 5), count: 7), spacing: 5) {
+                            if let first = block.slots.first, let date = first.period.date() {
+                                let weekday = Calendar.current.component(.weekday, from: date)
+                                ForEach(0..<((weekday + 5) % 7), id: \.self) { _ in
+                                    Color.clear.frame(height: 34)
+                                }
+                            }
+                            ForEach(Array(block.slots.enumerated()), id: \.offset) { index, slot in
+                                habitCell(slot, index: index)
+                            }
+                        }
                     }
                 }
             }
@@ -942,18 +1137,10 @@ struct CheckinsBlockView: View {
     }
 
     @ViewBuilder
-    private func dot(_ slot: CheckinsBlock.Slot, size: CGFloat, index: Int, label: String? = nil) -> some View {
+    private func dot(_ slot: CheckinsBlock.Slot, size: CGFloat, index: Int) -> some View {
         Group {
             if slot.done {
-                ZStack {
-                    Circle().fill(style.accent)
-                    if let label {
-                        Text(label).textStyle(.caption, weight: .semibold)
-                    } else {
-                        Image(systemName: "checkmark").font(.system(size: 13, weight: .bold))
-                    }
-                }
-                .foregroundStyle(style.onAccent)
+                Circle().fill(style.accent)
             } else {
                 ZStack {
                     switch slot.state {
@@ -963,9 +1150,6 @@ struct CheckinsBlockView: View {
                         Circle().strokeBorder(style.accent, lineWidth: 1.5)
                     default:
                         Circle().fill(style.track)
-                    }
-                    if let label {
-                        Text(label).textStyle(.caption).foregroundStyle(style.muted)
                     }
                 }
             }
@@ -982,8 +1166,53 @@ struct CheckinsBlockView: View {
         }
     }
 
+    private func habitCell(_ slot: CheckinsBlock.Slot, index: Int) -> some View {
+        let isFuture = slot.state == "future"
+        let isCurrent = slot.state == "current"
+        return ZStack {
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .fill(slot.done ? style.accent : (isFuture ? style.track.opacity(0.45) : style.track))
+            if isCurrent {
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .strokeBorder(style.accent, lineWidth: 1.5)
+            }
+            VStack(spacing: 1) {
+                Text(range == .year ? monthLetter(slot.period) : "\(slot.period.day)")
+                    .textStyle(.caption, weight: isCurrent ? .bold : .medium)
+                if let activity = slot.activity {
+                    Text(activity)
+                        .font(.system(size: 8, weight: .medium))
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.55)
+                }
+            }
+            .foregroundStyle(slot.done ? style.onAccent : style.muted)
+        }
+        .frame(maxWidth: .infinity)
+        .frame(height: 34)
+        .overlay {
+            if isFuture {
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .strokeBorder(style.accent.opacity(0.45), style: StrokeStyle(lineWidth: 1, dash: [3, 2]))
+            }
+        }
+        .scaleEffect(shown ? 1 : 0.86)
+        .opacity(shown ? 1 : 0)
+        .contentShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .accessibilityLabel("\(slot.period.description)\(slot.activity.map { ", \($0)" } ?? "")\(slot.done ? ", completed" : "")")
+        .onTapGesture {
+            if !isFuture { onSlot?(slot.period) }
+        }
+        .growIn(shown, delay: min(Double(index) * 0.015, 0.4))
+    }
+
     private var caption: String {
-        guard let goal = block.goal else { return block.label }
+        guard let goal = block.goal else {
+            if let streak = block.streak, streak.current > 0 {
+                return "\(block.label) · \(streak.current)-day streak"
+            }
+            return "\(block.label) · days active"
+        }
         let left = goal - block.doneCount
         return left > 0 ? "\(block.label) · \(left) more to hit your goal" : "\(block.label) · goal reached"
     }
@@ -994,8 +1223,8 @@ struct CheckinsBlockView: View {
         return calendar.veryShortWeekdaySymbols[calendar.component(.weekday, from: date) - 1]
     }
 
-    private func gridLabel(for day: LocalDay) -> String {
-        range == .year ? Calendar.current.veryShortMonthSymbols[day.month - 1] : "\(day.day)"
+    private func monthLetter(_ day: LocalDay) -> String {
+        Calendar.current.veryShortMonthSymbols[day.month - 1]
     }
 }
 

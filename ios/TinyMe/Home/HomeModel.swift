@@ -257,6 +257,11 @@ final class HomeModel {
         let ids: [String]
     }
 
+    /// Shows a short-lived message at the top of Home.
+    func announce(_ message: String) {
+        show(banner: message)
+    }
+
     private func show(banner message: String) {
         banner = message
         bannerTask?.cancel()

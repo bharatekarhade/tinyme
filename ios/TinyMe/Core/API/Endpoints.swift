@@ -6,11 +6,14 @@ struct Endpoint: Sendable {
     var query: [URLQueryItem] = []
     /// False for the routes that work before sign-in.
     var requiresAuth = true
+    /// False where a 401 means "wrong password", not "this phone's sign-in was rejected".
+    var signsOutOnUnauthorized = true
 
     static let health = Endpoint(method: "GET", path: "actuator/health", requiresAuth: false)
     static let login = Endpoint(method: "POST", path: "auth/login", requiresAuth: false)
     static let logout = Endpoint(method: "POST", path: "auth/logout")
     static let dataExport = Endpoint(method: "GET", path: "admin/export")
+    static let deleteAll = Endpoint(method: "POST", path: "admin/delete-all", signsOutOnUnauthorized: false)
     static let postMessage = Endpoint(method: "POST", path: "conversations/today/messages")
 
     static let cardSuggestions = Endpoint(method: "GET", path: "cards/suggestions")

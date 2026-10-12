@@ -136,7 +136,10 @@ class CardEvaluatorIntegrationTests {
         assertThat(checkins.slots()).hasSize(7);
         assertThat(checkins.slots().getFirst().period()).isEqualTo(LocalDate.of(2026, 10, 5));
         assertThat(checkins.doneCount()).isEqualTo(3);
+        assertThat(checkins.slots().getFirst().activity()).isEqualTo("Leg day");
+        assertThat(checkins.slots().get(1).activity()).isEqualTo("Run");
         assertThat(checkins.slots().get(2).period()).isEqualTo(WEDNESDAY);
+        assertThat(checkins.slots().get(2).activity()).isEqualTo("Push day");
         assertThat(checkins.slots().get(2).state()).isEqualTo("current");
         assertThat(checkins.slots().get(3).state()).isEqualTo("future");
         assertThat(checkins.slots().getLast().done()).isFalse();
@@ -183,6 +186,16 @@ class CardEvaluatorIntegrationTests {
         var historicalWeek = evaluator.evaluate(journal, Range.WEEK, LocalDate.of(2026, 9, 30));
 
         assertThat(historicalWeek.badge().days()).isEqualTo(3);
+    }
+
+    @Test
+    void checkinSlotHasNoActivityLabelWhenWorkoutTypeWasNotLogged() {
+        add("workout", LocalDate.of(2026, 10, 5), LocalTime.of(8, 0), Map.of("minutes", 25));
+        var gym = evaluator.evaluate(saveExample("gym-no-type", GYM), Range.MONTH, LocalDate.of(2026, 10, 1));
+        var checkins = (CheckinsView) gym.blocks().getFirst();
+
+        assertThat(checkins.slots().get(4).done()).isTrue();
+        assertThat(checkins.slots().get(4).activity()).isNull();
     }
 
     @Test

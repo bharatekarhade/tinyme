@@ -8,6 +8,8 @@ import UIKit
 struct SettingsSheet: View {
     @Binding var isPresented: Bool
     var session: SessionModel
+    /// Called after "Delete all data" succeeded on the server.
+    var onDataDeleted: () -> Void = {}
 
     @State private var dragOffset: CGFloat = 0
 
@@ -19,7 +21,7 @@ struct SettingsSheet: View {
                     .onTapGesture(perform: close)
                     .transition(.opacity)
                     .accessibilityHidden(true)
-                SettingsPanel(session: session, onClose: close)
+                SettingsPanel(session: session, onClose: close, onDataDeleted: onDataDeleted)
                     .offset(y: dragOffset)
                     .gesture(dragToDismiss)
                     .transition(.offset(y: 800))
@@ -48,6 +50,7 @@ struct SettingsSheet: View {
 private struct SettingsPanel: View {
     var session: SessionModel
     var onClose: () -> Void
+    var onDataDeleted: () -> Void
 
     @AppStorage(Appearance.storageKey) private var appearance: Appearance = .system
     @AppStorage("voice.sendOnRelease") private var sendOnRelease = false
@@ -57,6 +60,7 @@ private struct SettingsPanel: View {
     @State private var exportError: String?
     @State private var exportNotice: String?
     @State private var exportFile: DownloadedArchive?
+    @State private var showsDeleteAll = false
     @State private var status: ServerStatus = .checking
 
     private enum ServerStatus {
@@ -84,6 +88,54 @@ private struct SettingsPanel: View {
     }
 
     var body: some View {
+        // As tall as its content when that fits the screen; otherwise full height with the sections scrolling.
+        ViewThatFits(in: .vertical) {
+            layout(scrolls: false)
+            layout(scrolls: true)
+        }
+        .foregroundStyle(Palette.ink)
+        .background {
+            UnevenRoundedRectangle(topLeadingRadius: 36, topTrailingRadius: 36, style: .continuous)
+                .fill(Palette.surface)
+                .shadow(color: .black.opacity(0.18), radius: 20, y: -12)
+                .ignoresSafeArea(edges: .bottom)
+        }
+        .animation(.snappy(duration: 0.25), value: isConfirming)
+        .accessibilityAddTraits(.isModal)
+        .task { await checkServer() }
+        .sheet(item: $exportFile, onDismiss: removeExportFile) { file in
+            ActivityShareSheet(items: [file.url])
+                .presentationDetents([.medium, .large])
+                .onDisappear { removeExportFile(file) }
+        }
+        .sheet(isPresented: $showsDeleteAll) {
+            if let api = session.api {
+                DeleteAllSheet(
+                    api: api,
+                    onExportFirst: {
+                        showsDeleteAll = false
+                        exportData()
+                    },
+                    onDeleted: {
+                        showsDeleteAll = false
+                        onDataDeleted()
+                    }
+                )
+            }
+        }
+        .alert("Couldn't export your data", isPresented: Binding(
+            get: { exportError != nil },
+            set: { if !$0 { exportError = nil } }
+        )) {
+            Button("OK") { exportError = nil }
+        } message: {
+            Text(exportError ?? "Please try again.")
+        }
+    }
+
+    // MARK: - Pieces
+
+    private func layout(scrolls: Bool) -> some View {
         VStack(alignment: .leading, spacing: 18) {
             Capsule()
                 .fill(Palette.inkMuted.opacity(0.3))
@@ -106,15 +158,18 @@ private struct SettingsPanel: View {
                 .accessibilityLabel("Close settings")
             }
 
-            if let account {
-                accountCard(email: account.email)
-                serverSection(server: account.server)
-                appearanceSection
-                voiceSection
-                dataSection
+            if scrolls {
+                ScrollView {
+                    sections
+                        .padding(.horizontal, Space.s4)   // room for the cards' shadows inside the scroll area
+                        .padding(.bottom, Space.s4)
+                }
+                .scrollIndicators(.hidden)
+                .padding(.horizontal, -Space.s4)
+            } else {
+                sections
+                Spacer(minLength: Space.s2)
             }
-
-            Spacer(minLength: Space.s2)
 
             if isConfirming {
                 confirmCard
@@ -127,34 +182,23 @@ private struct SettingsPanel: View {
         .padding(.horizontal, Space.s4)
         .padding(.top, 10)
         .padding(.bottom, Space.s4)
-        .frame(minHeight: 560, alignment: .top)
-        .fixedSize(horizontal: false, vertical: true)   // as tall as its content, not the whole screen
-        .foregroundStyle(Palette.ink)
-        .background {
-            UnevenRoundedRectangle(topLeadingRadius: 36, topTrailingRadius: 36, style: .continuous)
-                .fill(Palette.surface)
-                .shadow(color: .black.opacity(0.18), radius: 20, y: -12)
-                .ignoresSafeArea(edges: .bottom)
-        }
-        .animation(.snappy(duration: 0.25), value: isConfirming)
-        .accessibilityAddTraits(.isModal)
-        .task { await checkServer() }
-        .sheet(item: $exportFile, onDismiss: removeExportFile) { file in
-            ActivityShareSheet(items: [file.url])
-                .presentationDetents([.medium, .large])
-                .onDisappear { removeExportFile(file) }
-        }
-        .alert("Couldn't export your data", isPresented: Binding(
-            get: { exportError != nil },
-            set: { if !$0 { exportError = nil } }
-        )) {
-            Button("OK") { exportError = nil }
-        } message: {
-            Text(exportError ?? "Please try again.")
+        .frame(minHeight: scrolls ? nil : 560, alignment: .top)
+        .fixedSize(horizontal: false, vertical: !scrolls)
+    }
+
+    @ViewBuilder
+    private var sections: some View {
+        if let account {
+            VStack(alignment: .leading, spacing: 18) {
+                accountCard(email: account.email)
+                serverSection(server: account.server)
+                appearanceSection
+                voiceSection
+                dataSection
+            }
         }
     }
 
-    // MARK: - Pieces
 
     private func accountCard(email: String) -> some View {
         HStack(spacing: 14) {
@@ -278,6 +322,24 @@ private struct SettingsPanel: View {
                         .foregroundStyle(Palette.accent)
                         .accessibilityAddTraits(.updatesFrequently)
                 }
+                divider
+                    .padding(.vertical, 4)
+                Button {
+                    showsDeleteAll = true
+                } label: {
+                    HStack(spacing: Space.s2) {
+                        Image(systemName: "trash")
+                        Text("Delete all data")
+                            .textStyle(.label, weight: .semibold)
+                        Spacer()
+                    }
+                    .foregroundStyle(Palette.danger)
+                    .frame(maxWidth: .infinity)
+                    .frame(minHeight: 28)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.pressable)
+                .accessibilityHint("Asks for your password first.")
             }
             .padding(.horizontal, 18)
             .padding(.vertical, 14)

@@ -45,7 +45,18 @@ struct MainView: View {
             }
         }
         .overlay {
-            SettingsSheet(isPresented: $router.showsSettings, session: environment.session)
+            SettingsSheet(isPresented: $router.showsSettings, session: environment.session) { [home, router] in
+                // Everything on the server is gone: drop what this phone still holds and start again on Home.
+                router.showsSettings = false
+                router.showsEntry = false
+                router.homePath = []
+                router.tab = .home
+                router.historyIsStale = true
+                Task { await environment.outbox.clear() }
+                WidgetSnapshot.clearAndReload()
+                home.invalidate()
+                home.announce("All your data was deleted.")
+            }
         }
         .overlay {
             BottomPanel(isPresented: $router.showsEntry) {

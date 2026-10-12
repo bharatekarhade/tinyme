@@ -292,6 +292,34 @@ public class EntryRepository {
     }
 
     @Transactional(readOnly = true)
+    public Map<LocalDate, String> activityTypesByDay(List<String> kinds, Map<String, Object> where,
+                                                     LocalDate from, LocalDate to) {
+        Objects.requireNonNull(kinds, "kinds");
+        Objects.requireNonNull(where, "where");
+        Objects.requireNonNull(from, "from");
+        Objects.requireNonNull(to, "to");
+        MapSqlParameterSource params = new MapSqlParameterSource().addValue("from", from).addValue("to", to);
+        String filter = "deleted_at IS NULL AND local_day BETWEEN :from AND :to "
+                + "AND jsonb_typeof(data -> 'type') = 'string' "
+                + "AND nullif(btrim(data ->> 'type'), '') IS NOT NULL";
+        if (!kinds.equals(List.of("*"))) {
+            filter += " AND kind IN (:kinds)";
+            params.addValue("kinds", kinds.stream().distinct().toList());
+        }
+        if (!where.isEmpty()) {
+            filter += " AND data @> CAST(:where AS jsonb)";
+            params.addValue("where", JSON.writeValueAsString(where));
+        }
+        String type = "nullif(btrim(data ->> 'type'), '')";
+        String sql = "SELECT local_day, string_agg(DISTINCT " + type + ", ', ' ORDER BY " + type
+                + ") AS activity FROM entries WHERE " + filter + " GROUP BY local_day";
+        Map<LocalDate, String> result = new LinkedHashMap<>();
+        jdbc.query(sql, params, (org.springframework.jdbc.core.RowCallbackHandler) rs ->
+                result.put(rs.getObject("local_day", LocalDate.class), rs.getString("activity")));
+        return Map.copyOf(result);
+    }
+
+    @Transactional(readOnly = true)
     public Optional<EntrySnapshot> findLive(UUID id) {
         Objects.requireNonNull(id, "id");
         return entries.findByIdAndDeletedAtIsNull(id)

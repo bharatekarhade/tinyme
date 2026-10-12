@@ -86,6 +86,17 @@ actor OutboxWorker {
         broadcastQueue()
     }
 
+    /// Forgets every message, sent or not. For after "Delete all data": nothing queued should land in the fresh log.
+    func clear() {
+        prepare()
+        for item in items() {
+            modelContext.delete(item)
+        }
+        acceptedAs.removeAll()
+        save()
+        broadcastQueue()
+    }
+
     func snapshot() -> OutboxSnapshot {
         prepare()
         return OutboxSnapshot(entries: items().map(entry), isOnline: isOnline)

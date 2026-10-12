@@ -30,6 +30,7 @@ import java.util.UUID;
 import java.util.List;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
+import java.util.Map;
 
 @Service
 public class EntryService {
@@ -91,6 +92,16 @@ public class EntryService {
         LinkedHashSet<String> resolved = new LinkedHashSet<>();
         for (String kind : validated) resolved.add(entryKinds.resolveExisting(kind).orElse(kind));
         return entries.findLatest(List.copyOf(resolved));
+    }
+
+    @Transactional(readOnly = true)
+    public Map<LocalDate, String> activityTypesByDay(List<String> kinds, Map<String, Object> where,
+                                                     LocalDate from, LocalDate to) {
+        List<String> validated = AggregateQuery.validateKinds(kinds);
+        if (validated.equals(List.of("*"))) return entries.activityTypesByDay(validated, where, from, to);
+        LinkedHashSet<String> resolved = new LinkedHashSet<>();
+        for (String kind : validated) resolved.add(entryKinds.resolveExisting(kind).orElse(kind));
+        return entries.activityTypesByDay(List.copyOf(resolved), where, from, to);
     }
 
     @Transactional(readOnly = true)

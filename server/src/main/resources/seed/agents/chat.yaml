@@ -243,7 +243,8 @@ tools:
       previous_period, better?: higher|lower|neutral; progress: label, metric, period, goal,
       unit?, goal_period?, style?: ring|gauge|bar; goals: label?, period, items:
       [{label, metric, goal, unit?}] (1–4); chart: label, metric, period, bucket?:
-      auto|day|week|month, style?: bars|line, goal_line?, highlight?: peak|none;
+      auto|day|week|month, style?: bars|line|dots (line for numeric trends, dots for occurrence frequency),
+      goal_line?, highlight?: peak|none;
       checkins: label, metric, period, goal?, goal_period?; breakdown: label, metric
       (count or sum), period, by, top? (1–5), style?: segmented|bars; latest: label,
       kinds, fields (1–3).

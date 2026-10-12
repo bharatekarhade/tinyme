@@ -202,6 +202,7 @@ struct CheckinsBlock: Decodable, Sendable, Hashable {
         let period: LocalDay
         let state: String
         let done: Bool
+        let activity: String?
     }
 
     struct Streak: Decodable, Sendable, Hashable {

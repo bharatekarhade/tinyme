@@ -118,6 +118,12 @@ class CardSpecParserTests {
                 """));
         assertThat(((ProgressBlock) progress.blocks().getFirst()).style()).isEqualTo(ProgressStyle.RING);
 
+        CardSpec dots = parser.parse(read(chartSpec("this_week", "day").replace(
+                "\"bucket\":\"day\"", "\"bucket\":\"day\",\"style\":\"dots\"")));
+        assertThat(((ChartBlock) dots.blocks().getFirst()).style()).isEqualTo(ChartStyle.DOTS);
+        assertThat(writer.write(dots).get("blocks").get(0).get("style").stringValue()).isEqualTo("dots");
+        assertRoundTrips(dots, false);
+
         CardSpec breakdown = parser.parse(read("""
                 {"v":1,"title":"x","icon":"star","accent":"mint","tone":"surface",
                  "blocks":[{"type":"breakdown","label":"x","metric":{"kinds":["expense"],"op":"sum","field":"amount"},
