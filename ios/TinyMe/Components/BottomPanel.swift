@@ -12,7 +12,7 @@ struct BottomPanel<Content: View>: View {
         GeometryReader { geometry in
             ZStack(alignment: .bottom) {
                 if isPresented {
-                    Color.black.opacity(0.36)
+                    Palette.scrim
                         .ignoresSafeArea()
                         .onTapGesture { isPresented = false }
                         .transition(.opacity)

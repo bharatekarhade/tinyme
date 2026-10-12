@@ -20,22 +20,23 @@ struct PillSwitcher<Option: Hashable>: View {
                         .textStyle(.label, weight: isOn ? .semibold : .medium)
                         .foregroundStyle(isOn ? Palette.ink : Palette.inkMuted)
                         .frame(maxWidth: .infinity)
-                        .frame(height: 36)
+                        .frame(height: 44)   // the whole height of the pill is tappable; the thumb sits 4 inside
                         .background {
                             if isOn {
                                 Capsule()
                                     .fill(Palette.surfaceRaised)
-                                    .shadow(color: .black.opacity(0.12), radius: 1.5, y: 1)
+                                    .shadow(color: Palette.thumbShadow, radius: 1.5, y: 1)
                                     .matchedGeometryEffect(id: "thumb", in: thumb)
+                                    .padding(.vertical, 4)
                             }
                         }
-                        .contentShape(Capsule())
+                        .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
                 .accessibilityAddTraits(isOn ? .isSelected : [])
             }
         }
-        .padding(4)
+        .padding(.horizontal, 4)
         .background(Palette.surfaceSunken, in: Capsule())
         .sensoryFeedback(.selection, trigger: selection)
         .accessibilityElement(children: .contain)

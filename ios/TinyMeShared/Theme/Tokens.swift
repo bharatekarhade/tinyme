@@ -30,6 +30,10 @@ enum Palette {
     static let onAccentSoft = Color(light: 0x7a2e12, dark: 0xffd2bf)
     /// shadow-press: the hard edge under the mic and the hero button.
     static let pressEdge = Color(light: 0x0a7d6c, dark: 0x0a7d6c)
+    /// The dimmed backdrop behind a bottom panel.
+    static let scrim = Color(light: 0x000000, dark: 0x000000, lightAlpha: 0.36, darkAlpha: 0.36)
+    /// The soft shadow under the switcher's thumb.
+    static let thumbShadow = Color(light: 0x000000, dark: 0x000000, lightAlpha: 0.12, darkAlpha: 0.12)
 }
 
 enum Space {

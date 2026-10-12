@@ -15,18 +15,18 @@ struct BlockView: View {
     var body: some View {
         switch block {
         case .stat(let stat):
-            tappable {
-                StatBlockView(
-                    label: stat.label, unit: stat.unit, value: stat.value, goal: stat.goal, entries: stat.entries,
-                    period: period, previous: showsChange ? stat.previous : nil, deltaPct: showsChange ? stat.deltaPct : nil,
-                    average: average
-                )
-            }
+            StatBlockView(
+                label: stat.label, unit: stat.unit, value: stat.value, goal: stat.goal, entries: stat.entries,
+                period: period, previous: showsChange ? stat.previous : nil, deltaPct: showsChange ? stat.deltaPct : nil,
+                average: average, perDay: stat.averageDay?.currentPerDay, onOpen: onTap.map { tap in { tap(.block) } }
+            )
         case .progress(let progress):
             if progress.goal == nil {
-                tappable {
-                    StatBlockView(label: progress.label, unit: progress.unit, value: progress.value, goal: nil, entries: progress.entries, period: period, average: average)
-                }
+                StatBlockView(
+                    label: progress.label, unit: progress.unit, value: progress.value, goal: nil, entries: progress.entries,
+                    period: period, average: average, perDay: progress.averageDay?.currentPerDay,
+                    onOpen: onTap.map { tap in { tap(.block) } }
+                )
             } else {
                 tappable {
                     withAverage(alignment: progress.style == "gauge" ? .center : .leading) {
@@ -169,6 +169,7 @@ struct BlockNote: View {
 // MARK: - Stat
 
 /// A big number with its label: "15 entries", "¥18,420 / ¥30,000".
+/// On Week, Month and Year a small switch beside the number swaps the total for the average per day.
 struct StatBlockView: View {
     let label: String
     let unit: String?
@@ -179,40 +180,92 @@ struct StatBlockView: View {
     var previous: Double?
     var deltaPct: Double?
     var average: AverageDay?
+    /// The total spread over the days of the period so far. Nil for numbers that can't be averaged this way.
+    var perDay: Double?
+    /// Opens the entries behind the number. Nil: not tappable.
+    var onOpen: (() -> Void)?
 
     @Environment(\.cardStyle) private var style
     @State private var shown = false
+    @State private var wantsAverage = false
 
-    private var shownValue: Double { shown ? (value ?? 0) : 0 }
+    /// One day is its own average, and so is a period with nothing in it.
+    private var canAverage: Bool { period != .today && perDay != nil && entries > 0 }
+    private var showsAverage: Bool { wantsAverage && canAverage }
+    private var number: Double { showsAverage ? (perDay ?? 0) : (value ?? 0) }
+    private var shownValue: Double { shown ? number : 0 }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
-            HStack(alignment: .firstTextBaseline, spacing: 6) {
-                Text(Formatters.headline(shownValue, unit: unit))
-                    .textStyle(style.isHero ? .numeral : .display)
-                    .contentTransition(.numericText(value: shownValue))
-                if let goal {
-                    Text("/ \(Formatters.headline(goal, unit: unit))")
-                        .textStyle(.heading, weight: .medium)
-                        .foregroundStyle(style.muted)
+            HStack(spacing: Space.s2) {
+                Button {
+                    onOpen?()
+                } label: {
+                    HStack(alignment: .firstTextBaseline, spacing: 6) {
+                        Text(Formatters.headline(shownValue, unit: unit))
+                            .textStyle(style.isHero ? .numeral : .display)
+                            .contentTransition(.numericText(value: shownValue))
+                        if let goal, !showsAverage {
+                            Text("/ \(Formatters.headline(goal, unit: unit))")
+                                .textStyle(.heading, weight: .medium)
+                                .foregroundStyle(style.muted)
+                        }
+                    }
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                if canAverage {
+                    averageSwitch
                 }
             }
-            Text(caption)
-                .textStyle(.label)
-                .foregroundStyle(isOver ? Palette.accent : style.muted)
-            if !comparisons.isEmpty {
-                FlowLayout(spacing: 6) {
-                    ForEach(comparisons, id: \.self) { text in
-                        ChangePill(text: text)
+            Button {
+                onOpen?()
+            } label: {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(caption)
+                        .textStyle(.label)
+                        .foregroundStyle(isOver && !showsAverage ? Palette.accent : style.muted)
+                    if !comparisons.isEmpty {
+                        FlowLayout(spacing: 6) {
+                            ForEach(comparisons, id: \.self) { text in
+                                ChangePill(text: text)
+                            }
+                        }
+                        .padding(.top, 6)
                     }
                 }
-                .padding(.top, 6)
+                .contentShape(Rectangle())
             }
+            .buttonStyle(.plain)
         }
         .growIn(shown)
         .revealOnScroll($shown)
+        .sensoryFeedback(.selection, trigger: wantsAverage)
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel(([Formatters.value(value ?? 0, unit: unit), caption] + comparisons).joined(separator: ", "))
+        .accessibilityLabel(([Formatters.value(number, unit: unit), caption] + comparisons).joined(separator: ", "))
+        .accessibilityAddTraits(onOpen == nil ? [] : .isButton)
+        .accessibilityAction { onOpen?() }
+        .accessibilityActions {
+            if canAverage {
+                Button(showsAverage ? "Show total" : "Show average per day") { wantsAverage.toggle() }
+            }
+        }
+    }
+
+    /// Swaps the total and the average per day. Filled while the average is showing.
+    private var averageSwitch: some View {
+        Button {
+            withAnimation(.snappy(duration: 0.3)) { wantsAverage.toggle() }
+        } label: {
+            Image(systemName: "arrow.up.arrow.down")
+                .font(.system(size: 12, weight: .bold))
+                .foregroundStyle(showsAverage ? style.onAccent : style.foreground)
+                .frame(width: 28, height: 28)
+                .background(showsAverage ? style.accent : style.track, in: Circle())
+                .frame(width: 44, height: 44)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.pressable)
     }
 
     private var isOver: Bool {
@@ -236,6 +289,9 @@ struct StatBlockView: View {
         var parts = ["\(label) \(period.phrase)"]
         if let unit, !unit.isEmpty, unit != "JPY", unit != label {
             parts.insert(unit, at: 0)
+        }
+        if showsAverage {
+            return (["avg per day"] + parts).joined(separator: " · ")
         }
         // A stat's goal is a limit (calories, budget): say what's left, or how far over.
         if let goal, let value {

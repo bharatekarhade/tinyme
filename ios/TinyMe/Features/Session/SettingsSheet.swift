@@ -14,7 +14,7 @@ struct SettingsSheet: View {
     var body: some View {
         ZStack(alignment: .bottom) {
             if isPresented {
-                Color.black.opacity(0.36)
+                Palette.scrim
                     .ignoresSafeArea()
                     .onTapGesture(perform: close)
                     .transition(.opacity)

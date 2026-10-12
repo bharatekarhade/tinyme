@@ -18,3 +18,8 @@ __pycache__/
 /ios/Config/TinyMe.xcconfig
 /server/src/main/resources/seed/.gitkeep
 /server/.gitkeep
+
+# Agent skills (installed locally, not part of the project)
+/.agents/
+/.claude/
+/skills-lock.json

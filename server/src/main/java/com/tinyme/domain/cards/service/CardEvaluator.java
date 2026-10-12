@@ -259,7 +259,14 @@ public class CardEvaluator {
             LocalDate baselineFrom = baselineTo.minusDays(29);
             AggregateResult baselineResult = aggregate(metric, new DateRange(baselineFrom, baselineTo), GroupBy.DAY);
             boolean hasHistory = baselineResult.buckets().stream().anyMatch(bucket -> bucket.entries() > 0);
-            if (!hasHistory || dates.from().isAfter(actualToday)) return null;
+            if (dates.from().isAfter(actualToday)) return null;
+
+            LocalDate observedTo = dates.to().isAfter(actualToday) ? actualToday : dates.to();
+            long observedDays = ChronoUnit.DAYS.between(dates.from(), observedTo) + 1;
+            if (observedDays <= 0 || currentValue == null) return null;
+            BigDecimal currentPerDay = currentValue.divide(BigDecimal.valueOf(observedDays), 2, RoundingMode.HALF_UP);
+            // Nothing earlier to compare with: the per-day figure still stands on its own.
+            if (!hasHistory) return new AverageDayView(null, currentPerDay, null);
 
             BigDecimal baselineTotal = baselineResult.buckets().stream().map(bucket -> bucket.value() == null
                             ? BigDecimal.ZERO : bucket.value())
@@ -270,11 +277,6 @@ public class CardEvaluator {
                     .map(Bucket::period).min(LocalDate::compareTo).orElse(baselineFrom);
             long baselineDays = Math.max(1, ChronoUnit.DAYS.between(firstDay, baselineTo) + 1);
             BigDecimal baseline = baselineTotal.divide(BigDecimal.valueOf(baselineDays), 2, RoundingMode.HALF_UP);
-
-            LocalDate observedTo = dates.to().isAfter(actualToday) ? actualToday : dates.to();
-            long observedDays = ChronoUnit.DAYS.between(dates.from(), observedTo) + 1;
-            if (observedDays <= 0 || currentValue == null) return null;
-            BigDecimal currentPerDay = currentValue.divide(BigDecimal.valueOf(observedDays), 2, RoundingMode.HALF_UP);
             return new AverageDayView(baseline, currentPerDay, percentChangePrecise(currentPerDay, baseline));
         } catch (RuntimeException error) {
             log.warn("Card average-day comparison unavailable: kinds={}, from={}, to={}", metric.kinds(),
