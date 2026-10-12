@@ -3,6 +3,7 @@ import SwiftUI
 /// The signed-in app: Home and History under one tab bar, with chat, settings and the entry panel on top.
 struct MainView: View {
     @Environment(AppEnvironment.self) private var environment
+    @Environment(\.scenePhase) private var scenePhase
     @State private var router = MainRouter()
     @State private var home: HomeModel
     @State private var history: EntryListModel
@@ -38,11 +39,9 @@ struct MainView: View {
         }
         .environment(router)
         .fullScreenCover(item: $router.chat) { draft in
-            if let stream = environment.session.stream {
-                ChatView(api: api, stream: stream, draft: draft.text, serverName: serverName) { [home, router] in
-                    home.invalidate()
-                    router.historyIsStale = true
-                }
+            ChatView(api: api, outbox: environment.outbox, draft: draft.text, serverName: serverName) { [home, router] in
+                home.invalidate()
+                router.historyIsStale = true
             }
         }
         .overlay {
@@ -55,6 +54,20 @@ struct MainView: View {
                         router.openChat(draft: draft)
                     }
                 }
+            }
+        }
+        .task {
+            // The outbox sends with chat closed too (a message queued offline): reload what a turn changed.
+            let (_, events) = await environment.outbox.subscribe()
+            for await event in events {
+                guard case .finished(_, let outcome, _) = event, outcome != .completed(changedData: false) else { continue }
+                home.invalidate()
+                router.historyIsStale = true
+            }
+        }
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .active {
+                Task { await environment.outbox.wake(retryNow: true) }
             }
         }
         .onOpenURL { url in

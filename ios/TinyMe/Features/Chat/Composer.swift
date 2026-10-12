@@ -4,7 +4,6 @@ import SwiftUI
 struct Composer: View {
     @Binding var text: String
     var canSend: Bool
-    var isBusy: Bool
     var isListening: Bool
     var isFocused: FocusState<Bool>.Binding
     var onSend: () -> Void
@@ -40,24 +39,17 @@ struct Composer: View {
     }
 
     private var sendButton: some View {
-            Button(action: onSend) {
-                Group {
-                    if isBusy {
-                        ProgressView()
-                            .tint(Palette.inkMuted)
-                    } else {
-                        Image(systemName: "arrow.up")
-                            .font(.system(size: 20, weight: .bold))
-                    }
-                }
+        Button(action: onSend) {
+            Image(systemName: "arrow.up")
+                .font(.system(size: 20, weight: .bold))
                 .foregroundStyle(canSend ? Palette.onBrand : Palette.inkMuted)
                 .frame(width: 56, height: 56)
                 .background(canSend ? Palette.brand : Palette.surfaceSunken, in: Circle())
                 .shadow(color: canSend ? Palette.pressEdge : .clear, radius: 0, y: 3)
-            }
-            .buttonStyle(.pressable)
-            .disabled(!canSend)
-            .animation(.snappy(duration: 0.2), value: canSend)
-            .accessibilityLabel(isBusy ? "TinyMe is replying" : "Send")
+        }
+        .buttonStyle(.pressable)
+        .disabled(!canSend)
+        .animation(.snappy(duration: 0.2), value: canSend)
+        .accessibilityLabel("Send")
     }
 }

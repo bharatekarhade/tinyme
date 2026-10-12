@@ -4,6 +4,7 @@ import SwiftUI
 struct MessageBubble: View {
     let item: ChatItem
     var onRetry: () -> Void = {}
+    var onDelete: () -> Void = {}
     /// Gives the model for a card a reply refers to. Nil: cards aren't shown inline.
     var inlineCard: ((String) -> InlineCardModel)?
     var onChangeGoal: (CardDTO) -> Void = { _ in }
@@ -20,29 +21,56 @@ struct MessageBubble: View {
     // MARK: - You
 
     private func userRow(text: String, status: ChatItem.UserStatus) -> some View {
-        HStack {
+        let isFailed = status == .failed
+        return HStack {
             Spacer(minLength: 56)
             VStack(alignment: .trailing, spacing: 4) {
                 Text(text)
                     .textStyle(.body)
-                    .foregroundStyle(Palette.onBrand)
+                    .foregroundStyle(isFailed ? Palette.onAccentSoft : Palette.onBrand)
                     .padding(.horizontal, Space.s4)
                     .padding(.vertical, Space.s3)
-                    .background(Palette.brand, in: Self.shape(tail: .trailing))
-                    .opacity(status == .sending ? 0.6 : 1)
-                if status == .failed {
-                    Button(action: onRetry) {
-                        Label("Not sent. Tap to try again", systemImage: "arrow.clockwise")
-                            .textStyle(.caption, weight: .semibold)
-                            .foregroundStyle(Palette.danger)
-                            .frame(minHeight: 32)
+                    .background(isFailed ? Palette.accentSoft : Palette.brand, in: Self.shape(tail: .trailing))
+                    .opacity(status == .sending || status == .waiting ? 0.6 : 1)
+                    .accessibilityLabel(Self.userLabel(text, status))
+                if status == .waiting {
+                    Label("Waiting for connection", systemImage: "clock")
+                        .textStyle(.caption)
+                        .foregroundStyle(Palette.inkMuted)
+                        .accessibilityHidden(true)   // the bubble says it
+                } else if isFailed {
+                    HStack(spacing: Space.s2) {
+                        Text("Not sent")
+                            .textStyle(.caption)
+                            .foregroundStyle(Palette.onAccentSoft)
+                            .accessibilityHidden(true)
+                        failedAction("Retry", action: onRetry)
+                        failedAction("Delete", action: onDelete)
                     }
-                    .buttonStyle(.pressable)
                 }
             }
         }
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel(status == .failed ? "You, not sent: \(text)" : "You: \(text)")
+    }
+
+    private func failedAction(_ title: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Text(title)
+                .textStyle(.caption, weight: .semibold)
+                .foregroundStyle(Palette.onAccentSoft)
+                .padding(.horizontal, Space.s3)
+                .frame(height: 32)
+                .background(Palette.accentSoft, in: Capsule())
+                .frame(minHeight: 44)
+        }
+        .buttonStyle(.pressable)
+    }
+
+    private static func userLabel(_ text: String, _ status: ChatItem.UserStatus) -> String {
+        switch status {
+        case .waiting: "You, waiting for connection: \(text)"
+        case .failed: "You, not sent: \(text)"
+        case .sending, .sent: "You: \(text)"
+        }
     }
 
     // MARK: - TinyMe

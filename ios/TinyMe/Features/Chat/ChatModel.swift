@@ -4,9 +4,11 @@ import Observation
 /// One bubble in the chat.
 enum ChatItem: Identifiable, Equatable {
     enum UserStatus: Equatable {
+        /// In the outbox, held up by the connection.
+        case waiting
         case sending
         case sent
-        /// Never reached the server. Retrying resends it with the same `client_msg_id`.
+        /// The server refused it. Retrying resends it with the same `client_msg_id`.
         case failed
     }
 
@@ -32,46 +34,85 @@ enum ChatItem: Identifiable, Equatable {
     }
 }
 
-/// Today's conversation: loads the history, sends messages and follows the streamed reply.
+/// Today's conversation: the server's history, then whatever is still in the outbox, with the reply as it streams.
+/// Sending goes through the outbox, so a message typed offline waits there instead of failing.
 @MainActor
 @Observable
 final class ChatModel {
     var composer: String
 
-    private(set) var items: [ChatItem] = []
-    /// One turn at a time: the server answers `busy` to a second message mid-turn.
-    private(set) var isTurnRunning = false
     private(set) var isLoadingHistory = false
     private(set) var historyError: String?
 
+    /// What the server has for today, plus the turns that finished on this screen since.
+    private var history: [ChatItem] = []
+    private var queue = OutboxSnapshot()
+    private var live: LiveReply?
+    /// Goes up when a turn ends, so a history load that was already under way isn't shown stale.
+    private var historyVersion = 0
+
     private let api: APIClient
-    private let stream: StreamClient
+    private let outbox: OutboxWorker
     private let onDataChanged: @MainActor () -> Void
     private let reconnectDelay: Duration
     /// One model per card shown in the chat, kept so scrolling doesn't reload them.
     @ObservationIgnored private var inlineCards: [String: InlineCardModel] = [:]
-    /// What each pending message was sent with, so a retry reuses the same `client_msg_id`.
-    private var pending: [String: (clientMsgId: UUID, text: String)] = [:]
+
+    /// The reply to the message the outbox is sending.
+    private struct LiveReply {
+        let messageId: UUID
+        var text = ""
+        var actions: [ActionDTO] = []
+        var status: ChatItem.AssistantStatus = .streaming
+        let createdAt = Date.now
+        /// False when chat opened mid-reply and missed its start: the server's copy is shown once it is done.
+        var isWhole = true
+
+        var item: ChatItem {
+            .assistant(id: "reply-" + ChatModel.bubbleId(messageId), text: text, actions: actions, status: status, createdAt: createdAt)
+        }
+    }
 
     /// - Parameters:
     ///   - draft: text to start the composer with (a tapped suggestion). It is not sent.
-    ///   - onDataChanged: called after a turn that changed entries or cards, so Home can reload.
+    ///   - onDataChanged: called when a card is added to Home from the chat, so Home can reload.
     init(
         api: APIClient,
-        stream: StreamClient,
+        outbox: OutboxWorker,
         draft: String = "",
         reconnectDelay: Duration = .seconds(2),
         onDataChanged: @escaping @MainActor () -> Void = {}
     ) {
         self.api = api
-        self.stream = stream
+        self.outbox = outbox
         self.composer = draft
         self.reconnectDelay = reconnectDelay
         self.onDataChanged = onDataChanged
     }
 
+    var items: [ChatItem] {
+        var result = history
+        let waiting = queue.entries.filter { !isInHistory($0) }
+        // The history already shows the message being answered: its reply follows straight on.
+        if let live, !waiting.contains(where: { $0.id == live.messageId }) {
+            result.append(live.item)
+        }
+        for entry in waiting {
+            result.append(.user(id: Self.bubbleId(entry.id), text: entry.text, status: status(of: entry), createdAt: entry.createdAt))
+            if let live, live.messageId == entry.id {
+                result.append(live.item)
+            }
+        }
+        return result
+    }
+
+    var isTurnRunning: Bool {
+        live?.status == .streaming
+    }
+
+    /// Always possible, online or not: a new message queues behind the others.
     var canSend: Bool {
-        !isTurnRunning && !composer.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        !composer.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
     // MARK: - Inline cards
@@ -92,19 +133,24 @@ final class ChatModel {
 
     // MARK: - History
 
-    /// Replaces the items with what the server has for today. Skipped mid-turn, so a live reply isn't dropped.
+    /// Replaces the history with what the server has for today.
     func loadHistory() async {
-        guard !isTurnRunning, !isLoadingHistory else { return }
+        guard !isLoadingHistory else { return }
         isLoadingHistory = true
         defer { isLoadingHistory = false }
-        do {
-            let day: ConversationDayDTO = try await api.get(.conversation())
-            items = day.messages.compactMap(Self.item(from:))
-            pending.removeAll()
-            historyError = nil
-        } catch {
-            historyError = Self.message(for: error)
-        }
+        var version: Int
+        repeat {
+            version = historyVersion
+            do {
+                let day: ConversationDayDTO = try await api.get(.conversation())
+                guard version == historyVersion else { continue }   // a turn ended meanwhile: ask again
+                history = day.messages.compactMap(Self.item(from:))
+                historyError = nil
+            } catch {
+                historyError = Self.message(for: error)
+                return
+            }
+        } while version != historyVersion
     }
 
     private static func item(from message: MessageDTO) -> ChatItem? {
@@ -118,142 +164,152 @@ final class ChatModel {
         }
     }
 
+    /// True once the server's history shows this message, so it isn't drawn twice.
+    private func isInHistory(_ entry: OutboxEntry) -> Bool {
+        guard let serverId = entry.serverMessageId else { return false }
+        return history.contains { $0.id == serverId }
+    }
+
     // MARK: - Sending
 
     func send() {
         guard canSend else { return }
         let text = composer.trimmingCharacters(in: .whitespacesAndNewlines)
         composer = ""
-        let clientMsgId = UUID()
-        let userId = clientMsgId.uuidString.lowercased()
-        pending[userId] = (clientMsgId, text)
-        items.append(.user(id: userId, text: text, status: .sending, createdAt: .now))
-        start(userId: userId)
+        enqueue(text)
     }
 
-    /// Retries a failed bubble: a message that never arrived goes again as itself;
+    /// Retries a failed bubble: a message the server refused goes again as itself;
     /// a reply that failed on the server is asked for again as a new message.
     func retry(_ itemId: String) {
-        guard !isTurnRunning, let index = items.firstIndex(where: { $0.id == itemId }) else { return }
-        switch items[index] {
-        case .user(let id, let text, .failed, let date) where pending[id] != nil:
-            items[index] = .user(id: id, text: text, status: .sending, createdAt: date)
-            start(userId: id)
-        case .assistant(_, _, _, .failed(_, retryable: true), _):
-            guard let text = items[..<index].reversed().lazy.compactMap(Self.userText).first else { return }
-            composer = text
-            send()
-        default:
-            break
+        if let entry = entry(for: itemId) {
+            Task { await outbox.retry(entry.id) }
+            return
         }
+        let items = items
+        guard let index = items.firstIndex(where: { $0.id == itemId }),
+              case .assistant(_, _, _, .failed(_, retryable: true), _) = items[index],
+              let text = items[..<index].reversed().lazy.compactMap(Self.userText).first else { return }
+        enqueue(text)
+    }
+
+    /// Drops a message the server refused.
+    func delete(_ itemId: String) {
+        guard let entry = entry(for: itemId) else { return }
+        Task { await outbox.delete(entry.id) }
+    }
+
+    private func enqueue(_ text: String) {
+        // Stamped here, so two quick messages keep their order.
+        let id = UUID()
+        let date = Date.now
+        Task { await outbox.enqueue(id: id, text: text, at: date) }
+    }
+
+    private func entry(for itemId: String) -> OutboxEntry? {
+        queue.entries.first { Self.bubbleId($0.id) == itemId }
     }
 
     private static func userText(_ item: ChatItem) -> String? {
         if case .user(_, let text, _, _) = item { text } else { nil }
     }
 
-    private func start(userId: String) {
-        guard let message = pending[userId] else { return }
-        isTurnRunning = true
-        items.append(.assistant(id: Self.replyId(for: userId), text: "", actions: [], status: .streaming, createdAt: .now))
-        Task { [weak self] in
-            await self?.runTurn(userId: userId, clientMsgId: message.clientMsgId, text: message.text)
+    nonisolated fileprivate static func bubbleId(_ id: UUID) -> String {
+        id.uuidString.lowercased()
+    }
+
+    private func status(of entry: OutboxEntry) -> ChatItem.UserStatus {
+        switch entry.status {
+        case .failed: .failed
+        case .sent: .sent
+        case .queued where !queue.isOnline: .waiting
+        // A try has already failed: it is waiting, whether or not another try is under way.
+        case .queued, .sending: entry.attempts > 0 ? .waiting : .sending
         }
     }
 
-    private static func replyId(for userId: String) -> String {
-        "reply-" + userId
-    }
+    // MARK: - Following the outbox
 
-    private func runTurn(userId: String, clientMsgId: UUID, text: String) async {
-        let replyId = Self.replyId(for: userId)
-        var started = false
-        var failed = false
-        var dataChanged = false
-
-        do {
-            for try await event in stream.send(OutgoingMessage(clientMsgId: clientMsgId, text: text)) {
-                switch event {
-                case .turnStarted:
-                    started = true
-                    pending[userId] = nil
-                    updateUser(userId, status: .sent)
-                case .actionDone(let tool, let summary, let isError, let ref):
-                    let action = ActionDTO(tool: tool, summary: summary, isError: isError, ref: ref)
-                    dataChanged = dataChanged || action.changesHomeData
-                    // TinyMe saved a card that's already on screen: show its new version.
-                    if let cardId = action.cardId, let shown = inlineCards[cardId] {
-                        Task { await shown.load(force: true) }
-                    }
-                    updateReply(replyId) { _, actions, _ in actions.append(action) }
-                case .text(let chunk):
-                    updateReply(replyId) { text, _, _ in text += chunk }
-                case .error(_, let message, let retryable):
-                    // `failed` is followed by `done`: keep reading, but the turn stays failed.
-                    failed = true
-                    updateReply(replyId) { _, _, status in status = .failed(message: message, retryable: retryable) }
-                case .done:
-                    if !failed {
-                        updateReply(replyId) { _, _, status in status = .done }
-                    }
-                case .attachments, .clientAction, .needsConfirmation, .unknown:
-                    break   // not part of this phase
-                }
+    /// Keeps the chat in step with the outbox. Runs until the task is cancelled (the view goes away).
+    func follow() async {
+        let (snapshot, events) = await outbox.subscribe()
+        queue = snapshot
+        if let answering = snapshot.entries.first(where: { $0.status == .sent }) {
+            live = LiveReply(messageId: answering.id, isWhole: false)
+        }
+        for await event in events {
+            switch event {
+            case .queue(let snapshot):
+                queue = snapshot
+            case .reply(let id, let event):
+                apply(event, to: id)
+            case .finished(let entry, let outcome, let snapshot):
+                finish(entry, outcome, snapshot)
             }
-            isTurnRunning = false
-        } catch {
-            await recover(from: error, started: started, userId: userId, replyId: replyId)
-            // The server finishes a turn it has started even when we lose the stream.
-            dataChanged = dataChanged || started
-        }
-
-        if dataChanged {
-            onDataChanged()
         }
     }
 
-    private func recover(from error: Error, started: Bool, userId: String, replyId: String) async {
-        switch error {
-        case APIError.unauthorized, APIError.notSignedIn:
-            // The session is ending; RootView is about to replace this screen.
-            isTurnRunning = false
-        case APIError.duplicate:
-            // The server already has this message: its copy of the day is the truth.
-            isTurnRunning = false
-            await loadHistory()
-        default:
-            if started {
-                // Lost mid-reply. Give the server a moment to finish, then show what it saved.
-                try? await Task.sleep(for: reconnectDelay)
-                isTurnRunning = false
-                await loadHistory()
-                if historyError != nil {
-                    updateReply(replyId) { _, _, status in
-                        status = .failed(message: "Lost the connection. Pull down to reload.", retryable: false)
-                    }
-                }
+    private func apply(_ event: StreamEvent, to id: UUID) {
+        if live?.messageId != id {
+            live = LiveReply(messageId: id)
+        }
+        guard var reply = live, reply.isWhole else { return }
+        switch event {
+        case .actionDone(let tool, let summary, let isError, let ref):
+            let action = ActionDTO(tool: tool, summary: summary, isError: isError, ref: ref)
+            // TinyMe saved a card that's already on screen: show its new version.
+            if let cardId = action.cardId, let shown = inlineCards[cardId] {
+                Task { await shown.load(force: true) }
+            }
+            reply.actions.append(action)
+        case .text(let chunk):
+            reply.text += chunk
+        case .error(_, let message, let retryable):
+            // `failed` is followed by `done`: the turn stays failed.
+            reply.status = .failed(message: message, retryable: retryable)
+        case .done:
+            if reply.status == .streaming {
+                reply.status = .done
+            }
+        case .turnStarted, .attachments, .clientAction, .needsConfirmation, .unknown:
+            break   // not part of this phase
+        }
+        live = reply
+    }
+
+    /// The outbox has let go of a message: keep its bubbles on screen as part of the history.
+    private func finish(_ entry: OutboxEntry, _ outcome: OutboxWorker.Outcome, _ snapshot: OutboxSnapshot) {
+        var reply = live?.messageId == entry.id ? live : nil
+        if reply != nil {
+            live = nil
+        }
+        if !isInHistory(entry) {
+            history.append(.user(id: Self.bubbleId(entry.id), text: entry.text, status: .sent, createdAt: entry.createdAt))
+        }
+        queue = snapshot
+        historyVersion += 1
+
+        switch outcome {
+        case .completed:
+            if let reply, reply.isWhole {
+                history.append(reply.item)
             } else {
-                // Never reached the server: drop the empty reply and let the user resend.
-                items.removeAll { $0.id == replyId }
-                updateUser(userId, status: .failed)
-                isTurnRunning = false
+                Task { await loadHistory() }
             }
+        case .lost:
+            // Shown until the server's copy loads. The server finishes the turn anyway, so give it a moment.
+            reply?.status = .failed(message: "Lost the connection. Pull down to reload.", retryable: false)
+            if let reply {
+                history.append(reply.item)
+            }
+            Task {
+                try? await Task.sleep(for: reconnectDelay)
+                await loadHistory()
+            }
+        case .duplicate:
+            // The server already has this message: its copy of the day is the truth.
+            Task { await loadHistory() }
         }
-    }
-
-    // MARK: - Item updates
-
-    private func updateUser(_ id: String, status: ChatItem.UserStatus) {
-        guard let index = items.firstIndex(where: { $0.id == id }),
-              case .user(_, let text, _, let date) = items[index] else { return }
-        items[index] = .user(id: id, text: text, status: status, createdAt: date)
-    }
-
-    private func updateReply(_ id: String, _ change: (inout String, inout [ActionDTO], inout ChatItem.AssistantStatus) -> Void) {
-        guard let index = items.firstIndex(where: { $0.id == id }),
-              case .assistant(_, var text, var actions, var status, let date) = items[index] else { return }
-        change(&text, &actions, &status)
-        items[index] = .assistant(id: id, text: text, actions: actions, status: status, createdAt: date)
     }
 
     private static func message(for error: Error) -> String {

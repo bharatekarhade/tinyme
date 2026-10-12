@@ -17,13 +17,14 @@ final class SessionModel {
     private(set) var state: State = .signedOut
     private(set) var loginError: String?
     private(set) var api: APIClient?
-    private(set) var stream: StreamClient?
 
     private let authStore: AuthStore
+    private let outbox: OutboxWorker?
     private let urlSession: URLSession
 
-    init(authStore: AuthStore, urlSession: URLSession = .shared) {
+    init(authStore: AuthStore, outbox: OutboxWorker? = nil, urlSession: URLSession = .shared) {
         self.authStore = authStore
+        self.outbox = outbox
         self.urlSession = urlSession
         // A stored token means signed in, with no network call; the first 401 signs out.
         if let saved = authStore.savedSession {
@@ -111,15 +112,16 @@ final class SessionModel {
             token: { [authStore] in await authStore.token() },
             onUnauthorized: { [weak self] in await self?.handleUnauthorized() }
         )
+        let stream = StreamClient(api: client, session: urlSession)
         api = client
-        stream = StreamClient(api: client, session: urlSession)
+        Task { [outbox] in await outbox?.connect(stream) }
     }
 
     private func endSession() async {
         await authStore.clear()
         WidgetSnapshot.clearAndReload()   // the widget shouldn't keep showing this account's numbers
         api = nil
-        stream = nil
+        await outbox?.connect(nil)   // queued messages wait for the next sign-in
         state = .signedOut
     }
 

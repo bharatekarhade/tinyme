@@ -16,15 +16,15 @@ struct ChatView: View {
 
     /// - Parameters:
     ///   - draft: text to put in the composer (a tapped suggestion). It is not sent.
-    ///   - onDataChanged: called after a turn that changed entries or cards.
+    ///   - onDataChanged: called when a card is added to Home from the chat.
     init(
         api: APIClient,
-        stream: StreamClient,
+        outbox: OutboxWorker,
         draft: String = "",
         serverName: String,
         onDataChanged: @escaping @MainActor () -> Void = {}
     ) {
-        _model = State(initialValue: ChatModel(api: api, stream: stream, draft: draft, onDataChanged: onDataChanged))
+        _model = State(initialValue: ChatModel(api: api, outbox: outbox, draft: draft, onDataChanged: onDataChanged))
         self.serverName = serverName
     }
 
@@ -47,6 +47,7 @@ struct ChatView: View {
                         MessageBubble(
                             item: item,
                             onRetry: { model.retry(item.id) },
+                            onDelete: { model.delete(item.id) },
                             inlineCard: model.inlineCard(for:),
                             onChangeGoal: { card in
                                 model.draftGoalChange(for: card)
@@ -92,7 +93,6 @@ struct ChatView: View {
                 Composer(
                     text: $model.composer,
                     canSend: model.canSend,
-                    isBusy: model.isTurnRunning,
                     isListening: speech.isListening,
                     isFocused: $composerFocused,
                     onSend: model.send,
@@ -119,6 +119,9 @@ struct ChatView: View {
         }
         .onDisappear {
             speech.release()
+        }
+        .task {
+            await model.follow()
         }
         .task {
             await model.loadHistory()
