@@ -10,6 +10,7 @@ import com.tinyme.auth.service.AuthException;
 import com.tinyme.auth.service.LoginRateLimiter;
 import com.tinyme.auth.service.PasswordService;
 import com.tinyme.domain.cards.service.CardBootstrap;
+import com.tinyme.domain.admin.UserDataTables;
 import com.tinyme.maintenance.MaintenanceGate;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -97,8 +98,8 @@ public class DeleteAllService {
             }
 
             transactions.executeWithoutResult(status -> {
-                jdbc.execute("TRUNCATE entries, entry_people, entry_kinds, people, photo_people, photos, blobs, places, "
-                        + "pending_actions, cards, tool_calls, messages, agent_sessions RESTART IDENTITY CASCADE");
+                jdbc.execute("TRUNCATE " + String.join(", ", UserDataTables.ALL)
+                        + " RESTART IDENTITY CASCADE");
                 try {
                     cardBootstrap.run(new org.springframework.boot.DefaultApplicationArguments(new String[0]));
                 } catch (Exception failure) {
@@ -121,6 +122,7 @@ public class DeleteAllService {
             } catch (ManagedAgentApi.ApiException failure) {
                 if (failure.status() != 404) throw failure;
             }
+            sessions.markDeleted(id);
         }
     }
 

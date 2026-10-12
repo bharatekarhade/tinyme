@@ -28,21 +28,6 @@ import java.util.zip.ZipOutputStream;
 /** Writes allow-listed database tables as row-streamed JSON Lines archive entries. */
 @Component
 public class TableExporter {
-    private static final Map<String, String> TABLE_ORDER = Map.ofEntries(
-            Map.entry("entries", "id"),
-            Map.entry("entry_kinds", "kind"),
-            Map.entry("people", "id"),
-            Map.entry("entry_people", "entry_id, person_id"),
-            Map.entry("cards", "id"),
-            Map.entry("messages", "id"),
-            Map.entry("agent_sessions", "id"),
-            Map.entry("tool_calls", "id"),
-            Map.entry("photos", "id"),
-            Map.entry("photo_people", "photo_id, person_id"),
-            Map.entry("blobs", "id"),
-            Map.entry("places", "id"),
-            Map.entry("pending_actions", "id"));
-
     private final JdbcTemplate jdbc;
     private final JsonMapper json = JsonMapper.builder().build();
 
@@ -52,8 +37,13 @@ public class TableExporter {
 
     /** @return number of rows written */
     public long export(String table, String archiveRoot, ZipOutputStream zip) throws IOException {
-        String orderBy = TABLE_ORDER.get(table);
-        if (orderBy == null) throw new IllegalArgumentException("Table is not exportable: " + table);
+        if (!UserDataTables.ALL.contains(table)) throw new IllegalArgumentException("Table is not exportable: " + table);
+        String orderBy = switch (table) {
+            case "entry_kinds" -> "kind";
+            case "entry_people" -> "entry_id, person_id";
+            case "photo_people" -> "photo_id, person_id";
+            default -> "id";
+        };
         zip.putNextEntry(new java.util.zip.ZipEntry(archiveRoot + "db/" + table + ".jsonl"));
         long[] rows = {0};
         String sql = "SELECT * FROM " + table + " ORDER BY " + orderBy;

@@ -3,10 +3,12 @@ package com.tinyme.api.admin;
 import com.tinyme.agent.client.ManagedAgents;
 import com.tinyme.agent.client.MemoryPage;
 import com.tinyme.agent.client.MemoryRef;
+import com.tinyme.agent.client.FakeManagedAgents;
 import com.tinyme.agent.service.SessionTurnLock;
 import com.tinyme.auth.service.DeviceTokenService;
 import com.tinyme.maintenance.MaintenanceGate;
 import com.tinyme.agent.support.AgentDatabaseConfiguration;
+import com.tinyme.domain.admin.UserDataTables;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -29,6 +31,8 @@ import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.asyncDispatch;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.request;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
 @SpringBootTest(properties = {
@@ -50,8 +54,7 @@ class AdminDeleteAllTests {
 
     @BeforeEach
     void resetDatabaseAndStubs() {
-        jdbc.execute("TRUNCATE entries, entry_people, entry_kinds, people, photo_people, photos, blobs, places, "
-                + "pending_actions, cards, tool_calls, messages, agent_sessions RESTART IDENTITY CASCADE");
+        jdbc.execute("TRUNCATE " + String.join(", ", UserDataTables.ALL) + " RESTART IDENTITY CASCADE");
         jdbc.update("DELETE FROM settings WHERE key IN ('env.default', 'agent.chat', 'memory.main', 'user.tz')");
         setting("env.default", "{\"id\":\"env_saved\"}");
         setting("agent.chat", "{\"id\":\"agent_saved\",\"version\":3}");
@@ -124,7 +127,22 @@ class AdminDeleteAllTests {
         mvc.perform(deleteRequest("DELETE EVERYTHING", "test-only-owner-password"))
                 .andExpect(status().isBadGateway());
         assertThat(count("entries")).isEqualTo(1);
-        assertThat(count("agent_sessions")).isEqualTo(1);
+        assertThat(jdbc.queryForObject("SELECT status FROM agent_sessions WHERE anthropic_session_id='sesn_delete_test'",
+                String.class)).isEqualTo("deleted");
+
+        var stream = FakeManagedAgents.fromResource(getClass(), "/streams/no-tool-reply.json").build();
+        when(agents.createSession(anyMap())).thenReturn("sesn_after_delete");
+        when(agents.openStream("sesn_after_delete")).thenAnswer(invocation -> stream.openStream("sesn_after_delete"));
+        var chatResponse = mvc.perform(post("/conversations/today/messages")
+                        .header("Authorization", "Bearer " + token())
+                        .contentType("application/json")
+                        .content("{\"client_msg_id\":\"" + UUID.randomUUID() + "\",\"text\":\"hello\"}"))
+                .andExpect(status().isOk())
+                .andExpect(request().asyncStarted()).andReturn();
+        mvc.perform(asyncDispatch(chatResponse)).andExpect(status().isOk());
+        assertThat(jdbc.queryForObject("SELECT status FROM agent_sessions WHERE anthropic_session_id='sesn_after_delete'",
+                String.class)).isEqualTo("active");
+        assertThat(count("agent_sessions")).isEqualTo(2);
 
         reset(agents);
         when(agents.listMemories("memstore_saved", "/", null)).thenReturn(new MemoryPage(List.of(), null));
@@ -163,6 +181,17 @@ class AdminDeleteAllTests {
         mvc.perform(post("/admin/delete-all").contentType("application/json")
                         .content("{\"confirm\":\"DELETE EVERYTHING\",\"password\":\"anything\"}"))
                 .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void everyApplicationTableIsEitherUserDataOrExplicitlyKept() {
+        var expected = new java.util.HashSet<>(UserDataTables.ALL);
+        expected.addAll(UserDataTables.KEEP);
+        var actual = new java.util.HashSet<>(jdbc.queryForList("""
+                SELECT table_name FROM information_schema.tables
+                WHERE table_schema = current_schema() AND table_type = 'BASE TABLE'
+                """, String.class));
+        assertThat(actual).containsExactlyInAnyOrderElementsOf(expected);
     }
 
     private org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder deleteRequest(

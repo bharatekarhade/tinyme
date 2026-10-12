@@ -3,6 +3,8 @@ package com.tinyme.agent.repository;
 import com.tinyme.agent.entity.AgentSessionEntity;
 import jakarta.persistence.LockModeType;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
+import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.jpa.repository.Lock;
 
 import java.time.LocalDate;
@@ -17,4 +19,9 @@ interface AgentSessionJpaRepository extends JpaRepository<AgentSessionEntity, UU
     Optional<AgentSessionEntity> findByIdAndKindAndLocalDay(UUID id, String kind, LocalDate localDay);
     List<AgentSessionEntity> findByKindAndLocalDayAndStatusNotOrderByIdAsc(
             String kind, LocalDate localDay, String excludedStatus);
+
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query("update AgentSessionEntity session set session.status = 'deleted', session.endedAt = CURRENT_TIMESTAMP "
+            + "where session.anthropicSessionId = :anthropicSessionId")
+    int markDeletedByAnthropicSessionId(String anthropicSessionId);
 }

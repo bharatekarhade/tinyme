@@ -15,7 +15,6 @@ import java.io.OutputStream;
 import java.time.Clock;
 import java.time.LocalDate;
 import java.util.LinkedHashMap;
-import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.zip.ZipEntry;
@@ -24,10 +23,6 @@ import java.util.zip.ZipOutputStream;
 /** Streams a complete database snapshot and the agent memory files as a ZIP archive. */
 @Service
 public class ExportService {
-    private static final List<String> TABLES = List.of(
-            "entries", "entry_kinds", "people", "entry_people", "cards", "messages", "agent_sessions",
-            "tool_calls", "photos", "photo_people", "blobs", "places", "pending_actions");
-
     private static final String README = """
             TinyMe data export
 
@@ -79,7 +74,7 @@ public class ExportService {
         try (ZipOutputStream zip = new ZipOutputStream(output)) {
             String root = "tinyme-export-" + LocalDate.now(clock.withZone(userZone.current())) + "/";
             addText(zip, root + "README.txt", README);
-            for (String table : TABLES) {
+            for (String table : UserDataTables.ALL) {
                 rowCounts.put(table, tables.export(table, root, zip));
             }
 

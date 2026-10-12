@@ -40,6 +40,13 @@ public class AgentSessionRepository {
                 .toList();
     }
 
+    @Transactional
+    public void markDeleted(String anthropicSessionId) {
+        if (sessions.markDeletedByAnthropicSessionId(anthropicSessionId) != 1) {
+            throw new IllegalStateException("Agent session disappeared while deleting remote session");
+        }
+    }
+
     // A duplicate insert must finish rolling back before the caller reads the winning row.
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     public SessionRef insertChat(String anthropicSessionId, int agentVersion, LocalDate day) {

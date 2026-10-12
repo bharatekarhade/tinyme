@@ -69,12 +69,19 @@ public class ConversationController {
         }
 
         var accepted = (ConversationService.Accepted) acceptance;
-        var emitter = createEmitter();
-        var sink = new SseTurnSink(emitter);
-        sink.start(accepted.userMessageId());
+        final SseEmitter emitter;
         try {
+            emitter = createEmitter();
+        } catch (RuntimeException failure) {
+            accepted.permit().close();
+            throw failure;
+        }
+        var sink = new SseTurnSink(emitter);
+        try {
+            sink.start(accepted.userMessageId());
             conversations.runAsync(accepted, sink).whenComplete(sink::complete);
         } catch (RuntimeException failure) {
+            accepted.permit().close();
             sink.complete(null, failure);
         }
         return ResponseEntity.ok().contentType(MediaType.TEXT_EVENT_STREAM).body(emitter);
