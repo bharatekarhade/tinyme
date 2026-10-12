@@ -140,6 +140,71 @@ class ManagedAgentSessionApiTests {
     }
 
     @Test
+    void managesMemoryDocumentsAndDeletesSessionsWithDocumentedPathsAndPaging() throws Exception {
+        var requests = new CopyOnWriteArrayList<Map<String, String>>();
+        var server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        server.createContext("/v1/memory_stores/memstore_test", exchange -> {
+            String path = exchange.getRequestURI().getPath();
+            String method = exchange.getRequestMethod();
+            String body = new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8);
+            requests.add(Map.of("method", method, "path", path,
+                    "query", String.valueOf(exchange.getRequestURI().getRawQuery()),
+                    "beta", String.valueOf(exchange.getRequestHeaders().getFirst("anthropic-beta")),
+                    "body", body));
+            String response;
+            if (path.endsWith("/memories") && method.equals("GET")) {
+                response = fixture(exchange.getRequestURI().getRawQuery().contains("page=")
+                        ? "/managed-agents/memories-page-2.json" : "/managed-agents/memories-page-1.json");
+                respond(exchange, 200, response);
+            } else if (path.endsWith("/memories") && method.equals("POST")) {
+                respond(exchange, 201, fixture("/managed-agents/memory-created.json"));
+            } else if (path.endsWith("/mem_kenji") && method.equals("GET")) {
+                respond(exchange, 200, fixture("/managed-agents/memory-full.json"));
+            } else if (path.endsWith("/mem_kenji") && method.equals("DELETE")) {
+                respond(exchange, 200, fixture("/managed-agents/memory-deleted.json"));
+            } else {
+                respond(exchange, 404, "{}");
+            }
+        });
+        server.createContext("/v1/sessions/sesn_test", exchange -> {
+            requests.add(Map.of("method", exchange.getRequestMethod(), "path", exchange.getRequestURI().getPath(),
+                    "query", String.valueOf(exchange.getRequestURI().getRawQuery()),
+                    "beta", String.valueOf(exchange.getRequestHeaders().getFirst("anthropic-beta")), "body", ""));
+            respond(exchange, 200, fixture("/managed-agents/session-deleted.json"));
+        });
+        server.start();
+        try {
+            var api = new ManagedAgentApi("test", base(server));
+            MemoryPage firstPage = api.listMemories("memstore_test", "/", null);
+            assertThat(firstPage.memories()).containsExactly(new MemoryRef("mem_kenji", "/people/kenji.md"));
+            assertThat(firstPage.nextCursor()).isEqualTo("cursor/2");
+            MemoryPage secondPage = api.listMemories("memstore_test", "/", firstPage.nextCursor());
+            assertThat(secondPage.memories()).containsExactly(new MemoryRef("mem_profile", "/me/profile.md"));
+            assertThat(secondPage.nextCursor()).isNull();
+            assertThat(api.getMemory("memstore_test", "mem_kenji")).contains("Kenji notes");
+            api.createMemory("memstore_test", "/people/new.md", "New notes");
+            api.deleteMemory("memstore_test", "mem_kenji");
+            api.deleteSession("sesn_test");
+
+            assertThat(requests).hasSize(6);
+            assertThat(requests.get(0).get("query")).contains("path_prefix=%2F", "view=basic", "limit=100");
+            assertThat(requests.get(1).get("query")).contains("page=cursor%2F2");
+            assertThat(requests.get(2)).containsEntry("method", "GET")
+                    .containsEntry("path", "/v1/memory_stores/memstore_test/memories/mem_kenji");
+            assertThat(requests.get(3).get("body")).contains("\"path\":\"/people/new.md\"", "\"content\":\"New notes\"");
+            assertThat(requests.get(4)).containsEntry("method", "DELETE")
+                    .containsEntry("path", "/v1/memory_stores/memstore_test/memories/mem_kenji");
+            assertThat(requests.get(5)).containsEntry("method", "DELETE")
+                    .containsEntry("path", "/v1/sessions/sesn_test");
+            assertThat(requests.subList(0, 5)).allSatisfy(request ->
+                    assertThat(request.get("beta")).isEqualTo("agent-memory-2026-07-22"));
+            assertThat(requests.get(5).get("beta")).isEqualTo("managed-agents-2026-04-01");
+        } finally {
+            server.stop(0);
+        }
+    }
+
+    @Test
     void readsMemoryContentByPathAndReturnsEmptyWhenMissing() throws Exception {
         var queries = new CopyOnWriteArrayList<String>();
         var paths = new CopyOnWriteArrayList<String>();
@@ -302,6 +367,26 @@ class ManagedAgentSessionApiTests {
 
     private static URI base(HttpServer server) {
         return URI.create("http://127.0.0.1:" + server.getAddress().getPort());
+    }
+
+    private static String fixture(String resource) throws IOException {
+        try (var input = ManagedAgentSessionApiTests.class.getResourceAsStream(resource)) {
+            if (input == null) throw new IOException("Missing fixture " + resource);
+            return new String(input.readAllBytes(), StandardCharsets.UTF_8);
+        }
+    }
+
+    private static void respond(com.sun.net.httpserver.HttpExchange exchange, int status, String body)
+            throws IOException {
+        byte[] bytes = body.getBytes(StandardCharsets.UTF_8);
+        if (status == 204) {
+            exchange.sendResponseHeaders(status, -1);
+        } else {
+            exchange.getResponseHeaders().set("Content-Type", "application/json");
+            exchange.sendResponseHeaders(status, bytes.length);
+            exchange.getResponseBody().write(bytes);
+        }
+        exchange.close();
     }
 
     private static InputStream input(String text) {

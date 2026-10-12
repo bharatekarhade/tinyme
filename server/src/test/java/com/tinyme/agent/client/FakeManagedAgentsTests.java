@@ -52,4 +52,29 @@ class FakeManagedAgentsTests {
         assertThat(fake.sentEventCalls().stream().map(event -> (String) event.get("type")).toList())
                 .containsExactly("user.message", "user.custom_tool_result");
     }
+
+    @Test
+    void fakeSupportsMemoryLifecycleAndSessionDeletion() throws Exception {
+        var fake = FakeManagedAgents.builder(List.of())
+                .memory("me/profile.md", "Existing profile")
+                .build();
+
+        var existing = fake.listMemories("memstore_test", "/me/", null);
+        assertThat(existing.memories()).hasSize(1);
+        assertThat(fake.getMemory("memstore_test", existing.memories().getFirst().id())).contains("Existing profile");
+
+        fake.createMemory("memstore_test", "/people/kenji.md", "Kenji notes");
+        var all = fake.listMemories("memstore_test", "/", null).memories();
+        assertThat(all).extracting(MemoryRef::path).containsExactly("/me/profile.md", "/people/kenji.md");
+        var kenji = all.get(1);
+        assertThat(fake.getMemory("memstore_test", kenji.id())).contains("Kenji notes");
+
+        fake.deleteMemory("memstore_test", kenji.id());
+        assertThat(fake.getMemory("memstore_test", kenji.id())).isEmpty();
+        assertThat(fake.listMemories("memstore_test", "/", null).memories()).extracting(MemoryRef::path)
+                .containsExactly("/me/profile.md");
+
+        fake.deleteSession("sesn_test");
+        assertThat(fake.deletedSessions()).containsExactly("sesn_test");
+    }
 }

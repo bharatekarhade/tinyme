@@ -40,7 +40,11 @@ public final class FakeManagedAgents implements ManagedAgents {
     private final int listFailureStatus;
     private final AtomicInteger listFailuresRemaining;
     private final Map<String, FailurePlan> sendFailures;
-    private final Map<String, String> memories;
+    private final java.util.concurrent.ConcurrentHashMap<String, String> memories;
+    private final java.util.concurrent.ConcurrentHashMap<String, String> memoryIdsByPath = new java.util.concurrent.ConcurrentHashMap<>();
+    private final java.util.concurrent.ConcurrentHashMap<String, String> memoryPathsById = new java.util.concurrent.ConcurrentHashMap<>();
+    private final AtomicInteger nextMemoryId = new AtomicInteger();
+    private final List<String> deletedSessions = new CopyOnWriteArrayList<>();
 
     public FakeManagedAgents(List<String> fixtureEvents) {
         this(builder(fixtureEvents));
@@ -62,7 +66,8 @@ public final class FakeManagedAgents implements ManagedAgents {
         this.listFailureStatus = builder.listFailureStatus;
         this.listFailuresRemaining = new AtomicInteger(builder.listFailures);
         this.sendFailures = builder.sendFailures;
-        this.memories = Map.copyOf(builder.memories);
+        this.memories = new java.util.concurrent.ConcurrentHashMap<>(builder.memories);
+        this.memories.keySet().stream().sorted().forEach(path -> addMemoryId(path));
     }
 
     public static Builder builder(List<String> fixtureEvents) {
@@ -148,9 +153,59 @@ public final class FakeManagedAgents implements ManagedAgents {
     }
 
     @Override
+    public MemoryPage listMemories(String memoryStoreId, String pathPrefix, String cursor) {
+        String normalizedPrefix = pathPrefix.startsWith("/") ? pathPrefix.substring(1) : pathPrefix;
+        List<MemoryRef> all = memories.keySet().stream().filter(path -> path.startsWith(normalizedPrefix))
+                .sorted().map(path -> new MemoryRef(memoryIdsByPath.get(path), "/" + path)).toList();
+        int offset = cursor == null ? 0 : Integer.parseInt(cursor);
+        if (offset < 0 || offset > all.size()) throw new IllegalArgumentException("Invalid fake memory cursor");
+        int end = Math.min(offset + 100, all.size());
+        String next = end < all.size() ? Integer.toString(end) : null;
+        return new MemoryPage(all.subList(offset, end), next);
+    }
+
+    @Override
+    public Optional<String> getMemory(String memoryStoreId, String memoryId) {
+        String path = memoryPathsById.get(memoryId);
+        return path == null ? Optional.empty() : Optional.ofNullable(memories.get(path));
+    }
+
+    @Override
+    public void deleteMemory(String memoryStoreId, String memoryId) {
+        String path = memoryPathsById.remove(memoryId);
+        if (path != null) {
+            memoryIdsByPath.remove(path, memoryId);
+            memories.remove(path);
+        }
+    }
+
+    @Override
+    public void createMemory(String memoryStoreId, String path, String content) throws IOException {
+        String normalized = path.startsWith("/") ? path.substring(1) : path;
+        if (memories.putIfAbsent(normalized, content) != null) {
+            throw new ManagedAgentApi.ApiException(409, "invalid_request_error");
+        }
+        addMemoryId(normalized);
+    }
+
+    @Override
+    public void deleteSession(String sessionId) {
+        deletedSessions.add(sessionId);
+    }
+
+    @Override
     public Optional<String> readMemory(String memoryStoreId, String path) {
         String normalized = path.startsWith("/") ? path.substring(1) : path;
         return Optional.ofNullable(memories.get(normalized));
+    }
+
+    public List<String> deletedSessions() {
+        return List.copyOf(deletedSessions);
+    }
+
+    private void addMemoryId(String path) {
+        String id = memoryIdsByPath.computeIfAbsent(path, ignored -> "mem_fake_" + nextMemoryId.incrementAndGet());
+        memoryPathsById.put(id, path);
     }
 
     public List<List<? extends Map<String, ?>>> sentEvents() {

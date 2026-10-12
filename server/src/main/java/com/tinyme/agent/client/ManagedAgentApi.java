@@ -117,44 +117,102 @@ public final class ManagedAgentApi implements ManagedAgents {
     }
 
     @Override
-    public Optional<String> readMemory(String memoryStoreId, String path) throws IOException, InterruptedException {
-        if (memoryStoreId == null || !memoryStoreId.matches("memstore_[A-Za-z0-9_-]+")) {
-            throw new IllegalArgumentException("Invalid Managed Agents memory store ID");
+    public MemoryPage listMemories(String memoryStoreId, String pathPrefix, String cursor)
+            throws IOException, InterruptedException {
+        validateMemoryStoreId(memoryStoreId);
+        if (pathPrefix == null || !pathPrefix.startsWith("/") || !pathPrefix.endsWith("/")) {
+            throw new IllegalArgumentException("Memory path prefix must start and end with /");
         }
+        List<MemoryRef> memories = new ArrayList<>();
+        String endpoint = memoryStorePath(memoryStoreId) + "/memories"
+                + "?" + query("path_prefix", pathPrefix) + "&view=basic&limit=100"
+                + (cursor == null ? "" : "&" + query("page", cursor));
+        Map<?, ?> response = request("GET", endpoint, null, true);
+        Object data = response.get("data");
+        if (!(data instanceof List<?> rows)) throw new IOException("Memory list response is missing data");
+        for (Object row : rows) {
+            if (!(row instanceof Map<?, ?> memory)) throw new IOException("Memory list item is invalid");
+            if (!"memory".equals(memory.get("type"))) continue; // Ignore directory-like MemoryPrefix rows.
+            Object id = memory.get("id");
+            Object path = memory.get("path");
+            if (!(id instanceof String memoryId) || !memoryId.matches("mem_[A-Za-z0-9_-]+")
+                    || !(path instanceof String memoryPath) || !memoryPath.startsWith(pathPrefix)) {
+                throw new IOException("Memory list item is missing a valid ID or path");
+            }
+            memories.add(new MemoryRef(memoryId, memoryPath));
+        }
+        Object next = response.get("next_page");
+        if (next == null) return new MemoryPage(memories, null);
+        if (next instanceof String nextCursor && !nextCursor.isBlank()) return new MemoryPage(memories, nextCursor);
+        throw new IOException("Memory list response has an invalid next_page");
+    }
+
+    @Override
+    public Optional<String> getMemory(String memoryStoreId, String memoryId) throws IOException, InterruptedException {
+        validateMemoryStoreId(memoryStoreId);
+        validateMemoryId(memoryId);
+        Map<?, ?> memory = request("GET", memoryStorePath(memoryStoreId) + "/memories/" + memoryId, null, true);
+        Object content = memory.get("content");
+        if (content == null) return Optional.empty();
+        if (content instanceof String value) return Optional.of(value);
+        throw new IOException("Memory content has an invalid format");
+    }
+
+    @Override
+    public void deleteMemory(String memoryStoreId, String memoryId) throws IOException, InterruptedException {
+        validateMemoryStoreId(memoryStoreId);
+        validateMemoryId(memoryId);
+        request("DELETE", memoryStorePath(memoryStoreId) + "/memories/" + memoryId, null, true);
+    }
+
+    @Override
+    public void createMemory(String memoryStoreId, String path, String content) throws IOException, InterruptedException {
+        validateMemoryStoreId(memoryStoreId);
+        if (path == null || path.isBlank() || !path.startsWith("/")) {
+            throw new IllegalArgumentException("Memory path must be an absolute path starting with /");
+        }
+        Objects.requireNonNull(content, "content");
+        request("POST", memoryStorePath(memoryStoreId) + "/memories", Map.of("path", path, "content", content), true);
+    }
+
+    @Override
+    public void deleteSession(String sessionId) throws IOException, InterruptedException {
+        request("DELETE", sessionPath(sessionId), null, false);
+    }
+
+    @Override
+    public Optional<String> readMemory(String memoryStoreId, String path) throws IOException, InterruptedException {
         if (path == null || path.isBlank()) throw new IllegalArgumentException("Memory path is required");
         String normalized = path.startsWith("/") ? path : "/" + path;
         String prefix = normalized.substring(0, normalized.lastIndexOf('/') + 1);
-        String nextPage = null;
+        String cursor = null;
         Set<String> seenPages = new HashSet<>();
         do {
-            String endpoint = "/v1/memory_stores/" + memoryStoreId + "/memories"
-                    + "?" + query("path_prefix", prefix) + "&view=basic&limit=100"
-                    + (nextPage == null ? "" : "&" + query("page", nextPage));
-            Map<?, ?> response = request("GET", endpoint, null, true);
-            Object data = response.get("data");
-            if (!(data instanceof List<?> rows)) throw new IOException("Memory list response is missing data");
-            for (Object row : rows) {
-                if (row instanceof Map<?, ?> memory && normalized.equals(memory.get("path"))) {
-                    Object id = memory.get("id");
-                    if (!(id instanceof String memoryId) || !memoryId.matches("mem_[A-Za-z0-9_-]+")) {
-                        throw new IOException("Memory list item is missing a valid ID");
-                    }
-                    Map<?, ?> full = request("GET", "/v1/memory_stores/" + memoryStoreId
-                            + "/memories/" + memoryId + "?view=full", null, true);
-                    Object content = full.get("content");
-                    if (content == null) return Optional.empty();
-                    if (content instanceof String value) return Optional.of(value);
-                    throw new IOException("Memory content has an invalid format");
-                }
+            MemoryPage page = listMemories(memoryStoreId, prefix, cursor);
+            for (MemoryRef memory : page.memories()) {
+                if (normalized.equals(memory.path())) return getMemory(memoryStoreId, memory.id());
             }
-            Object next = response.get("next_page");
-            if (next == null) nextPage = null;
-            else if (next instanceof String cursor && !cursor.isBlank()) {
-                if (!seenPages.add(cursor)) throw new IOException("Memory pagination repeated a cursor");
-                nextPage = cursor;
-            } else throw new IOException("Memory list response has an invalid next_page");
-        } while (nextPage != null);
+            cursor = page.nextCursor();
+            if (cursor != null && !seenPages.add(cursor)) throw new IOException("Memory pagination repeated a cursor");
+        } while (cursor != null);
         return Optional.empty();
+    }
+
+    private static String memoryStorePath(String memoryStoreId) {
+        validateMemoryStoreId(memoryStoreId);
+        return "/v1/memory_stores/" + memoryStoreId;
+    }
+
+    private static void validateMemoryStoreId(String memoryStoreId) {
+        if (memoryStoreId == null || !memoryStoreId.matches("memstore_[A-Za-z0-9_-]+")) {
+            throw new IllegalArgumentException("Invalid Managed Agents memory store ID");
+        }
+    }
+
+    private static void validateMemoryId(String memoryId) {
+        if (memoryId == null || !memoryId.matches("mem_[A-Za-z0-9_-]+")) {
+            throw new IllegalArgumentException("Invalid Managed Agents memory ID");
+        }
     }
 
     private static String query(String name, String value) {

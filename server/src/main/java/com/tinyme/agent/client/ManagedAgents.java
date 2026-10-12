@@ -18,5 +18,16 @@ public interface ManagedAgents {
 
     List<JsonNode> listEvents(String sessionId, Instant after) throws IOException, InterruptedException;
 
+    MemoryPage listMemories(String memoryStoreId, String pathPrefix, String cursor)
+            throws IOException, InterruptedException;
+
+    Optional<String> getMemory(String memoryStoreId, String memoryId) throws IOException, InterruptedException;
+
+    void deleteMemory(String memoryStoreId, String memoryId) throws IOException, InterruptedException;
+
+    void createMemory(String memoryStoreId, String path, String content) throws IOException, InterruptedException;
+
+    void deleteSession(String sessionId) throws IOException, InterruptedException;
+
     Optional<String> readMemory(String memoryStoreId, String path) throws IOException, InterruptedException;
 }
