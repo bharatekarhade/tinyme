@@ -4,6 +4,9 @@ spring:
   threads:
     virtual:
       enabled: true
+  mvc:
+    async:
+      request-timeout: 300000
   config:
     # Support IntelliJ from the project root and Maven from server/.
     import:
@@ -19,6 +22,7 @@ spring:
       ddl-auto: none
 
 tinyme:
+  app-version: ${TINYME_APP_VERSION:0.1.0}
   tools:
     allow-missing-handlers: ${TINYME_ALLOW_MISSING_HANDLERS:false}
 

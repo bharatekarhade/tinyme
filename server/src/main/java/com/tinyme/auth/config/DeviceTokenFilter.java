@@ -18,6 +18,12 @@ public class DeviceTokenFilter extends OncePerRequestFilter {
 
     public DeviceTokenFilter(DeviceTokenService tokens) { this.tokens = tokens; }
 
+    /** Re-authenticate stateless requests when Spring redispatches an async response. */
+    @Override
+    protected boolean shouldNotFilterAsyncDispatch() {
+        return false;
+    }
+
     @Override
     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain chain)
             throws ServletException, IOException {
