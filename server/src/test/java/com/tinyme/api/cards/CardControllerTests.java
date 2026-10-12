@@ -21,7 +21,7 @@ class CardControllerTests {
     void defaultsListToWeekAndUsesLowercaseRange() {
         CardApiService service = mock(CardApiService.class);
         when(service.list(Range.WEEK, null)).thenReturn(new CardApiService.CardList(Range.WEEK,
-                LocalDate.parse("2026-10-05"), LocalDate.parse("2026-10-11"), List.of()));
+                LocalDate.parse("2026-10-05"), LocalDate.parse("2026-10-11"), List.of(), null));
 
         var result = new CardController(service).list("week", null);
 
@@ -35,7 +35,7 @@ class CardControllerTests {
         CardApiService service = mock(CardApiService.class);
         LocalDate selected = LocalDate.parse("2026-10-07");
         when(service.list(Range.WEEK, selected)).thenReturn(new CardApiService.CardList(Range.WEEK,
-                LocalDate.parse("2026-10-05"), LocalDate.parse("2026-10-11"), List.of()));
+                LocalDate.parse("2026-10-05"), LocalDate.parse("2026-10-11"), List.of(), null));
 
         var result = new CardController(service).list("week", selected);
 

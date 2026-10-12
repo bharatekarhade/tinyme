@@ -248,7 +248,7 @@ tools:
       checkins: label, metric, period, goal?, goal_period?; breakdown: label, metric
       (count or sum), period, by, top? (1–5), style?: segmented|bars; latest: label,
       kinds, fields (1–3).
-      badge: {kind: period|delta|streak, block: index}. period=range follows the Home
+      badge: {kind: period|delta, block: index}. period=range follows the Home
       switcher. Chart bucket rules: range→auto, this_week→day, this_month→day|week,
       this_year→week|month. Example Calories spec:
       {"v":1,"title":"Calories","icon":"flame","accent":"coral","tone":"surface",

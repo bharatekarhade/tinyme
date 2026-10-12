@@ -7,6 +7,25 @@ struct CardListDTO: Decodable, Sendable, Hashable {
     let from: LocalDay
     let to: LocalDay
     let cards: [CardDTO]
+    /// The journaling streak as of today. Absent on older servers.
+    let journalStreak: JournalStreak?
+
+    private enum CodingKeys: String, CodingKey {
+        case range, from, to, cards
+        case journalStreak = "journal_streak"
+    }
+}
+
+/// Your journaling streak as of today: how many days in a row, and which of the last seven had an entry.
+struct JournalStreak: Decodable, Sendable, Hashable {
+    let current: Int
+    let best: Int
+    /// The last seven days, oldest first; the last one is today.
+    let days: [Bool]
+
+    var loggedToday: Bool { days.last ?? false }
+    /// 7, 30, 100, … days: worth a small celebration.
+    var isMilestone: Bool { loggedToday && [7, 30, 50, 100, 200, 365].contains(current) }
 }
 
 struct CardDTO: Decodable, Sendable, Hashable, Identifiable {

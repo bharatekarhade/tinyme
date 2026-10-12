@@ -73,6 +73,8 @@ final class HomeModel {
     private(set) var phase: Phase = .loading
     private(set) var cards: [CardDTO] = []
     private(set) var suggestions: [SuggestionDTO] = []
+    /// The journaling streak as of today. It doesn't follow the range or the date being viewed.
+    private(set) var streak: JournalStreak?
     /// A short-lived message when a change couldn't be saved.
     private(set) var banner: String?
 
@@ -290,6 +292,9 @@ final class HomeModel {
             guard !Task.isCancelled else { return }
             // Kept even if the user has moved to another range meanwhile: it is fresh for when they come back.
             cache[selection] = list
+            if let journalStreak = list.journalStreak {
+                streak = journalStreak
+            }
             guard selection == Selection(range: self.range, date: self.selectedDate) else { return }
             cards = list.cards
             if selection.date == .today(calendar: Self.calendar) {

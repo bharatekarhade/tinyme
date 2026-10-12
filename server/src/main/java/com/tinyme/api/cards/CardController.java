@@ -1,5 +1,7 @@
 package com.tinyme.api.cards;
 
+import com.fasterxml.jackson.annotation.JsonProperty;
+import com.tinyme.domain.cards.model.view.JournalStreakView;
 import com.tinyme.api.RangeParam;
 import com.tinyme.domain.cards.model.view.CardView;
 import com.tinyme.domain.entries.model.aggregate.Range;
@@ -35,7 +37,8 @@ public class CardController {
                               @RequestParam(required = false) LocalDate date) {
         Range resolved = RangeParam.parse(range);
         var result = cards.list(resolved, date);
-        return new CardsResponse(resolved.name().toLowerCase(Locale.ROOT), result.from(), result.to(), result.cards());
+        return new CardsResponse(resolved.name().toLowerCase(Locale.ROOT), result.from(), result.to(), result.cards(),
+                result.journalStreak());
     }
 
     @GetMapping("/{id}")
@@ -81,7 +84,8 @@ public class CardController {
         return new ResponseStatusException(HttpStatus.NOT_FOUND, message);
     }
 
-    public record CardsResponse(String range, LocalDate from, LocalDate to, List<CardView> cards) {
+    public record CardsResponse(String range, LocalDate from, LocalDate to, List<CardView> cards,
+                                @JsonProperty("journal_streak") JournalStreakView journalStreak) {
         public CardsResponse { cards = List.copyOf(cards); }
     }
 

@@ -106,6 +106,11 @@ class CardEvaluatorIntegrationTests {
         assertThat(journalChart.points().get(3).state()).isEqualTo("future");
         assertThat(journalChart.points().getLast().value()).isEqualByComparingTo("0");
 
+        // The journaling streak is as of today, whatever range is shown: Sunday to Wednesday.
+        var journalStreak = evaluator.journalStreak();
+        assertThat(journalStreak.current()).isEqualTo(4);
+        assertThat(journalStreak.days()).containsExactly(false, false, false, true, true, true, true);
+
         var calories = evaluator.evaluate(saveExample("calories", CALORIES), Range.WEEK);
         var calorieProgress = (ProgressView) calories.blocks().getFirst();
         assertThat(calorieProgress.value()).isEqualByComparingTo("155");

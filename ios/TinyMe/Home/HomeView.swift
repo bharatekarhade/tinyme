@@ -9,6 +9,8 @@ struct HomeView: View {
     @Environment(\.scenePhase) private var scenePhase
     @State private var cardToRemove: CardDTO?
     @State private var isPeriodPickerPresented = false
+    @State private var visitedSelections: Set<String> = []
+    @State private var animateCurrentSelection = true
 
     var body: some View {
         @Bindable var model = model
@@ -17,7 +19,7 @@ struct HomeView: View {
         NavigationStack(path: $router.homePath) {
             ScrollView {
                 LazyVStack(spacing: 0, pinnedViews: [.sectionHeaders]) {
-                    HomeHeader(initial: profileInitial, subtitle: model.range.subtitle) {
+                    HomeHeader(initial: profileInitial, subtitle: model.range.subtitle, streak: model.streak) {
                         router.showsSettings = true
                     }
                     .padding(.horizontal, Space.s4)
@@ -52,7 +54,11 @@ struct HomeView: View {
                                     }
                                 }
                             }
-                            .id("\(model.range.rawValue)-\(model.selectedDate.description)")
+                            .id(selectionKey)
+                            .environment(\.cardEntranceAnimationsEnabled, animateCurrentSelection)
+                            .onAppear {
+                                visitedSelections.insert(selectionKey)
+                            }
 
                             AddTrackerCard(ideas: model.suggestions.map(\.text)) { idea in
                                 router.openChat(draft: idea)
@@ -162,9 +168,11 @@ struct HomeView: View {
             model.show()
         }
         .onChange(of: model.range) {
+            updateSelectionAnimation()
             model.show()
         }
         .onChange(of: model.selectedDate) {
+            updateSelectionAnimation()
             model.show()
         }
         .onChange(of: scenePhase) { _, phase in
@@ -179,6 +187,15 @@ struct HomeView: View {
             return email.prefix(1).uppercased()
         }
         return ""
+    }
+
+    private var selectionKey: String {
+        "\(model.range.rawValue)-\(model.selectedDate.description)"
+    }
+
+    private func updateSelectionAnimation() {
+        animateCurrentSelection = !visitedSelections.contains(selectionKey)
+        visitedSelections.insert(selectionKey)
     }
 }
 
@@ -357,6 +374,7 @@ private struct HomeCardRow: View {
 private struct HomeHeader: View {
     var initial: String
     var subtitle: String
+    var streak: JournalStreak?
     var onProfile: () -> Void
 
     var body: some View {
@@ -385,8 +403,14 @@ private struct HomeHeader: View {
             Text(subtitle)
                 .textStyle(.body)
                 .foregroundStyle(Palette.inkMuted)
+            if let streak {
+                StreakStrip(streak: streak)
+                    .padding(.top, Space.s3)
+                    .transition(.opacity)
+            }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+        .animation(.snappy(duration: 0.3), value: streak)
     }
 }
 

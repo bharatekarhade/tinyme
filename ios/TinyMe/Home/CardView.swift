@@ -159,7 +159,7 @@ struct CardView: View {
     private var keepsBadge: Bool {
         switch card.badge?.kind {
         case "delta": card.badge?.deltaPct != nil
-        case "streak": (card.badge?.days ?? 0) > 0
+        // The journaling streak has its own place in the Home header.
         default: false
         }
     }

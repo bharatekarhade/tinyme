@@ -37,6 +37,7 @@ import com.tinyme.domain.cards.model.view.Point;
 import com.tinyme.domain.cards.model.view.ProgressView;
 import com.tinyme.domain.cards.model.view.Slice;
 import com.tinyme.domain.cards.model.view.Slot;
+import com.tinyme.domain.cards.model.view.JournalStreakView;
 import com.tinyme.domain.cards.model.view.StreakView;
 import com.tinyme.domain.cards.model.view.StatView;
 import com.tinyme.domain.cards.model.view.UnavailableView;
@@ -75,6 +76,8 @@ public class CardEvaluator {
     private static final Logger log = LoggerFactory.getLogger(CardEvaluator.class);
     private static final JsonMapper JSON = JsonMapper.builder().build();
     private static final int STREAK_LOOKBACK_DAYS = 400;
+    private static final MetricSpec JOURNAL_METRIC =
+            new MetricSpec(List.of("*"), AggregateMetric.COUNT, null, Map.of());
 
     private final CardSpecParser parser;
     private final EntryService entries;
@@ -288,10 +291,32 @@ public class CardEvaluator {
         }
     }
 
+    /** The journaling streak as of today, whatever period Home is showing. Null if it can't be worked out. */
+    public JournalStreakView journalStreak() {
+        try {
+            LocalDate today = LocalDate.now(clock.withZone(userZone.current()));
+            List<Boolean> days = activeDays(JOURNAL_METRIC, today);
+            StreakView streak = streak(days);
+            return new JournalStreakView(streak.current(), streak.best(),
+                    days.subList(Math.max(0, days.size() - 7), days.size()));
+        } catch (RuntimeException error) {
+            log.warn("Journal streak unavailable", error);
+            return null;
+        }
+    }
+
     private StreakView streak(MetricSpec metric, LocalDate today) {
+        return streak(activeDays(metric, today));
+    }
+
+    /** One flag per day, oldest first and ending on {@code today}: true when the day has an entry. */
+    private List<Boolean> activeDays(MetricSpec metric, LocalDate today) {
         LocalDate from = today.minusDays(STREAK_LOOKBACK_DAYS - 1L);
         AggregateResult result = aggregate(metric, new DateRange(from, today), GroupBy.DAY);
-        List<Boolean> days = result.buckets().stream().map(bucket -> bucket.entries() > 0).toList();
+        return result.buckets().stream().map(bucket -> bucket.entries() > 0).toList();
+    }
+
+    private static StreakView streak(List<Boolean> days) {
         int current = 0;
         int end = days.size() - 1;
         if (end >= 0 && !days.get(end)) end--;

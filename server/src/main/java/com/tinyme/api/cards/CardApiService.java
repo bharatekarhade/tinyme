@@ -8,6 +8,7 @@ import com.tinyme.domain.cards.model.GoalsBlock;
 import com.tinyme.domain.cards.model.LatestBlock;
 import com.tinyme.domain.cards.model.MetricBlock;
 import com.tinyme.domain.cards.model.view.CardView;
+import com.tinyme.domain.cards.model.view.JournalStreakView;
 import com.tinyme.domain.cards.repository.CardRepository;
 import com.tinyme.domain.cards.service.CardEvaluator;
 import com.tinyme.domain.cards.service.CardManagementService;
@@ -75,7 +76,7 @@ public class CardApiService {
         List<CardView> views = cards.activeCards().stream()
                 .map(card -> selectedDate == null ? evaluator.evaluate(card, range)
                         : evaluator.evaluate(card, range, selectedDate)).toList();
-        return new CardList(range, dates.from(), dates.to(), views);
+        return new CardList(range, dates.from(), dates.to(), views, evaluator.journalStreak());
     }
 
     @Transactional(readOnly = true)
@@ -169,7 +170,8 @@ public class CardApiService {
         return LocalDate.now(clock.withZone(userZone.current()));
     }
 
-    public record CardList(Range range, LocalDate from, LocalDate to, List<CardView> cards) {
+    public record CardList(Range range, LocalDate from, LocalDate to, List<CardView> cards,
+                           JournalStreakView journalStreak) {
         public CardList { cards = List.copyOf(cards); }
     }
 

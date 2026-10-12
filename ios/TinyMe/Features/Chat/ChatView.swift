@@ -64,6 +64,11 @@ struct ChatView: View {
             }
             .defaultScrollAnchor(.bottom)
             .scrollDismissesKeyboard(.interactively)
+            .simultaneousGesture(
+                TapGesture().onEnded {
+                    composerFocused = false
+                }
+            )
             .refreshable {
                 await model.loadHistory()
             }
@@ -76,7 +81,14 @@ struct ChatView: View {
                 proxy.scrollTo(bottomID, anchor: .bottom)
             }
         }
-        .background(Palette.surface.ignoresSafeArea())
+        .background {
+            Palette.surface
+                .ignoresSafeArea()
+                .contentShape(Rectangle())
+                .onTapGesture {
+                    composerFocused = false
+                }
+        }
         .safeAreaInset(edge: .top, spacing: 0) {
             topBar
         }
