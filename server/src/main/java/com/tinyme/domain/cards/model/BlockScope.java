@@ -32,7 +32,9 @@ public record BlockScope(MetricSpec metric, DateRange dates, GroupBy bucket) {
                 dates = new DateRange(today.minusDays(6), today);
             }
         } else if (block instanceof CheckinsBlock) {
-            bucket = checkinsBucket(period, range);
+            Range shown = checkinsRange(period, range);
+            dates = period.resolve(shown, today);
+            bucket = checkinsBucket(period, shown);
         }
         return new BlockScope(block.metric(), dates, bucket);
     }
@@ -44,6 +46,11 @@ public record BlockScope(MetricSpec metric, DateRange dates, GroupBy bucket) {
         Objects.requireNonNull(range, "range");
         Objects.requireNonNull(today, "today");
         return new BlockScope(item.metric(), block.period().resolve(range, today), GroupBy.NONE);
+    }
+
+    /** One day of check-ins is a single dot, so the Day range shows this week with today marked. */
+    public static Range checkinsRange(Period period, Range range) {
+        return period == Period.RANGE && range == Range.DAY ? Range.WEEK : range;
     }
 
     private static GroupBy checkinsBucket(Period period, Range range) {

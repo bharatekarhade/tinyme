@@ -123,7 +123,14 @@ class CardEvaluatorIntegrationTests {
         assertThat(breakdown.slices()).hasSize(3);
         assertThat(breakdown.other().value()).isEqualByComparingTo("2580");
 
-        var gym = evaluator.evaluate(saveExample("gym", GYM), Range.WEEK);
+        var gymCard = saveExample("gym", GYM);
+        // One day of check-ins would be a single dot: the Day range shows the week, weekly goal included.
+        var gymToday = (CheckinsView) evaluator.evaluate(gymCard, Range.DAY).blocks().getFirst();
+        assertThat(gymToday.slots()).hasSize(7);
+        assertThat(gymToday.slots().get(2).state()).isEqualTo("current");
+        assertThat(gymToday.goal()).isEqualTo(5);
+
+        var gym = evaluator.evaluate(gymCard, Range.WEEK);
         var checkins = (CheckinsView) gym.blocks().getFirst();
         assertThat(checkins.slots()).hasSize(7);
         assertThat(checkins.slots().getFirst().period()).isEqualTo(LocalDate.of(2026, 10, 5));

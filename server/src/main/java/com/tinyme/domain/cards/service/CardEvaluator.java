@@ -211,7 +211,8 @@ public class CardEvaluator {
                 state(bucket.period(), groupBy, today), bucket.entries() > 0)).toList();
         int done = (int) slots.stream().filter(Slot::done).count();
         return new CheckinsView(block.label(), slots, done,
-                applies(block.goalPeriod(), block.period(), range) ? block.goal() : null,
+                applies(block.goalPeriod(), block.period(), BlockScope.checkinsRange(block.period(), range))
+                        ? block.goal() : null,
                 streak(scope.metric(), today), averageDay(scope.metric(), dates,
                 result.buckets().stream().map(bucket -> bucket.value() == null ? BigDecimal.ZERO : bucket.value())
                         .reduce(BigDecimal.ZERO, BigDecimal::add), actualToday));

@@ -423,7 +423,7 @@ struct ChartBlockView: View {
     var body: some View {
         Group {
             if range == .day, let today {
-                TodayMarks(label: block.label, value: today.value ?? 0, best: bestOtherDay, shown: shown)
+                TodayMarks(label: block.label, value: today.value ?? 0, best: bestOtherDay)
             } else {
                 bars
             }
@@ -572,21 +572,16 @@ struct ChartBlockView: View {
     }
 }
 
-/// Today so far: one mark per entry, then a striped slot still waiting, because the day isn't over.
+/// Today so far: the count, and how it compares with the best day this week.
 private struct TodayMarks: View {
     let label: String
     let value: Double
     let best: (value: Double, name: String)?
-    let shown: Bool
 
     @Environment(\.cardStyle) private var style
 
-    private let maxMarks = 10
-    /// Marks only make sense for small whole counts (entries, visits), not for minutes or yen.
-    private var usesMarks: Bool { value == value.rounded() && value >= 0 && value <= Double(maxMarks) }
-
     var body: some View {
-        VStack(alignment: .leading, spacing: Space.s3) {
+        VStack(alignment: .leading, spacing: Space.s2) {
             HStack(alignment: .firstTextBaseline, spacing: Space.s2) {
                 Text("\(Formatters.number(value)) so far")
                     .textStyle(.caption, weight: .semibold)
@@ -598,49 +593,12 @@ private struct TodayMarks: View {
                     .textStyle(.caption)
                     .foregroundStyle(style.muted)
             }
-
-            if usesMarks {
-                HStack(spacing: 6) {
-                    ForEach(0..<Int(value), id: \.self) { index in
-                        Capsule()
-                            .fill(style.accent)
-                            .frame(width: 18, height: shown ? 44 : 10)
-                            .growIn(shown, delay: Double(index) * 0.07)
-                    }
-                    openSlot
-                        .frame(width: 18, height: shown ? 44 : 10)
-                        .growIn(shown, delay: value * 0.07)
-                    Spacer(minLength: 0)
-                }
-                .frame(height: 44, alignment: .bottom)
-            } else {
-                // A larger or fractional total: fill towards the best day instead of counting marks.
-                let target = max(best?.value ?? value, value, 1)
-                openSlot
-                    .frame(height: 14)
-                    .overlay(alignment: .leading) {
-                        GeometryReader { geometry in
-                            Capsule()
-                                .fill(style.accent)
-                                .frame(width: geometry.size.width * (shown ? value / target : 0))
-                        }
-                    }
-                    .growIn(shown)
-            }
-
             Text(footnote)
                 .textStyle(.caption)
                 .foregroundStyle(style.muted)
         }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("\(label): \(Formatters.number(value)) so far today. \(footnote)")
-    }
-
-    /// The slot that's still open: striped, like today's bar in the week chart.
-    private var openSlot: some View {
-        Hatch(color: style.accent.opacity(0.4))
-            .clipShape(Capsule())
-            .overlay(Capsule().strokeBorder(style.accent.opacity(0.4), lineWidth: 1.5))
     }
 
     private var footnote: String {
