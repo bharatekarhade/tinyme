@@ -9,7 +9,7 @@ final class EntryListModel {
         /// Everything, newest first. `kind` nil is "All".
         case history(kind: String?, query: String)
         /// The entries behind one block of a card. The server decides which ones, so they add up to the card.
-        case card(id: String, range: HomeRange, block: Int?, item: Int?, day: LocalDay?, key: String?)
+        case card(id: String, range: HomeRange, selectedDate: LocalDay, block: Int?, item: Int?, day: LocalDay?, key: String?)
     }
 
     enum Phase: Equatable {
@@ -137,8 +137,9 @@ final class EntryListModel {
 
     /// Drill-down: drop the segment or day, back to the whole card block.
     func clearFilter() {
-        guard case .card(let id, let range, let block, let item, let day, let key) = source, day != nil || key != nil else { return }
-        source = .card(id: id, range: range, block: block, item: item, day: nil, key: nil)
+        guard case .card(let id, let range, let selectedDate, let block, let item, let day, let key) = source,
+              day != nil || key != nil else { return }
+        source = .card(id: id, range: range, selectedDate: selectedDate, block: block, item: item, day: nil, key: nil)
         sections = []
         reload()
     }
@@ -157,9 +158,10 @@ final class EntryListModel {
                 entries = page.entries
                 next = page.nextCursor
                 guard !Task.isCancelled, source == self.source else { return }
-            case .card(let id, let range, let block, let item, let day, let key):
+            case .card(let id, let range, let selectedDate, let block, let item, let day, let key):
                 let page: CardEntriesDTO = try await api.get(
-                    .cardEntries(id, range: range.rawValue, block: block, item: item, day: day, key: key, cursor: cursor)
+                    .cardEntries(id, range: range.rawValue, date: selectedDate,
+                                 block: block, item: item, day: day, key: key, cursor: cursor)
                 )
                 entries = page.entries
                 next = page.nextCursor

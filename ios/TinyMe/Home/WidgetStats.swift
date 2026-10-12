@@ -18,7 +18,9 @@ extension WidgetSnapshot.Stat {
     /// One line for a card, from its headline block. Nil for a card with no single figure to show.
     init?(card: CardDTO, range: HomeRange) {
         guard card.error == nil else { return nil }
-        let period: StatPeriod = card.badge?.kind == "period" ? StatPeriod(badge: card.badge?.period) ?? StatPeriod(range: range) : StatPeriod(range: range)
+        let period: StatPeriod = card.badge?.kind == "period"
+            ? StatPeriod(badge: card.badge?.period, range: range, selectedDate: .today()) ?? StatPeriod(range: range)
+            : StatPeriod(range: range)
 
         for block in card.blocks ?? [] {
             let value: String

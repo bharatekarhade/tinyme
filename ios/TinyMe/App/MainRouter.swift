@@ -19,6 +19,7 @@ final class MainRouter {
     struct DrillTarget: Hashable {
         var cardId: String
         var range: HomeRange
+        var selectedDate: LocalDay
         var block: Int?
         var item: Int?
         var day: LocalDay?
@@ -50,12 +51,13 @@ final class MainRouter {
     }
 
     /// A tap on a card. Journal is the whole log, so it opens History; any other card opens its entries.
-    func open(_ card: CardDTO, range: HomeRange, tap: CardTap) {
+    func open(_ card: CardDTO, range: HomeRange, selectedDate: LocalDay, tap: CardTap) {
         if card.system == true {
             historyNeedsReset = true
             tab = .history
         } else {
-            homePath.append(DrillTarget(cardId: card.id, range: range, block: tap.block, item: tap.item, day: tap.day, key: tap.key))
+            homePath.append(DrillTarget(cardId: card.id, range: range, selectedDate: selectedDate,
+                                        block: tap.block, item: tap.item, day: tap.day, key: tap.key))
         }
     }
 }

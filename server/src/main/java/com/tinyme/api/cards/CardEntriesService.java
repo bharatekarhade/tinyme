@@ -69,8 +69,16 @@ public class CardEntriesService {
     @Transactional(readOnly = true)
     public Optional<CardEntriesResponse> get(UUID id, Range range, Integer blockIndex, Integer itemIndex,
                                              LocalDate day, String key, String cursor, Integer requestedLimit) {
+        return get(id, range, today(), blockIndex, itemIndex, day, key, cursor, requestedLimit);
+    }
+
+    @Transactional(readOnly = true)
+    public Optional<CardEntriesResponse> get(UUID id, Range range, LocalDate selectedDate,
+                                             Integer blockIndex, Integer itemIndex, LocalDate day,
+                                             String key, String cursor, Integer requestedLimit) {
         Objects.requireNonNull(id, "id");
         Objects.requireNonNull(range, "range");
+        selectedDate = selectedDate == null ? today() : selectedDate;
         int limit = requestedLimit == null ? 50 : requestedLimit;
         if (limit < 1 || limit > 100) throw new IllegalArgumentException("limit must be between 1 and 100");
 
@@ -107,10 +115,10 @@ public class CardEntriesService {
                     throw new IllegalArgumentException("item must select an existing goals item");
                 }
                 GoalItem goalItem = goals.items().get(selectedItem);
-                scope = BlockScope.resolve(goals, goalItem, range, today());
+                scope = BlockScope.resolve(goals, goalItem, range, selectedDate);
             } else if (block instanceof MetricBlock metricBlock) {
                 if (itemIndex != null) throw new IllegalArgumentException("item is only valid for a goals block");
-                scope = BlockScope.resolve(metricBlock, range, today());
+                scope = BlockScope.resolve(metricBlock, range, selectedDate);
             } else {
                 throw new IllegalArgumentException("selected block does not have an entry metric");
             }

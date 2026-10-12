@@ -17,8 +17,10 @@ struct Endpoint: Sendable {
     static let cardOrder = Endpoint(method: "PUT", path: "cards/order")
 
     /// - Parameter range: `day`, `week`, `month` or `year`.
-    static func cards(range: String) -> Endpoint {
-        Endpoint(method: "GET", path: "cards", query: [URLQueryItem(name: "range", value: range)])
+    static func cards(range: String, date: LocalDay? = nil) -> Endpoint {
+        var query = [URLQueryItem(name: "range", value: range)]
+        if let date { query.append(URLQueryItem(name: "date", value: date.description)) }
+        return Endpoint(method: "GET", path: "cards", query: query)
     }
 
     static func card(_ id: String, range: String = "week") -> Endpoint {
@@ -50,9 +52,10 @@ struct Endpoint: Sendable {
 
     /// The entries behind one block of a card. The server builds the filter, so the list adds up to the card.
     static func cardEntries(
-        _ id: String, range: String, block: Int?, item: Int?, day: LocalDay?, key: String?, cursor: String?
+        _ id: String, range: String, date: LocalDay? = nil, block: Int?, item: Int?, day: LocalDay?, key: String?, cursor: String?
     ) -> Endpoint {
         var items = [URLQueryItem(name: "range", value: range)]
+        if let date { items.append(URLQueryItem(name: "date", value: date.description)) }
         if let block { items.append(URLQueryItem(name: "block", value: String(block))) }
         if let item { items.append(URLQueryItem(name: "item", value: String(item))) }
         if let day { items.append(URLQueryItem(name: "day", value: day.description)) }

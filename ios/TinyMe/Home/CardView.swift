@@ -82,6 +82,7 @@ extension EnvironmentValues {
 struct CardView: View {
     let card: CardDTO
     let range: HomeRange
+    var selectedDate: LocalDay = .today()
     /// A draft shown in chat: a "Preview" pill takes the badge's place.
     var isPreview = false
     /// Called with the part that was tapped, to show the entries behind it. Nil: the card isn't tappable (chat previews).
@@ -183,10 +184,11 @@ struct CardView: View {
 
     /// The period the card's numbers cover: the one its badge names, otherwise the Home range.
     private var period: StatPeriod {
-        if card.badge?.kind == "period", let named = StatPeriod(badge: card.badge?.period) {
+        if card.badge?.kind == "period",
+           let named = StatPeriod(badge: card.badge?.period, range: range, selectedDate: selectedDate) {
             return named
         }
-        return StatPeriod(range: range)
+        return StatPeriod(range: range, selectedDate: selectedDate)
     }
 
     /// Server icon names → SF Symbols.

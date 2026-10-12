@@ -50,12 +50,14 @@ enum Radius {
 }
 
 enum TextStyle {
-    case numeral, display, title, heading, body, label, caption
+    case numeral, display, cardNumeral, cardDisplay, title, heading, body, label, caption
 
     var size: CGFloat {
         switch self {
         case .numeral: 56
         case .display: 40
+        case .cardNumeral: 46
+        case .cardDisplay: 34
         case .title: 26
         case .heading: 18
         case .body: 16
@@ -66,7 +68,7 @@ enum TextStyle {
 
     var weight: Font.Weight {
         switch self {
-        case .numeral, .display, .title, .label, .caption: .medium
+        case .numeral, .display, .cardNumeral, .cardDisplay, .title, .label, .caption: .medium
         case .heading: .semibold
         case .body: .regular
         }
@@ -74,8 +76,8 @@ enum TextStyle {
 
     var tracking: CGFloat {
         switch self {
-        case .numeral: size * -0.03
-        case .display: size * -0.025
+        case .numeral, .cardNumeral: size * -0.03
+        case .display, .cardDisplay: size * -0.025
         case .title: size * -0.015
         default: 0
         }

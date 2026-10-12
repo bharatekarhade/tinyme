@@ -25,6 +25,7 @@ public class CardEntriesController {
     @GetMapping
     public CardEntriesService.CardEntriesResponse get(@PathVariable UUID id,
                                                        @RequestParam(defaultValue = "week") String range,
+                                                       @RequestParam(required = false) LocalDate date,
                                                        @RequestParam(required = false) Integer block,
                                                        @RequestParam(required = false) Integer item,
                                                        @RequestParam(required = false) LocalDate day,
@@ -33,7 +34,7 @@ public class CardEntriesController {
                                                        @RequestParam(defaultValue = "50") Integer limit) {
         try {
             Range parsedRange = RangeParam.parse(range);
-            return entries.get(id, parsedRange, block, item, day, key, cursor, limit)
+            return entries.get(id, parsedRange, date, block, item, day, key, cursor, limit)
                     .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Card not found"));
         } catch (IllegalArgumentException invalid) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, invalid.getMessage(), invalid);

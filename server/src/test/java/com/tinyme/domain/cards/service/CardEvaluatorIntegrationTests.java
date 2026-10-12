@@ -149,6 +149,43 @@ class CardEvaluatorIntegrationTests {
     }
 
     @Test
+    void historicalWeekMonthAndYearChartsKeepTheirRecordedBarsVisible() {
+        LocalDate previousWeek = LocalDate.of(2026, 9, 28);
+        LocalDate previousMonth = LocalDate.of(2026, 9, 1);
+        LocalDate previousYear = LocalDate.of(2025, 1, 1);
+        add("expense", previousWeek.plusDays(2), LocalTime.NOON, Map.of("amount", 12));
+        add("expense", LocalDate.of(2026, 9, 15), LocalTime.NOON, Map.of("amount", 34));
+        add("expense", LocalDate.of(2025, 1, 4), LocalTime.NOON, Map.of("amount", 56));
+        CardEntity journal = cards.findBySlug("journal").orElseThrow();
+
+        ChartView week = (ChartView) evaluator.evaluate(journal, Range.WEEK, previousWeek).blocks().get(1);
+        ChartView month = (ChartView) evaluator.evaluate(journal, Range.MONTH, previousMonth).blocks().get(1);
+        ChartView year = (ChartView) evaluator.evaluate(journal, Range.YEAR, previousYear).blocks().get(1);
+
+        assertThat(week.points()).anySatisfy(point -> {
+            assertThat(point.value()).isEqualByComparingTo("1");
+            assertThat(point.state()).isEqualTo("past");
+        });
+        assertThat(week.points()).noneMatch(point -> point.state().equals("future"));
+        assertThat(month.points()).hasSize(30).noneMatch(point -> point.state().equals("future"));
+        assertThat(month.points().get(14).value()).isEqualByComparingTo("1");
+        assertThat(year.points()).hasSize(12).noneMatch(point -> point.state().equals("future"));
+        assertThat(year.points().getFirst().value()).isEqualByComparingTo("1");
+    }
+
+    @Test
+    void historicalStreakBadgeIsMeasuredAtTheEndOfTheSelectedPeriod() {
+        add("expense", LocalDate.of(2026, 10, 2), LocalTime.NOON, Map.of("amount", 12));
+        add("expense", LocalDate.of(2026, 10, 3), LocalTime.NOON, Map.of("amount", 13));
+        add("expense", LocalDate.of(2026, 10, 4), LocalTime.NOON, Map.of("amount", 14));
+        CardEntity journal = cards.findBySlug("journal").orElseThrow();
+
+        var historicalWeek = evaluator.evaluate(journal, Range.WEEK, LocalDate.of(2026, 9, 30));
+
+        assertThat(historicalWeek.badge().days()).isEqualTo(3);
+    }
+
+    @Test
     void cardDrilldownUsesTheSameMetricScopeAsTheCard() {
         add("expense", LocalDate.of(2026, 10, 5), LocalTime.NOON, Map.of("amount", 8470, "category", "food"));
         add("expense", LocalDate.of(2026, 10, 6), LocalTime.NOON, Map.of("amount", 4050, "category", "transport"));
@@ -182,6 +219,21 @@ class CardEvaluatorIntegrationTests {
         assertThat(monday.total()).isEqualByComparingTo("1");
         assertThat(monday.dayTotals()).singleElement().extracting(CardEntriesService.DayTotal::value)
                 .isEqualTo(new BigDecimal("1"));
+    }
+
+    @Test
+    void cardDrilldownUsesTheSelectedHistoricalPeriod() {
+        add("expense", LocalDate.of(2026, 10, 7), LocalTime.NOON, Map.of("amount", 12, "category", "food"));
+        add("expense", LocalDate.of(2026, 10, 12), LocalTime.NOON, Map.of("amount", 34, "category", "food"));
+        CardEntity spending = saveExample("spending-history", SPENDING);
+
+        var selected = cardEntries.get(spending.getId(), Range.WEEK, WEDNESDAY,
+                0, null, null, null, null, 50).orElseThrow();
+
+        assertThat(selected.from()).isEqualTo(LocalDate.of(2026, 10, 5));
+        assertThat(selected.to()).isEqualTo(LocalDate.of(2026, 10, 11));
+        assertThat(selected.total()).isEqualByComparingTo("12");
+        assertThat(selected.entries()).hasSize(1);
     }
 
     @Test

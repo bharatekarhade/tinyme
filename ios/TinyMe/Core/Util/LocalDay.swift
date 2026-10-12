@@ -15,6 +15,19 @@ struct LocalDay: Codable, Hashable, Sendable, Comparable, CustomStringConvertibl
         day = parts[2]
     }
 
+    init?(date: Date, calendar: Calendar = .current) {
+        let parts = calendar.dateComponents([.year, .month, .day], from: date)
+        guard let year = parts.year, let month = parts.month, let day = parts.day else { return nil }
+        self.year = year
+        self.month = month
+        self.day = day
+    }
+
+    static func today(calendar: Calendar = .current) -> LocalDay {
+        // Calendar always supplies these components for a valid Date.
+        LocalDay(date: .now, calendar: calendar)!
+    }
+
     init(from decoder: Decoder) throws {
         let container = try decoder.singleValueContainer()
         let string = try container.decode(String.self)

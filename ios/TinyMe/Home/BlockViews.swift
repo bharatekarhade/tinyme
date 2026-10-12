@@ -30,7 +30,7 @@ struct BlockView: View {
             } else {
                 tappable {
                     withAverage(alignment: progress.style == "gauge" ? .center : .leading) {
-                        ProgressBlockView(block: progress)
+                        ProgressBlockView(block: progress, period: period)
                     }
                 }
             }
@@ -190,7 +190,7 @@ struct StatBlockView: View {
     @State private var wantsAverage = false
 
     /// One day is its own average, and so is a period with nothing in it.
-    private var canAverage: Bool { period != .today && perDay != nil && entries > 0 }
+    private var canAverage: Bool { !period.isDay && perDay != nil && entries > 0 }
     private var showsAverage: Bool { wantsAverage && canAverage }
     private var number: Double { showsAverage ? (perDay ?? 0) : (value ?? 0) }
     private var shownValue: Double { shown ? number : 0 }
@@ -203,7 +203,7 @@ struct StatBlockView: View {
                 } label: {
                     HStack(alignment: .firstTextBaseline, spacing: 6) {
                         Text(Formatters.headline(shownValue, unit: unit))
-                            .textStyle(style.isHero ? .numeral : .display)
+                            .textStyle(style.isHero ? .cardNumeral : .cardDisplay)
                             .contentTransition(.numericText(value: shownValue))
                         if let goal, !showsAverage {
                             Text("/ \(Formatters.headline(goal, unit: unit))")
@@ -284,7 +284,7 @@ struct StatBlockView: View {
     }
 
     private var caption: String {
-        guard entries > 0 else { return "No entries \(period.phrase)" }
+        guard entries > 0 else { return "No entries \(period.emptyPhrase)" }
         // Say which period the number covers.
         var parts = ["\(label) \(period.phrase)"]
         if let unit, !unit.isEmpty, unit != "JPY", unit != label {
@@ -296,51 +296,138 @@ struct StatBlockView: View {
         // A stat's goal is a limit (calories, budget): say what's left, or how far over.
         if let goal, let value {
             let left = goal - value
-            parts.append(left >= 0 ? "\(Formatters.headline(left, unit: unit)) left" : "\(Formatters.headline(-left, unit: unit)) over")
+            if left < 0 {
+                parts.append("\(Formatters.headline(-left, unit: unit)) over")
+            } else {
+                parts.append(period.isCurrent ? "\(Formatters.headline(left, unit: unit)) left"
+                                              : "\(Formatters.headline(left, unit: unit)) under goal")
+            }
         }
         return parts.joined(separator: " · ")
     }
 }
 
-/// A period a number covers, and the one it is compared with.
-enum StatPeriod {
-    case today, week, month, year
+/// The selected date range and the range immediately before it.
+struct StatPeriod {
+    private enum Unit: Equatable {
+        case day, week, month, year
 
-    init(range: HomeRange) {
-        switch range {
-        case .day: self = .today
-        case .week: self = .week
-        case .month: self = .month
-        case .year: self = .year
+        var component: Calendar.Component {
+            switch self {
+            case .day: .day
+            case .week: .weekOfYear
+            case .month: .month
+            case .year: .year
+            }
         }
     }
 
-    /// From a period badge: "today", "this_week", …
-    init?(badge period: String?) {
+    private let unit: Unit
+    let phrase: String
+    let previousPhrase: String
+    let isCurrent: Bool
+    private let isPrevious: Bool
+    var isDay: Bool { unit == .day }
+    var emptyPhrase: String {
+        isCurrent || isPrevious ? phrase : unit == .week ? "for \(phrase)" : phrase
+    }
+
+    init(range: HomeRange, selectedDate: LocalDay = .today()) {
+        let unit: Unit = switch range {
+        case .day: .day
+        case .week: .week
+        case .month: .month
+        case .year: .year
+        }
+        self.init(unit: unit, selectedDate: selectedDate)
+    }
+
+    /// From a period badge: "today", "this_week", …, anchored to the selected date.
+    init?(badge period: String?, range: HomeRange, selectedDate: LocalDay) {
+        let unit: Unit
         switch period {
-        case "today": self = .today
-        case "this_week": self = .week
-        case "this_month": self = .month
-        case "this_year": self = .year
-        default: return nil
+        case "today", "yesterday": unit = .day
+        case "this_week": unit = .week
+        case "this_month": unit = .month
+        case "this_year": unit = .year
+        default:
+            if period == "range" {
+                self.init(range: range, selectedDate: selectedDate)
+                return
+            }
+            return nil
+        }
+        self.init(unit: unit, selectedDate: selectedDate)
+    }
+
+    private init(unit: Unit, selectedDate: LocalDay) {
+        self.unit = unit
+        let calendar = Self.calendar
+        let anchor = selectedDate.date(in: calendar) ?? .now
+        let start = Self.start(of: unit, containing: anchor, calendar: calendar)
+        let today = Self.start(of: unit, containing: .now, calendar: calendar)
+        isCurrent = calendar.isDate(start, inSameDayAs: today)
+        let previous = calendar.date(byAdding: unit.component, value: -1, to: today) ?? today
+        isPrevious = calendar.isDate(start, inSameDayAs: previous)
+        phrase = isCurrent ? Self.currentPhrase(unit)
+            : isPrevious ? Self.previousPhrase(unit)
+            : Self.historicalPhrase(start, unit: unit, calendar: calendar)
+        previousPhrase = isCurrent ? Self.previousPhrase(unit) : Self.earlierPhrase(unit)
+    }
+
+    private static var calendar: Calendar {
+        var calendar = Calendar.autoupdatingCurrent
+        calendar.firstWeekday = 2
+        calendar.minimumDaysInFirstWeek = 4
+        return calendar
+    }
+
+    private static func start(of unit: Unit, containing date: Date, calendar: Calendar) -> Date {
+        switch unit {
+        case .day: calendar.startOfDay(for: date)
+        case .week: calendar.dateInterval(of: .weekOfYear, for: date)?.start ?? calendar.startOfDay(for: date)
+        case .month: calendar.dateInterval(of: .month, for: date)?.start ?? calendar.startOfDay(for: date)
+        case .year: calendar.dateInterval(of: .year, for: date)?.start ?? calendar.startOfDay(for: date)
         }
     }
 
-    var phrase: String {
-        switch self {
-        case .today: "today"
+    private static func historicalPhrase(_ start: Date, unit: Unit, calendar: Calendar) -> String {
+        switch unit {
+        case .day:
+            "on " + start.formatted(.dateTime.month(.abbreviated).day())
+        case .week:
+            "the week of " + start.formatted(.dateTime.month(.abbreviated).day())
+        case .month:
+            "in " + start.formatted(.dateTime.month(.abbreviated).year())
+        case .year:
+            "in " + String(calendar.component(.year, from: start))
+        }
+    }
+
+    private static func currentPhrase(_ unit: Unit) -> String {
+        switch unit {
+        case .day: "today"
         case .week: "this week"
         case .month: "this month"
         case .year: "this year"
         }
     }
 
-    var previousPhrase: String {
-        switch self {
-        case .today: "yesterday"
+    private static func previousPhrase(_ unit: Unit) -> String {
+        switch unit {
+        case .day: "yesterday"
         case .week: "last week"
         case .month: "last month"
         case .year: "last year"
+        }
+    }
+
+    private static func earlierPhrase(_ unit: Unit) -> String {
+        switch unit {
+        case .day: "the day before"
+        case .week: "the week before"
+        case .month: "the month before"
+        case .year: "the year before"
         }
     }
 }
@@ -350,6 +437,7 @@ enum StatPeriod {
 /// A value against a goal, as a ring, a half-circle gauge or a bar.
 struct ProgressBlockView: View {
     let block: ProgressBlock
+    let period: StatPeriod
 
     @Environment(\.cardStyle) private var style
     @State private var shown = false
@@ -429,7 +517,7 @@ struct ProgressBlockView: View {
     private func summary(alignment: HorizontalAlignment) -> some View {
         VStack(alignment: alignment, spacing: 0) {
             Text(Formatters.headline(shown ? value : 0, unit: block.unit))
-                .textStyle(.display)
+                .textStyle(.cardDisplay)
                 .contentTransition(.numericText(value: shown ? value : 0))
             Text("\(goalLine) · \(Text(remainingText).foregroundStyle(isOver ? Palette.accent : style.muted))")
                 .textStyle(.caption)
@@ -446,7 +534,9 @@ struct ProgressBlockView: View {
 
     private var remainingText: String {
         let left = goal - value
-        return left >= 0 ? "\(Formatters.headline(left, unit: block.unit)) left" : "\(Formatters.headline(-left, unit: block.unit)) over"
+        if left < 0 { return "\(Formatters.headline(-left, unit: block.unit)) over" }
+        return period.isCurrent ? "\(Formatters.headline(left, unit: block.unit)) left"
+            : "\(Formatters.headline(left, unit: block.unit)) under goal"
     }
 }
 
@@ -648,29 +738,16 @@ private struct TodayMarks: View {
     @Environment(\.cardStyle) private var style
 
     var body: some View {
-        VStack(alignment: .leading, spacing: Space.s2) {
-            HStack(alignment: .firstTextBaseline, spacing: Space.s2) {
-                Text("\(Formatters.number(value)) so far")
-                    .textStyle(.caption, weight: .semibold)
-                    .foregroundStyle(style.pillForeground)
-                    .padding(.horizontal, 10)
-                    .frame(height: 24)
-                    .background(style.pillBackground, in: Capsule())
-                Text("today")
-                    .textStyle(.caption)
-                    .foregroundStyle(style.muted)
-            }
+        if let footnote {
             Text(footnote)
                 .textStyle(.caption)
                 .foregroundStyle(style.muted)
         }
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel("\(label): \(Formatters.number(value)) so far today. \(footnote)")
     }
 
-    private var footnote: String {
+    private var footnote: String? {
         guard let best else {
-            return value > 0 ? "Your best day this week so far" : "Nothing yet today"
+            return value > 0 ? "Your best day this week so far" : nil
         }
         let bestText = Formatters.number(best.value)
         if value > best.value { return "Your best day this week · beats \(best.name)'s \(bestText)" }
@@ -829,10 +906,10 @@ struct CheckinsBlockView: View {
             VStack(alignment: .leading, spacing: 0) {
                 if let goal = block.goal {
                     Text("\(block.doneCount)\(Text(" of \(goal)").foregroundStyle(style.muted))")
-                        .textStyle(.display)
+                        .textStyle(.cardDisplay)
                 } else {
                     Text("\(block.doneCount)")
-                        .textStyle(.display)
+                        .textStyle(.cardDisplay)
                 }
                 Text(caption)
                     .textStyle(.label)

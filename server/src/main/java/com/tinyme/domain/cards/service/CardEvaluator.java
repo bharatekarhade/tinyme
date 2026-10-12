@@ -127,7 +127,7 @@ public class CardEvaluator {
             }
         }
 
-        BadgeView badge = evaluateBadge(spec.badge(), spec.blocks(), completed, range, selectedDate);
+        BadgeView badge = evaluateBadge(spec.badge(), spec.blocks(), completed, range, selectedDate, actualToday);
         return new CardView(card.getId(), card.getSlug(), spec.title(), CardView.wire(spec.icon()),
                 CardView.wire(spec.accent()), CardView.wire(spec.tone()), CardView.wire(card.getStatus()),
                 card.isSystem(), badge, views, null);
@@ -187,13 +187,13 @@ public class CardEvaluator {
         return new GoalsView(block.label(), items);
     }
 
-    private ChartView evaluateChart(ChartBlock block, Range range, LocalDate today, LocalDate actualToday) {
-        BlockScope scope = BlockScope.resolve(block, range, today);
+    private ChartView evaluateChart(ChartBlock block, Range range, LocalDate selectedDate, LocalDate actualToday) {
+        BlockScope scope = BlockScope.resolve(block, range, selectedDate);
         GroupBy groupBy = scope.bucket();
         DateRange dates = scope.dates();
         AggregateResult result = aggregate(scope.metric(), dates, groupBy);
         List<Point> points = result.buckets().stream().map(bucket -> new Point(bucket.period(), bucket.value(),
-                bucket.entries(), state(bucket.period(), groupBy, today))).toList();
+                bucket.entries(), state(bucket.period(), groupBy, actualToday))).toList();
         Integer peak = block.highlight() == com.tinyme.domain.cards.model.Highlight.PEAK
                 ? peakIndex(points) : null;
         return new ChartView(block.label(), block.unit(), lower(block.style().name()), points,
@@ -202,18 +202,18 @@ public class CardEvaluator {
                 actualToday));
     }
 
-    private CheckinsView evaluateCheckins(CheckinsBlock block, Range range, LocalDate today, LocalDate actualToday) {
-        BlockScope scope = BlockScope.resolve(block, range, today);
+    private CheckinsView evaluateCheckins(CheckinsBlock block, Range range, LocalDate selectedDate, LocalDate actualToday) {
+        BlockScope scope = BlockScope.resolve(block, range, selectedDate);
         DateRange dates = scope.dates();
         GroupBy groupBy = scope.bucket();
         AggregateResult result = aggregate(scope.metric(), dates, groupBy);
         List<Slot> slots = result.buckets().stream().map(bucket -> new Slot(bucket.period(),
-                state(bucket.period(), groupBy, today), bucket.entries() > 0)).toList();
+                state(bucket.period(), groupBy, actualToday), bucket.entries() > 0)).toList();
         int done = (int) slots.stream().filter(Slot::done).count();
         return new CheckinsView(block.label(), slots, done,
                 applies(block.goalPeriod(), block.period(), BlockScope.checkinsRange(block.period(), range))
                         ? block.goal() : null,
-                streak(scope.metric(), today), averageDay(scope.metric(), dates,
+                streak(scope.metric(), selectedDate), averageDay(scope.metric(), dates,
                 result.buckets().stream().map(bucket -> bucket.value() == null ? BigDecimal.ZERO : bucket.value())
                         .reduce(BigDecimal.ZERO, BigDecimal::add), actualToday));
     }
@@ -306,7 +306,7 @@ public class CardEvaluator {
     }
 
     private BadgeView evaluateBadge(Badge badge, List<Block> blocks, Map<Integer, BlockView> views,
-                                    Range range, LocalDate today) {
+                                    Range range, LocalDate selectedDate, LocalDate actualToday) {
         if (badge == null) return null;
         Block target = blocks.get(badge.block());
         try {
@@ -322,7 +322,9 @@ public class CardEvaluator {
                 }
                 case STREAK -> {
                     MetricBlock metric = (MetricBlock) target;
-                    StreakView result = streak(metric.metric(), today);
+                    LocalDate selectedEnd = Period.RANGE.resolve(range, selectedDate).to();
+                    LocalDate streakEnd = selectedEnd.isAfter(actualToday) ? actualToday : selectedEnd;
+                    StreakView result = streak(metric.metric(), streakEnd);
                     yield new BadgeView("streak", null, null, null, null, result.current());
                 }
             };

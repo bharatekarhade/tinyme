@@ -8,6 +8,7 @@ struct HomeView: View {
     @Environment(MainRouter.self) private var router
     @Environment(\.scenePhase) private var scenePhase
     @State private var cardToRemove: CardDTO?
+    @State private var isPeriodPickerPresented = false
 
     var body: some View {
         @Bindable var model = model
@@ -15,49 +16,94 @@ struct HomeView: View {
 
         NavigationStack(path: $router.homePath) {
             ScrollView {
-                VStack(spacing: Space.s4) {
+                LazyVStack(spacing: 0, pinnedViews: [.sectionHeaders]) {
                     HomeHeader(initial: profileInitial, subtitle: model.range.subtitle) {
                         router.showsSettings = true
                     }
+                    .padding(.horizontal, Space.s4)
+                    .padding(.top, Space.s2)
                     .padding(.bottom, Space.s2)
-                    PillSwitcher(options: HomeRange.allCases, selection: $model.range, title: \.title, label: "Range")
 
-                    // New identity per range, so every chart fills again on switch.
-                    Group {
-                        switch model.phase {
-                        case .loading:
-                            ForEach(0..<2, id: \.self) { _ in
-                                CardPlaceholder()
-                            }
-                        case .failed(let message):
-                            LoadFailedCard(message: message) {
-                                model.load()
-                            }
-                        case .loaded:
-                            ForEach(model.cards) { card in
-                                HomeCardRow(
-                                    card: card,
-                                    range: model.range,
-                                    onOpen: { tap in router.open(card, range: model.range, tap: tap) },
-                                    onRemove: { cardToRemove = card },
-                                    onDrop: { droppedId in
-                                        Task { await model.move(droppedId, onto: card.id) }
+                    Section {
+                        VStack(spacing: Space.s4) {
+                            // New identity per period, so every chart redraws for the selected dates.
+                            Group {
+                                switch model.phase {
+                                case .loading:
+                                    ForEach(0..<2, id: \.self) { _ in
+                                        CardPlaceholder()
                                     }
-                                )
+                                case .failed(let message):
+                                    LoadFailedCard(message: message) {
+                                        model.load()
+                                    }
+                                case .loaded:
+                                    ForEach(model.cards) { card in
+                                        HomeCardRow(
+                                            card: card,
+                                            range: model.range,
+                                            selectedDate: model.selectedDate,
+                                            onOpen: { tap in router.open(card, range: model.range, selectedDate: model.selectedDate, tap: tap) },
+                                            onRemove: { cardToRemove = card },
+                                            onDrop: { droppedId in
+                                                Task { await model.move(droppedId, onto: card.id) }
+                                            }
+                                        )
+                                    }
+                                }
+                            }
+                            .id("\(model.range.rawValue)-\(model.selectedDate.description)")
+
+                            AddTrackerCard(ideas: model.suggestions.map(\.text)) { idea in
+                                router.openChat(draft: idea)
                             }
                         }
-                    }
-                    .id(model.range)
-
-                    AddTrackerCard(ideas: model.suggestions.map(\.text)) { idea in
-                        router.openChat(draft: idea)
+                        .padding(.horizontal, Space.s4)
+                        .padding(.top, Space.s2)
+                        .padding(.bottom, Space.s6)
+                        .animation(.snappy(duration: 0.3), value: model.phase)
+                        .animation(.snappy(duration: 0.3), value: model.cards.map(\.id))
+                    } header: {
+                        VStack(spacing: Space.s2) {
+                            PillSwitcher(options: HomeRange.allCases, selection: $model.range, title: \.title, label: "Range")
+                            Button {
+                                isPeriodPickerPresented = true
+                            } label: {
+                                HStack(spacing: 7) {
+                                    Image(systemName: "calendar")
+                                        .font(.system(size: 13, weight: .medium))
+                                    Text(model.selectedPeriodLabel)
+                                        .textStyle(.label, weight: .semibold)
+                                        .lineLimit(1)
+                                    Image(systemName: "chevron.down")
+                                        .font(.system(size: 10, weight: .bold))
+                                }
+                                .foregroundStyle(Palette.ink)
+                                .padding(.horizontal, Space.s4)
+                                .frame(maxWidth: .infinity)
+                                .frame(height: 40)
+                                .background(Palette.surfaceSunken, in: Capsule())
+                                .contentShape(Capsule())
+                            }
+                            .buttonStyle(.plain)
+                            .accessibilityLabel("Choose \(model.range.title.lowercased()), \(model.selectedPeriodLabel)")
+                        }
+                        .padding(.horizontal, Space.s4)
+                        .padding(.top, Space.s2)
+                        .padding(.bottom, Space.s3)
+                        .background {
+                            Rectangle()
+                                .fill(Palette.surface)
+                                .ignoresSafeArea(edges: .top)
+                        }
+                        .overlay(alignment: .bottom) {
+                            Rectangle()
+                                .fill(Palette.surfaceSunken)
+                                .frame(height: 1)
+                        }
+                        .zIndex(1)
                     }
                 }
-                .padding(.horizontal, Space.s4)
-                .padding(.top, Space.s2)
-                .padding(.bottom, Space.s6)
-                .animation(.snappy(duration: 0.3), value: model.phase)
-                .animation(.snappy(duration: 0.3), value: model.cards.map(\.id))
             }
             .scrollIndicators(.hidden)
             .refreshable {
@@ -92,6 +138,9 @@ struct HomeView: View {
             } message: { _ in
                 Text("What you've logged stays. Ask me any time to build the card again.")
             }
+            .sheet(isPresented: $isPeriodPickerPresented) {
+                HomePeriodPicker(model: model)
+            }
             // "Home" names the back button on a drill-down; Home itself has its own header.
             .navigationTitle("Home")
             .toolbar(.hidden, for: .navigationBar)
@@ -99,11 +148,23 @@ struct HomeView: View {
                 DrillDownView(target: target, api: api)
             }
         }
+        .overlay(alignment: .top) {
+            GeometryReader { geometry in
+                Palette.surface
+                    .frame(height: geometry.safeAreaInsets.top)
+                    .frame(maxWidth: .infinity)
+                    .offset(y: -geometry.safeAreaInsets.top)
+            }
+            .allowsHitTesting(false)
+        }
         .tint(Palette.brandStrong)
         .task {
             model.show()
         }
         .onChange(of: model.range) {
+            model.show()
+        }
+        .onChange(of: model.selectedDate) {
             model.show()
         }
         .onChange(of: scenePhase) { _, phase in
@@ -121,11 +182,145 @@ struct HomeView: View {
     }
 }
 
+private struct HomePeriodPicker: View {
+    let model: HomeModel
+    private let options: [HomePeriodOption]
+    @State private var selectedStart: LocalDay
+    @State private var scrollPosition: LocalDay?
+    @Environment(\.dismiss) private var dismiss
+
+    init(model: HomeModel) {
+        self.model = model
+        let options = model.periodOptions
+        self.options = options
+        let selected = model.selectedPeriodStart
+        let initial = options.first(where: { $0.start == selected })?.start
+            ?? options.first?.start ?? .today()
+        _selectedStart = State(initialValue: initial)
+        _scrollPosition = State(initialValue: initial)
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            ZStack {
+                Text("Select Time")
+                    .textStyle(.title, weight: .semibold)
+                    .foregroundStyle(Palette.ink)
+                HStack {
+                    Button {
+                        dismiss()
+                    } label: {
+                        Image(systemName: "xmark")
+                            .font(.system(size: 15, weight: .medium))
+                            .foregroundStyle(Palette.brandStrong)
+                            .frame(width: 44, height: 44)
+                            .background(Circle().fill(.regularMaterial))
+                            .overlay {
+                                Circle().stroke(Palette.brandStrong.opacity(0.24), lineWidth: 1)
+                            }
+                    }
+                    .buttonStyle(.pressable)
+                    .accessibilityLabel("Close period picker")
+                    Spacer()
+                }
+            }
+            .padding(.top, Space.s4)
+            .padding(.horizontal, Space.s4)
+
+            ScrollView {
+                LazyVStack(spacing: 0) {
+                    ForEach(options) { option in
+                        Text(option.dates)
+                            .font(.system(size: 18, weight: .medium))
+                            .foregroundStyle(option.start == selectedStart ? Palette.ink : Palette.inkMuted.opacity(0.52))
+                            .frame(maxWidth: .infinity)
+                            .frame(height: 52)
+                            .background {
+                                if option.start == selectedStart {
+                                    RoundedRectangle(cornerRadius: 13, style: .continuous)
+                                        .fill(Palette.surfaceRaised)
+                                        .padding(.horizontal, Space.s6)
+                                }
+                            }
+                            .contentShape(Rectangle())
+                            .id(option.start)
+                            .onTapGesture {
+                                withAnimation(.snappy(duration: 0.2)) {
+                                    selectedStart = option.start
+                                    scrollPosition = option.start
+                                }
+                            }
+                    }
+                }
+                .scrollTargetLayout()
+            }
+            .scrollIndicators(.hidden)
+            // Keep the first and last rows centered too, while letting viewAligned snap
+            // each 52-point date row to the fixed selection frame.
+            .contentMargins(.vertical, 84, for: .scrollContent)
+            .scrollTargetBehavior(.viewAligned)
+            .scrollPosition(id: $scrollPosition, anchor: .center)
+            .onAppear {
+                scrollPosition = selectedStart
+            }
+            .onChange(of: scrollPosition) { _, newValue in
+                if let newValue {
+                    selectedStart = newValue
+                }
+            }
+            .frame(height: 220)
+            .mask {
+                LinearGradient(
+                    stops: [
+                        .init(color: .clear, location: 0),
+                        .init(color: .black, location: 0.24),
+                        .init(color: .black, location: 0.76),
+                        .init(color: .clear, location: 1)
+                    ],
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
+            }
+            .overlay {
+                RoundedRectangle(cornerRadius: 13, style: .continuous)
+                    .stroke(Palette.brandStrong, lineWidth: 1.5)
+                    .frame(height: 48)
+                    .padding(.horizontal, Space.s6)
+                    .allowsHitTesting(false)
+            }
+
+            Button {
+                if let option = options.first(where: { $0.start == selectedStart }) {
+                    model.select(option)
+                }
+                dismiss()
+            } label: {
+                Text("Confirm")
+                    .textStyle(.heading, weight: .semibold)
+                    .foregroundStyle(Palette.onBrand)
+                    .frame(maxWidth: 250)
+                    .frame(height: 54)
+                    .background(Palette.brand, in: Capsule())
+            }
+            .buttonStyle(.pressable)
+            .frame(maxWidth: .infinity)
+            .padding(.bottom, Space.s6)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .foregroundStyle(Palette.ink)
+        .presentationDetents([.height(470)])
+        .presentationDragIndicator(.visible)
+        .presentationCornerRadius(34)
+        .presentationBackground(.regularMaterial)
+    }
+}
+
 /// A card on Home. Tap it for the entries behind it. Your own cards can also be removed (long-press)
 /// and dragged onto another to reorder; Journal stays put.
 private struct HomeCardRow: View {
     let card: CardDTO
     let range: HomeRange
+    let selectedDate: LocalDay
     var onOpen: (CardTap) -> Void
     var onRemove: () -> Void
     var onDrop: (String) -> Void
@@ -136,9 +331,9 @@ private struct HomeCardRow: View {
 
     var body: some View {
         if card.system == true {
-            CardView(card: card, range: range, onOpen: onOpen)
+            CardView(card: card, range: range, selectedDate: selectedDate, onOpen: onOpen)
         } else {
-            CardView(card: card, range: range, onOpen: onOpen)
+            CardView(card: card, range: range, selectedDate: selectedDate, onOpen: onOpen)
                 .contentShape(.contextMenuPreview, shape)
                 .contentShape(.dragPreview, shape)
                 .contextMenu {

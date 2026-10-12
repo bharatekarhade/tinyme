@@ -7,7 +7,8 @@ struct DrillDownView: View {
     init(target: MainRouter.DrillTarget, api: APIClient) {
         _model = State(initialValue: EntryListModel(
             api: api,
-            source: .card(id: target.cardId, range: target.range, block: target.block, item: target.item, day: target.day, key: target.key)
+            source: .card(id: target.cardId, range: target.range, selectedDate: target.selectedDate,
+                          block: target.block, item: target.item, day: target.day, key: target.key)
         ))
     }
 
