@@ -1054,7 +1054,7 @@ struct GoalsBlockView: View {
 
 // MARK: - Check-ins
 
-/// A dot per day: ticked when done, faint when missed, outlined when still to come.
+/// A dot per day: filled when done, dashed when planned, and muted when no plan is scheduled.
 struct CheckinsBlockView: View {
     let block: CheckinsBlock
     let range: HomeRange
@@ -1138,8 +1138,10 @@ struct CheckinsBlockView: View {
                 Circle().fill(style.accent)
             } else {
                 switch slot.state {
+                case "planned":
+                    Circle().strokeBorder(style.accent, style: StrokeStyle(lineWidth: 1.8, dash: [4, 3]))
                 case "future":
-                    Circle().strokeBorder(style.accent.opacity(0.6), style: StrokeStyle(lineWidth: 1.5, dash: [4, 3]))
+                    Circle().strokeBorder(style.muted.opacity(0.45), lineWidth: 1.2)
                 case "current":
                     Circle().strokeBorder(style.accent, lineWidth: 1.5)
                 default:
@@ -1159,7 +1161,7 @@ struct CheckinsBlockView: View {
         .growIn(shown, delay: min(Double(index) * 0.04, 0.6))
         .contentShape(Circle())
         .onTapGesture {
-            if slot.state != "future" {
+            if slot.state != "future" && slot.state != "planned" {
                 onSlot?(slot.period)
             }
         }
@@ -1167,6 +1169,7 @@ struct CheckinsBlockView: View {
 
     private func habitCell(_ slot: CheckinsBlock.Slot, index: Int) -> some View {
         let isFuture = slot.state == "future"
+        let isPlanned = slot.state == "planned"
         let isCurrent = slot.state == "current"
         return ZStack {
             RoundedRectangle(cornerRadius: 10, style: .continuous)
@@ -1190,9 +1193,12 @@ struct CheckinsBlockView: View {
         .frame(maxWidth: .infinity)
         .frame(height: 42)
         .overlay {
-            if isFuture {
+            if isPlanned {
                 RoundedRectangle(cornerRadius: 10, style: .continuous)
-                    .strokeBorder(style.accent.opacity(0.45), style: StrokeStyle(lineWidth: 1, dash: [3, 2]))
+                    .strokeBorder(style.accent, style: StrokeStyle(lineWidth: 1.8, dash: [4, 3]))
+            } else if isFuture {
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .strokeBorder(style.muted.opacity(0.45), style: StrokeStyle(lineWidth: 1, dash: [3, 2]))
             }
         }
         .scaleEffect(shown ? 1 : 0.86)
@@ -1200,27 +1206,34 @@ struct CheckinsBlockView: View {
         .contentShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
         .accessibilityLabel("\(slot.period.description)\(slot.activity.map { ", \($0)" } ?? "")\(slot.done ? ", completed" : "")")
         .onTapGesture {
-            if !isFuture { onSlot?(slot.period) }
+            if !isFuture && !isPlanned { onSlot?(slot.period) }
         }
         .growIn(shown, delay: min(Double(index) * 0.015, 0.4))
     }
 
     private var caption: String {
+        let planned = plannedCaption
         guard let goal = block.goal else {
             if range == .year {
                 let periodCaption = "\(block.label) \(period.phrase)"
                 if let streak = block.streak, streak.current > 0 {
-                    return "\(periodCaption) · \(streak.current)-day streak"
+                    return [periodCaption, "\(streak.current)-day streak", planned].compactMap { $0 }.joined(separator: " · ")
                 }
-                return periodCaption
+                return [periodCaption, planned].compactMap { $0 }.joined(separator: " · ")
             }
             if let streak = block.streak, streak.current > 0 {
-                return "\(block.label) · \(streak.current)-day streak"
+                return ["\(block.label) · \(streak.current)-day streak", planned].compactMap { $0 }.joined(separator: " · ")
             }
-            return "\(block.label) · days active"
+            return ["\(block.label) · days active", planned].compactMap { $0 }.joined(separator: " · ")
         }
         let left = goal - block.doneCount
-        return left > 0 ? "\(block.label) · \(left) more to hit your goal" : "\(block.label) · goal reached"
+        let headline = left > 0 ? "\(block.label) · \(left) more to hit your goal" : "\(block.label) · goal reached"
+        return [headline, planned].compactMap { $0 }.joined(separator: " · ")
+    }
+
+    private var plannedCaption: String? {
+        guard let count = block.plannedCount, count > 0 else { return nil }
+        return count == 1 ? "one more planned" : "\(count) planned"
     }
 
     private func letter(for day: LocalDay) -> String {

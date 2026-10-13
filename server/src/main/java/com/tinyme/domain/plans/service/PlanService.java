@@ -111,6 +111,46 @@ public class PlanService {
         return calendar(from, to, Objects.requireNonNull(zone, "zone"), Objects.requireNonNull(now, "now"), false);
     }
 
+    /**
+     * Days with an upcoming habit occurrence for the requested entry kinds. The card layer only
+     * needs the dates; plan status, recurrence, moved occurrences, and merged kinds stay here.
+     */
+    @Transactional(readOnly = true)
+    public Set<LocalDate> habitDays(List<String> requestedKinds, LocalDate from, LocalDate to,
+                                   ZoneId zone, Instant now) {
+        Objects.requireNonNull(requestedKinds, "requestedKinds");
+        Objects.requireNonNull(from, "from");
+        Objects.requireNonNull(to, "to");
+        if (requestedKinds.isEmpty() || requestedKinds.size() > 5
+                || (requestedKinds.contains("*") && requestedKinds.size() != 1)) {
+            throw new IllegalArgumentException("kinds must contain 1 to 5 entry kinds, or only '*'");
+        }
+        if (to.isBefore(from)) throw new IllegalArgumentException("to must not be before from");
+        Objects.requireNonNull(zone, "zone");
+        Objects.requireNonNull(now, "now");
+        LocalDate today = LocalDate.ofInstant(now, zone);
+        if (to.isBefore(today)) return Set.of();
+
+        boolean allKinds = requestedKinds.contains("*");
+        Map<String, String> resolutions = kinds.resolveAll();
+        Set<String> canonicalKinds = allKinds ? Set.of() : requestedKinds.stream()
+                .map(kind -> resolutions.getOrDefault(kind, kind)).collect(Collectors.toSet());
+        LocalDate first = from.isBefore(today) ? today : from;
+        Set<LocalDate> result = new HashSet<>();
+        for (LocalDate chunkFrom = first; !chunkFrom.isAfter(to);) {
+            LocalDate chunkTo = chunkFrom.plusDays(PlanCalendar.MAX_DAYS - 1L);
+            if (chunkTo.isAfter(to)) chunkTo = to;
+            calendar(chunkFrom, chunkTo, zone, now, false).stream()
+                    .filter(item -> item.habitKind() != null)
+                    .filter(item -> item.status() == OccurrenceStatus.UPCOMING)
+                    .filter(item -> allKinds || canonicalKinds.contains(item.habitKind()))
+                    .map(PlanOccurrence::day)
+                    .forEach(result::add);
+            chunkFrom = chunkTo.plusDays(1);
+        }
+        return Set.copyOf(result);
+    }
+
     @Transactional(readOnly = true)
     public String contextLine(ZoneId zone, Instant now) {
         LocalDate today = LocalDate.ofInstant(now, zone);

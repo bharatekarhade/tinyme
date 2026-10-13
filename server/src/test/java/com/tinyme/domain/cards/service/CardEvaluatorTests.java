@@ -5,6 +5,7 @@ import com.tinyme.domain.cards.model.CardSpecParser;
 import com.tinyme.domain.cards.model.CardSpecWriter;
 import com.tinyme.domain.cards.model.CardStatus;
 import com.tinyme.domain.cards.model.view.ChartView;
+import com.tinyme.domain.cards.model.view.CheckinsView;
 import com.tinyme.domain.cards.model.view.StatView;
 import com.tinyme.domain.cards.model.view.UnavailableView;
 import com.tinyme.domain.entries.model.aggregate.AggregateQuery;
@@ -13,6 +14,7 @@ import com.tinyme.domain.entries.model.aggregate.Bucket;
 import com.tinyme.domain.entries.model.aggregate.GroupBy;
 import com.tinyme.domain.entries.model.aggregate.Range;
 import com.tinyme.domain.entries.service.EntryService;
+import com.tinyme.domain.plans.service.PlanService;
 import com.tinyme.settings.UserZone;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -31,6 +33,7 @@ import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
@@ -47,6 +50,7 @@ class CardEvaluatorTests {
     private static final LocalDate TODAY = LocalDate.of(2026, 10, 11);
 
     @Mock EntryService entries;
+    @Mock PlanService plans;
     @Mock UserZone userZone;
 
     private CardSpecParser parser;
@@ -57,7 +61,7 @@ class CardEvaluatorTests {
     void setUp() {
         parser = new CardSpecParser();
         writer = new CardSpecWriter();
-        evaluator = new CardEvaluator(parser, entries, userZone, Clock.fixed(NOW, ZoneId.of("UTC")));
+        evaluator = new CardEvaluator(parser, entries, plans, userZone, Clock.fixed(NOW, ZoneId.of("UTC")));
         when(userZone.current()).thenReturn(TOKYO);
     }
 
@@ -303,6 +307,35 @@ class CardEvaluatorTests {
 
         assertThat(json).contains("\"type\":\"chart\"", "\"peak_index\"", "\"goal_line\"");
         assertThat(json).doesNotContain("\"peakIndex\"", "\"goalLine\"");
+    }
+
+    @Test
+    void upcomingHabitDayMarksAnUndoneCheckinSlotAsPlanned() {
+        CardEntity card = card("""
+                {"v":1,"title":"Gym","icon":"dumbbell","accent":"ink","tone":"surface","blocks":[
+                  {"type":"checkins","label":"visits","metric":{"kinds":["workout"],"op":"count"},"period":"range"}
+                ]}
+                """);
+        when(entries.aggregate(any())).thenAnswer(invocation -> {
+            AggregateQuery query = invocation.getArgument(0);
+            var buckets = new ArrayList<Bucket>();
+            for (LocalDate day = query.from(); !day.isAfter(query.to()); day = day.plusDays(1)) {
+                buckets.add(new Bucket(day, BigDecimal.ZERO, 0));
+            }
+            return aggregate(query, null, null, buckets);
+        });
+        when(entries.activityTypesByDay(any(), any(), any(), any())).thenReturn(Map.of());
+        when(plans.habitDays(any(), any(), any(), any(), any())).thenReturn(Set.of(TODAY));
+
+        CheckinsView result = (CheckinsView) evaluator.evaluate(card, Range.WEEK).blocks().getFirst();
+
+        assertThat(result.slots()).filteredOn(slot -> slot.period().equals(TODAY)).singleElement()
+                .satisfies(slot -> {
+                    assertThat(slot.state()).isEqualTo("planned");
+                    assertThat(slot.done()).isFalse();
+                });
+        assertThat(result.plannedCount()).isEqualTo(1);
+        assertThat(JSON.writeValueAsString(result)).contains("\"planned_count\":1");
     }
 
     private CardEntity card(String source) {

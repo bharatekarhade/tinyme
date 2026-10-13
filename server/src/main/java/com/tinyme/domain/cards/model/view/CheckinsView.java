@@ -5,7 +5,8 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 import java.util.List;
 
 public record CheckinsView(String label, List<Slot> slots,
-                           @JsonProperty("done_count") int doneCount, Integer goal,
+                           @JsonProperty("done_count") int doneCount,
+                           @JsonProperty("planned_count") int plannedCount, Integer goal,
                            StreakView streak,
                            @JsonProperty("average_day") AverageDayView averageDay) implements BlockView {
     public CheckinsView { slots = List.copyOf(slots); }

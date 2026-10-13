@@ -232,6 +232,7 @@ struct CheckinsBlock: Decodable, Sendable, Hashable {
     let label: String
     let slots: [Slot]
     let doneCount: Int
+    let plannedCount: Int?
     let goal: Int?
     let streak: Streak?
     let averageDay: AverageDay?
@@ -239,6 +240,7 @@ struct CheckinsBlock: Decodable, Sendable, Hashable {
     private enum CodingKeys: String, CodingKey {
         case label, slots, goal, streak
         case doneCount = "done_count"
+        case plannedCount = "planned_count"
         case averageDay = "average_day"
     }
 }

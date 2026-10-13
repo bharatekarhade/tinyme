@@ -16,6 +16,9 @@ import com.tinyme.domain.cards.repository.CardRepository;
 import com.tinyme.domain.entries.model.add.AddCommand;
 import com.tinyme.domain.entries.model.aggregate.Range;
 import com.tinyme.domain.entries.service.EntryService;
+import com.tinyme.domain.plans.model.PlanAddCommand;
+import com.tinyme.domain.plans.model.PlanKind;
+import com.tinyme.domain.plans.service.PlanService;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -60,6 +63,7 @@ class CardEvaluatorIntegrationTests {
     @Autowired CardEvaluator evaluator;
     @Autowired CardEntriesService cardEntries;
     @Autowired EntryService entries;
+    @Autowired PlanService plans;
     @Autowired CardRepository cards;
     @Autowired CardSpecParser parser;
     @Autowired CardSpecWriter writer;
@@ -68,6 +72,7 @@ class CardEvaluatorIntegrationTests {
     @AfterEach
     void cleanUp() {
         jdbc.update("DELETE FROM entries WHERE kind IN ('meal', 'drink', 'expense', 'workout', 'quantity_test')");
+        jdbc.update("DELETE FROM plans WHERE title LIKE ?", CARD_PREFIX + "%");
         jdbc.update("UPDATE entry_kinds SET merged_into = NULL WHERE kind IN ('meal', 'drink', 'expense', 'workout', 'quantity_test')");
         jdbc.update("DELETE FROM entry_kinds WHERE kind IN ('meal', 'drink', 'expense', 'workout', 'quantity_test')");
         jdbc.update("DELETE FROM cards WHERE slug LIKE ?", CARD_PREFIX + "%");
@@ -217,6 +222,29 @@ class CardEvaluatorIntegrationTests {
         assertThat(checkins.slots().get(0).done()).isTrue();
         assertThat(checkins.slots().get(1).done()).isTrue();
         assertThat(checkins.slots().subList(2, 12)).noneMatch(slot -> slot.done());
+    }
+
+    @Test
+    void upcomingHabitPlansMarkFutureGymSlotsPlannedUntilAnEntryIsLogged() {
+        add("workout", LocalDate.of(2026, 10, 5), LocalTime.of(8, 0), Map.of("type", "Run"));
+        var gym = saveExample("gym-planned", GYM);
+        LocalDate thursday = LocalDate.of(2026, 10, 8);
+        plans.add(new PlanAddCommand(PlanKind.EVENT, CARD_PREFIX + "planned gym", thursday,
+                LocalTime.of(19, 0), null, null, null, List.of(), null, null, "workout", null), TOKYO,
+                Instant.parse("2026-10-07T03:00:00Z"));
+
+        CheckinsView planned = (CheckinsView) evaluator.evaluate(gym, Range.WEEK).blocks().getFirst();
+        assertThat(planned.slots().get(3).period()).isEqualTo(thursday);
+        assertThat(planned.slots().get(3).state()).isEqualTo("planned");
+        assertThat(planned.slots().get(3).done()).isFalse();
+        assertThat(planned.plannedCount()).isEqualTo(1);
+
+        add("workout", thursday, LocalTime.of(19, 0), Map.of("type", "Strength training"));
+        CheckinsView logged = (CheckinsView) evaluator.evaluate(gym, Range.WEEK).blocks().getFirst();
+        assertThat(logged.slots().get(3).state()).isEqualTo("future");
+        assertThat(logged.slots().get(3).done()).isTrue();
+        assertThat(logged.slots().get(3).activity()).isEqualTo("Strength training");
+        assertThat(logged.plannedCount()).isZero();
     }
 
     @Test

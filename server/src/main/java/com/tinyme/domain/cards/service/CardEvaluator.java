@@ -53,6 +53,7 @@ import com.tinyme.domain.entries.model.aggregate.GroupBy;
 import com.tinyme.domain.entries.model.aggregate.Period;
 import com.tinyme.domain.entries.model.aggregate.Range;
 import com.tinyme.domain.entries.service.EntryService;
+import com.tinyme.domain.plans.service.PlanService;
 import com.tinyme.settings.UserZone;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -81,12 +82,15 @@ public class CardEvaluator {
 
     private final CardSpecParser parser;
     private final EntryService entries;
+    private final PlanService plans;
     private final UserZone userZone;
     private final Clock clock;
 
-    public CardEvaluator(CardSpecParser parser, EntryService entries, UserZone userZone, Clock clock) {
+    public CardEvaluator(CardSpecParser parser, EntryService entries, PlanService plans,
+                         UserZone userZone, Clock clock) {
         this.parser = Objects.requireNonNull(parser, "parser");
         this.entries = Objects.requireNonNull(entries, "entries");
+        this.plans = Objects.requireNonNull(plans, "plans");
         this.userZone = Objects.requireNonNull(userZone, "userZone");
         this.clock = Objects.requireNonNull(clock, "clock");
     }
@@ -212,16 +216,25 @@ public class CardEvaluator {
         AggregateResult result = aggregate(scope.metric(), dates, groupBy);
         Map<LocalDate, String> activities = entries.activityTypesByDay(scope.metric().kinds(),
                 scope.metric().where(), dates.from(), dates.to());
+        var plannedDays = dates.to().isBefore(actualToday) ? java.util.Set.<LocalDate>of()
+                : plans.habitDays(scope.metric().kinds(), dates.from(), dates.to(), userZone.current(), clock.instant());
+        var plannedPeriods = plannedDays.stream().map(day -> switch (groupBy) {
+            case DAY, NONE -> day;
+            case WEEK -> day.with(java.time.DayOfWeek.MONDAY);
+            case MONTH -> day.withDayOfMonth(1);
+        }).collect(java.util.stream.Collectors.toSet());
         List<Slot> slots = result.buckets().stream().map(bucket -> new Slot(bucket.period(),
-                state(bucket.period(), groupBy, actualToday), bucket.entries() > 0,
+                slotState(bucket.period(), groupBy, actualToday, bucket.entries() > 0, plannedPeriods),
+                bucket.entries() > 0,
                 activities.get(bucket.period()))).toList();
+        int plannedCount = (int) slots.stream().filter(slot -> slot.state().equals("planned")).count();
         // Year check-ins use one slot per month, but the headline is the actual
         // number of occurrences (e.g. gym visits), not the number of active months.
         int done = groupBy == GroupBy.MONTH
                 ? result.buckets().stream().map(Bucket::value).filter(Objects::nonNull)
                         .reduce(BigDecimal.ZERO, BigDecimal::add).intValue()
                 : (int) slots.stream().filter(Slot::done).count();
-        return new CheckinsView(block.label(), slots, done,
+        return new CheckinsView(block.label(), slots, done, plannedCount,
                 applies(block.goalPeriod(), block.period(), BlockScope.checkinsRange(block.period(), range))
                         ? block.goal() : null,
                 streak(scope.metric(), selectedDate), averageDay(scope.metric(), dates,
@@ -404,6 +417,17 @@ public class CardEvaluator {
             case NONE -> today;
         };
         return point.isBefore(current) ? "past" : point.isAfter(current) ? "future" : "current";
+    }
+
+    private static String slotState(LocalDate period, GroupBy groupBy, LocalDate today, boolean done,
+                                    java.util.Set<LocalDate> plannedPeriods) {
+        String state = state(period, groupBy, today);
+        LocalDate bucket = switch (groupBy) {
+            case DAY, NONE -> period;
+            case WEEK -> period.with(java.time.DayOfWeek.MONDAY);
+            case MONTH -> period.withDayOfMonth(1);
+        };
+        return !done && !state.equals("past") && plannedPeriods.contains(bucket) ? "planned" : state;
     }
 
     private static Integer peakIndex(List<Point> points) {
