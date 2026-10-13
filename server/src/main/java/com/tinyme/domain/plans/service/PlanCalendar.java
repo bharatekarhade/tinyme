@@ -152,7 +152,9 @@ public final class PlanCalendar {
         if (plan.status() == PlanStatus.CANCELLED) return OccurrenceStatus.CANCELLED;
         if (exception != null) {
             if (exception.status() == OccurrenceExceptionStatus.SKIPPED) return OccurrenceStatus.SKIPPED;
-            if (exception.status() == OccurrenceExceptionStatus.DONE) return OccurrenceStatus.DONE;
+            if (exception.status() == OccurrenceExceptionStatus.DONE || exception.completedAt() != null) {
+                return OccurrenceStatus.DONE;
+            }
         }
         if (plan.status() == PlanStatus.DONE) return OccurrenceStatus.DONE;
         if (plan.habitKind() != null && habitDays.contains(new HabitDay(plan.habitKind(), day))) {
@@ -246,7 +248,7 @@ public final class PlanCalendar {
         return result;
     }
 
-    private static void validateRange(LocalDate from, LocalDate to) {
+    public static void validateRange(LocalDate from, LocalDate to) {
         Objects.requireNonNull(from, "from");
         Objects.requireNonNull(to, "to");
         if (to.isBefore(from)) throw new IllegalArgumentException("to must not be before from");

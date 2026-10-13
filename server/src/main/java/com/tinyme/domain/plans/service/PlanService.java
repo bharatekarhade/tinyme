@@ -104,6 +104,13 @@ public class PlanService {
         return new PlanQueryResult(truncated ? filtered.subList(0, PlanQuery.MAX_RESULTS) : filtered, truncated);
     }
 
+    /** All calendar items for the app API, which has no agent-tool result cap. */
+    @Transactional(readOnly = true)
+    public List<PlanOccurrence> upcomingItems(LocalDate from, LocalDate to, ZoneId zone, Instant now) {
+        PlanCalendar.validateRange(from, to);
+        return calendar(from, to, Objects.requireNonNull(zone, "zone"), Objects.requireNonNull(now, "now"), false);
+    }
+
     @Transactional(readOnly = true)
     public String contextLine(ZoneId zone, Instant now) {
         LocalDate today = LocalDate.ofInstant(now, zone);
@@ -148,6 +155,64 @@ public class PlanService {
         return Optional.of(new PlanWriteResult(id, updated.getTitle(), next, List.of(), List.of()));
     }
 
+    /** Applies the same occurrence state transitions used by plans_update for app quick actions. */
+    @Transactional
+    public Optional<PlanOccurrence> quickAction(UUID id, LocalDate occurrenceDay, QuickAction action,
+                                                ZoneId zone, Instant now) {
+        Objects.requireNonNull(id, "id");
+        Objects.requireNonNull(occurrenceDay, "occurrenceDay");
+        Objects.requireNonNull(action, "action");
+        Objects.requireNonNull(zone, "zone");
+        Objects.requireNonNull(now, "now");
+        PlanEntity plan = plans.findLive(id).orElse(null);
+        if (plan == null) return Optional.empty();
+        if (plan.getStatus() == PlanStatus.CANCELLED) {
+            throw new PlanStateConflictException("a cancelled plan cannot be changed");
+        }
+
+        boolean repeating = plan.getRepeat() != null;
+        if (!repeating && !plan.getStartDay().equals(occurrenceDay)) {
+            throw new IllegalArgumentException("day is not an occurrence of this plan");
+        }
+        PlanChange change = switch (action) {
+            case DONE -> new PlanChange.Done(repeating ? occurrenceDay : null);
+            case UNDO_DONE -> new PlanChange.UndoDone(repeating ? occurrenceDay : null);
+            case SKIP -> {
+                if (!repeating) throw new IllegalArgumentException("only a repeating plan can be skipped");
+                yield new PlanChange.Skip(occurrenceDay);
+            }
+        };
+        Optional<PlanWriteResult> updated = update(id, change, zone, now);
+        if (updated.isEmpty()) return Optional.empty();
+        PlanOccurrence occurrence = occurrenceOf(id, occurrenceDay, zone, now)
+                .orElseThrow(() -> new IllegalStateException("updated occurrence is missing from the calendar"));
+        return Optional.of(occurrence);
+    }
+
+    private Optional<PlanOccurrence> occurrenceOf(UUID id, LocalDate originalDay, ZoneId zone, Instant now) {
+        PlanOccurrenceEntity exception = occurrences.find(new PlanOccurrenceId(id, originalDay)).orElse(null);
+        LocalDate from = originalDay;
+        LocalDate to = originalDay;
+        if (exception != null && exception.getStatus() == OccurrenceExceptionStatus.MOVED) {
+            from = exception.getMovedDay().isBefore(from) ? exception.getMovedDay() : from;
+            to = exception.getMovedDay().isAfter(to) ? exception.getMovedDay() : to;
+        }
+        return calendar(from, to, zone, now, true).stream()
+                .filter(item -> id.equals(item.planId()) && originalDay.equals(item.originalDay()))
+                .findFirst();
+    }
+
+    @Transactional
+    public boolean delete(UUID id, Instant now) {
+        Objects.requireNonNull(id, "id");
+        Objects.requireNonNull(now, "now");
+        PlanEntity plan = plans.findLive(id).orElse(null);
+        if (plan == null) return false;
+        plan.softDelete(now);
+        plans.save(plan);
+        return true;
+    }
+
     private void applyChange(PlanEntity plan, UUID id, PlanChange change, ZoneId zone, Instant now) {
         switch (change) {
             case PlanChange.Done done -> {
@@ -158,7 +223,12 @@ public class PlanService {
                 } else {
                     LocalDate day = requireOccurrenceDay(done.occurrenceDay());
                     requireScheduled(plan, day, zone, now);
-                    occurrences.save(PlanOccurrenceEntity.done(plan, day, now));
+                    occurrences.find(new PlanOccurrenceId(id, day))
+                            .filter(row -> row.getStatus() == OccurrenceExceptionStatus.MOVED)
+                            .ifPresentOrElse(
+                                    row -> occurrences.save(PlanOccurrenceEntity.doneMoved(plan, day,
+                                            row.getMovedDay(), row.getMovedTime(), now)),
+                                    () -> occurrences.save(PlanOccurrenceEntity.done(plan, day, now)));
                 }
             }
             case PlanChange.UndoDone undo -> {
@@ -169,9 +239,15 @@ public class PlanService {
                 } else {
                     LocalDate day = requireOccurrenceDay(undo.occurrenceDay());
                     requireScheduled(plan, day, zone, now);
-                    occurrences.find(new PlanOccurrenceId(id, day))
-                            .filter(row -> row.getStatus() == OccurrenceExceptionStatus.DONE)
-                            .ifPresent(row -> occurrences.delete(row.getId()));
+                    occurrences.find(new PlanOccurrenceId(id, day)).ifPresent(row -> {
+                        if (row.getStatus() == OccurrenceExceptionStatus.DONE) {
+                            occurrences.delete(row.getId());
+                        } else if (row.getStatus() == OccurrenceExceptionStatus.MOVED
+                                && row.getCompletedAt() != null) {
+                            occurrences.save(PlanOccurrenceEntity.moved(plan, day,
+                                    row.getMovedDay(), row.getMovedTime()));
+                        }
+                    });
                 }
             }
             case PlanChange.Skip skip -> {
@@ -332,4 +408,6 @@ public class PlanService {
     public record PlanQueryResult(List<PlanOccurrence> occurrences, boolean truncated) {
         public PlanQueryResult { occurrences = List.copyOf(occurrences); }
     }
+
+    public enum QuickAction { DONE, UNDO_DONE, SKIP }
 }

@@ -9,12 +9,19 @@ struct HomeView: View {
     @Environment(\.scenePhase) private var scenePhase
     @State private var cardToRemove: CardDTO?
     @State private var isPeriodPickerPresented = false
+    /// How far Home is scrolled, to tell whether the switcher is pinned.
+    @State private var scrollOffset: CGFloat = 0
+    /// Where the cards begin, in the scroll view's content.
+    @State private var cardsTop: CGFloat = 0
+
+    private static let cardsAnchor = "home-cards"
 
     var body: some View {
         @Bindable var model = model
         @Bindable var router = router
 
         NavigationStack(path: $router.homePath) {
+            ScrollViewReader { proxy in
             ScrollView {
                 LazyVStack(spacing: 0, pinnedViews: [.sectionHeaders]) {
                     HomeHeader(initial: profileInitial, subtitle: model.range.subtitle, streak: model.streak) {
@@ -23,6 +30,11 @@ struct HomeView: View {
                     .padding(.horizontal, Space.s4)
                     .padding(.top, Space.s2)
                     .padding(.bottom, Space.s2)
+                    .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { cardsTop = $0 }
+
+                    Color.clear
+                        .frame(height: 0)
+                        .id(Self.cardsAnchor)
 
                     Section {
                         VStack(spacing: Space.s4) {
@@ -52,7 +64,7 @@ struct HomeView: View {
                                     }
                                 }
                             }
-                            .id("\(model.range.rawValue)-\(model.selectedDate.description)")
+                            .id(periodKey)
 
                             AddTrackerCard(ideas: model.suggestions.map(\.text)) { idea in
                                 router.openChat(draft: idea)
@@ -106,6 +118,16 @@ struct HomeView: View {
                 }
             }
             .scrollIndicators(.hidden)
+            .onScrollGeometryChange(for: CGFloat.self) { $0.contentOffset.y + $0.contentInsets.top } action: { _, offset in
+                scrollOffset = offset
+            }
+            .onChange(of: periodKey) {
+                // Another period can be much shorter than the one scrolled through. Left where it was, the list
+                // would sit past its own end and draw nothing, so go back to the first card under the switcher.
+                if scrollOffset > cardsTop {
+                    proxy.scrollTo(Self.cardsAnchor, anchor: .top)
+                }
+            }
             .refreshable {
                 await model.reload()
             }
@@ -147,6 +169,7 @@ struct HomeView: View {
             .navigationDestination(for: MainRouter.DrillTarget.self) { target in
                 DrillDownView(target: target, api: api)
             }
+            }
         }
         .overlay(alignment: .top) {
             GeometryReader { geometry in
@@ -172,6 +195,11 @@ struct HomeView: View {
                 model.refresh()
             }
         }
+    }
+
+    /// One value per range and date: the period on screen.
+    private var periodKey: String {
+        "\(model.range.rawValue)-\(model.selectedDate.description)"
     }
 
     private var profileInitial: String {

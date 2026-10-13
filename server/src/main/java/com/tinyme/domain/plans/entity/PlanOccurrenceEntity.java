@@ -60,6 +60,13 @@ public class PlanOccurrenceEntity {
                 null, null, Objects.requireNonNull(completedAt, "completedAt"));
     }
 
+    public static PlanOccurrenceEntity doneMoved(PlanEntity plan, LocalDate day, LocalDate movedDay,
+                                                 LocalTime movedTime, Instant completedAt) {
+        return new PlanOccurrenceEntity(plan, day, OccurrenceExceptionStatus.MOVED,
+                Objects.requireNonNull(movedDay, "movedDay"), movedTime,
+                Objects.requireNonNull(completedAt, "completedAt"));
+    }
+
     public static PlanOccurrenceEntity skipped(PlanEntity plan, LocalDate day) {
         return new PlanOccurrenceEntity(plan, day, OccurrenceExceptionStatus.SKIPPED, null, null, null);
     }
