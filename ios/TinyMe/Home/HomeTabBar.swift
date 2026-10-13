@@ -1,10 +1,10 @@
 import SwiftUI
 
-/// Floating glass bar: Home · History in one pill, the mint + as its own circle.
-/// Upcoming joins them once there is a calendar to show.
+/// Floating glass navigation for Home, Upcoming and History, with chat always one tap away.
 struct HomeTabBar: View {
     enum Tab: String, CaseIterable, Identifiable {
         case home = "Home"
+        case upcoming = "Upcoming"
         case history = "History"
 
         var id: Self { self }
@@ -12,6 +12,7 @@ struct HomeTabBar: View {
         var systemImage: String {
             switch self {
             case .home: "house"
+            case .upcoming: "calendar"
             case .history: "clock"   // symmetric, so it sits centred over its label
             }
         }

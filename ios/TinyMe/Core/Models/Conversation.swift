@@ -60,10 +60,17 @@ struct ActionDTO: Decodable, Sendable, Hashable {
         isError ? nil : ref?["card_id"]?.stringValue
     }
 
-    /// True when the tool changed entries or cards, so Home is out of date.
-    var changesHomeData: Bool {
-        !isError && (tool.hasPrefix("entries_") || tool.hasPrefix("cards_")) && !Self.readOnlyTools.contains(tool)
+    var planId: String? {
+        isError ? nil : ref?["plan_id"]?.stringValue
     }
 
-    private static let readOnlyTools: Set<String> = ["entries_query", "entries_aggregate", "cards_list"]
+    /// True when a tool changed data that appears in Home, Upcoming, or History.
+    var changesHomeData: Bool {
+        !isError && (tool.hasPrefix("entries_") || tool.hasPrefix("cards_") || tool.hasPrefix("plans_") || tool == "people_upsert")
+            && !Self.readOnlyTools.contains(tool)
+    }
+
+    private static let readOnlyTools: Set<String> = [
+        "entries_query", "entries_aggregate", "cards_list", "plans_query", "people_get"
+    ]
 }

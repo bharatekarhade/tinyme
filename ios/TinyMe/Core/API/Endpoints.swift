@@ -44,6 +44,29 @@ struct Endpoint: Sendable {
 
     static let kinds = Endpoint(method: "GET", path: "kinds")
 
+    static func upcoming(from: LocalDay, to: LocalDay) -> Endpoint {
+        Endpoint(method: "GET", path: "upcoming", query: [
+            URLQueryItem(name: "from", value: from.description),
+            URLQueryItem(name: "to", value: to.description)
+        ])
+    }
+
+    static func planDone(_ id: String, day: LocalDay) -> Endpoint {
+        Endpoint(method: "POST", path: "plans/\(id)/occurrences/\(day.description)/done")
+    }
+
+    static func planUndoDone(_ id: String, day: LocalDay) -> Endpoint {
+        Endpoint(method: "DELETE", path: "plans/\(id)/occurrences/\(day.description)/done")
+    }
+
+    static func planSkip(_ id: String, day: LocalDay) -> Endpoint {
+        Endpoint(method: "POST", path: "plans/\(id)/occurrences/\(day.description)/skip")
+    }
+
+    static func deletePlan(_ id: String) -> Endpoint {
+        Endpoint(method: "DELETE", path: "plans/\(id)")
+    }
+
     /// The whole log, newest first. `kind` nil means every kind.
     static func entries(kind: String?, query: String, cursor: String?) -> Endpoint {
         var items: [URLQueryItem] = []

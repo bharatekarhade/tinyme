@@ -6,6 +6,7 @@ struct MainView: View {
     @Environment(\.scenePhase) private var scenePhase
     @State private var router = MainRouter()
     @State private var home: HomeModel
+    @State private var upcoming: UpcomingModel
     @State private var history: EntryListModel
 
     private let api: APIClient
@@ -13,6 +14,7 @@ struct MainView: View {
     init(api: APIClient) {
         self.api = api
         _home = State(initialValue: HomeModel(api: api))
+        _upcoming = State(initialValue: UpcomingModel(api: api))
         _history = State(initialValue: EntryListModel(api: api, source: .history(kind: nil, query: "")))
     }
 
@@ -23,24 +25,40 @@ struct MainView: View {
             switch router.tab {
             case .home:
                 HomeView(model: home, api: api)
+            case .upcoming:
+                UpcomingView(model: upcoming) { draft in router.openChat(draft: draft) }
             case .history:
                 HistoryView(model: history, api: api)
             }
         }
         .safeAreaInset(edge: .bottom) {
             // A drill-down is its own screen: the bar comes back when you return to Home.
-            if router.tab == .history || router.homePath.isEmpty {
+            if router.tab != .home || router.homePath.isEmpty {
                 HomeTabBar(
-                    selection: router.tab == .home ? .home : .history,
-                    onSelect: { router.tab = $0 == .home ? .home : .history },
+                    selection: tabBarSelection,
+                    onSelect: { tab in
+                        switch tab {
+                        case .home: router.tab = .home
+                        case .upcoming: router.tab = .upcoming
+                        case .history: router.tab = .history
+                        }
+                    },
                     onNewChat: { router.openChat() }
                 )
             }
         }
         .environment(router)
         .fullScreenCover(item: $router.chat) { draft in
-            ChatView(api: api, outbox: environment.outbox, draft: draft.text, serverName: serverName) { [home, router] in
+            ChatView(
+                api: api, outbox: environment.outbox, draft: draft.text, serverName: serverName,
+                onOpenPlan: { planId in
+                    router.chat = nil
+                    router.tab = .upcoming
+                    upcoming.focus(planId: planId)
+                }
+            ) { [home, upcoming, router] in
                 home.invalidate()
+                upcoming.invalidate()
                 router.historyIsStale = true
             }
         }
@@ -55,6 +73,7 @@ struct MainView: View {
                 Task { await environment.outbox.clear() }
                 WidgetSnapshot.clearAndReload()
                 home.invalidate()
+                upcoming.invalidate()
                 home.announce("All your data was deleted.")
             }
         }
@@ -73,6 +92,7 @@ struct MainView: View {
             for await event in events {
                 guard case .finished(_, let outcome, _) = event, outcome != .completed(changedData: false) else { continue }
                 home.invalidate()
+                upcoming.invalidate()
                 router.historyIsStale = true
             }
         }
@@ -94,5 +114,13 @@ struct MainView: View {
             return server.host() ?? server.absoluteString
         }
         return ""
+    }
+
+    private var tabBarSelection: HomeTabBar.Tab {
+        switch router.tab {
+        case .home: .home
+        case .upcoming: .upcoming
+        case .history: .history
+        }
     }
 }

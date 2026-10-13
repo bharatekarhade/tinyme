@@ -1,0 +1,88 @@
+import Foundation
+
+struct UpcomingDTO: Decodable, Sendable, Hashable {
+    struct Day: Decodable, Sendable, Hashable, Identifiable {
+        let day: LocalDay
+        let count: Int
+        let hasTimed: Bool
+
+        var id: LocalDay { day }
+
+        private enum CodingKeys: String, CodingKey {
+            case day, count
+            case hasTimed = "has_timed"
+        }
+    }
+
+    let now: Date
+    let today: LocalDay
+    let from: LocalDay
+    let to: LocalDay
+    let days: [Day]
+    let nextUp: OccurrenceDTO?
+    let overdue: [OccurrenceDTO]
+    let items: [OccurrenceDTO]
+
+    private enum CodingKeys: String, CodingKey {
+        case now, today, from, to, days, overdue, items
+        case nextUp = "next_up"
+    }
+}
+
+struct OccurrenceDTO: Decodable, Sendable, Hashable, Identifiable {
+    struct Person: Decodable, Sendable, Hashable, Identifiable {
+        let slug: String
+        let name: String
+        var id: String { slug }
+    }
+
+    let id: String
+    let planId: String?
+    let source: String
+    let kind: String
+    let title: String
+    let day: LocalDay
+    let startTime: String?
+    let endTime: String?
+    let startsAt: Date?
+    let endsAt: Date?
+    let allDay: Bool
+    let place: String?
+    let people: [Person]
+    let status: String
+    let repeatLabel: String?
+    let habit: String?
+    let editable: Bool
+
+    var isTask: Bool { kind == "task" }
+    var isDone: Bool { status == "done" }
+    var isRepeating: Bool { repeatLabel != nil }
+    var isHabit: Bool { habit != nil }
+    /// Quick-action URLs identify the original repeat day, even when this occurrence was moved.
+    var actionDay: LocalDay {
+        guard let separator = id.lastIndex(of: ":"),
+              let originalDay = LocalDay(String(id[id.index(after: separator)...])) else { return day }
+        return originalDay
+    }
+    var clockLabel: String? {
+        guard let startTime else { return nil }
+        let parts = startTime.split(separator: ":").compactMap { Int($0) }
+        guard parts.count == 2 else { return startTime }
+        var components = DateComponents()
+        components.hour = parts[0]
+        components.minute = parts[1]
+        guard let date = Calendar.current.date(from: components) else { return startTime }
+        return date.formatted(.dateTime.hour().minute())
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id, source, kind, title, day, place, people, status, habit, editable
+        case planId = "plan_id"
+        case startTime = "start_time"
+        case endTime = "end_time"
+        case startsAt = "starts_at"
+        case endsAt = "ends_at"
+        case allDay = "all_day"
+        case repeatLabel = "repeat_label"
+    }
+}

@@ -12,6 +12,7 @@ struct ChatView: View {
     @FocusState private var composerFocused: Bool
 
     private let serverName: String
+    private let onOpenPlan: ((String) -> Void)?
     private let bottomID = "chat-bottom"
 
     /// - Parameters:
@@ -22,10 +23,12 @@ struct ChatView: View {
         outbox: OutboxWorker,
         draft: String = "",
         serverName: String,
+        onOpenPlan: ((String) -> Void)? = nil,
         onDataChanged: @escaping @MainActor () -> Void = {}
     ) {
         _model = State(initialValue: ChatModel(api: api, outbox: outbox, draft: draft, onDataChanged: onDataChanged))
         self.serverName = serverName
+        self.onOpenPlan = onOpenPlan
     }
 
     var body: some View {
@@ -52,7 +55,8 @@ struct ChatView: View {
                             onChangeGoal: { card in
                                 model.draftGoalChange(for: card)
                                 composerFocused = true
-                            }
+                            },
+                            onOpenPlan: onOpenPlan
                         )
                     }
                     Color.clear

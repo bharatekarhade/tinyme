@@ -6,7 +6,7 @@ import Observation
 @Observable
 final class MainRouter {
     enum Tab {
-        case home, history
+        case home, upcoming, history
     }
 
     /// What chat opens with: empty from the + button, or text to start from (a suggestion, "Change my 12:40 lunch…").

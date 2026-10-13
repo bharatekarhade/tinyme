@@ -8,6 +8,7 @@ struct MessageBubble: View {
     /// Gives the model for a card a reply refers to. Nil: cards aren't shown inline.
     var inlineCard: ((String) -> InlineCardModel)?
     var onChangeGoal: (CardDTO) -> Void = { _ in }
+    var onOpenPlan: ((String) -> Void)?
 
     var body: some View {
         switch item {
@@ -83,7 +84,7 @@ struct MessageBubble: View {
                 if !actions.isEmpty {
                     FlowLayout(spacing: 6) {
                         ForEach(Array(actions.enumerated()), id: \.offset) { _, action in
-                            ActionChip(action: action)
+                            ActionChip(action: action, onOpenPlan: onOpenPlan)
                         }
                     }
                 }
