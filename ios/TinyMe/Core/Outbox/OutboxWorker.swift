@@ -186,7 +186,8 @@ actor OutboxWorker {
         var finished = false
         var changedData = false
         do {
-            for try await event in client.send(OutgoingMessage(clientMsgId: id, text: entry.text)) {
+            for try await event in client.send(OutgoingMessage(
+                clientMsgId: id, text: entry.text, sentAt: entry.createdAt)) {
                 switch event {
                 case .turnStarted(_, let userMessageId):
                     // The server has it now: from here on it is never sent again.

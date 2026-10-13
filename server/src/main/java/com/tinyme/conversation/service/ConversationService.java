@@ -21,6 +21,8 @@ import java.time.DateTimeException;
 import java.time.ZoneId;
 import java.time.Clock;
 import java.time.LocalDate;
+import java.time.Instant;
+import java.time.Duration;
 import java.util.Objects;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
@@ -68,9 +70,14 @@ public class ConversationService implements ConversationOperations {
         var permit = maintenance.enterTurn();
         try {
             ZoneId zone = resolveZone(request.clientContext());
+            Instant receivedAt = clock.instant();
+            Instant sentAt = request.sentAt() == null ? receivedAt : request.sentAt();
+            if (sentAt.isAfter(receivedAt.plus(Duration.ofDays(1)))) {
+                throw new InvalidClientTimestampException("sent_at cannot be more than one day in the future");
+            }
             SessionRef session = sessions.todaySession(zone);
             UUID userMessageId = messages.insertUser(session.sessionRowId(), request.clientMessageId(), request.text());
-            return new Accepted(session, userMessageId, request.text(), zone, permit);
+            return new Accepted(session, userMessageId, request.text(), zone, sentAt, permit);
         } catch (MessageRepository.DuplicateMessage duplicate) {
             permit.close();
             return new Duplicate(duplicate.existingId());
@@ -89,7 +96,7 @@ public class ConversationService implements ConversationOperations {
           Thread.ofVirtual().name("tinyme-conversation-turn").start(() -> {
             try {
                 future.complete(turns.run(new TurnRequest(accepted.session(), accepted.userMessageId(),
-                        accepted.text(), accepted.zone()), listener));
+                        accepted.text(), accepted.zone(), accepted.sentAt()), listener));
             } catch (InterruptedException interrupted) {
                 Thread.currentThread().interrupt();
                 future.completeExceptionally(interrupted);
@@ -121,11 +128,16 @@ public class ConversationService implements ConversationOperations {
     public sealed interface Acceptance permits Accepted, Duplicate {
     }
 
-    public record Accepted(SessionRef session, UUID userMessageId, String text, ZoneId zone,
+    public record Accepted(SessionRef session, UUID userMessageId, String text, ZoneId zone, Instant sentAt,
                            MaintenanceGate.TurnPermit permit)
             implements Acceptance {
         public Accepted(SessionRef session, UUID userMessageId, String text, ZoneId zone) {
-            this(session, userMessageId, text, zone, MaintenanceGate.detachedPermit());
+            this(session, userMessageId, text, zone, Instant.now(), MaintenanceGate.detachedPermit());
+        }
+
+        public Accepted(SessionRef session, UUID userMessageId, String text, ZoneId zone,
+                        MaintenanceGate.TurnPermit permit) {
+            this(session, userMessageId, text, zone, Instant.now(), permit);
         }
 
         public Accepted {
@@ -140,5 +152,9 @@ public class ConversationService implements ConversationOperations {
         public InvalidClientTimezoneException(String message, Throwable cause) {
             super(message, cause);
         }
+    }
+
+    public static final class InvalidClientTimestampException extends IllegalArgumentException {
+        public InvalidClientTimestampException(String message) { super(message); }
     }
 }

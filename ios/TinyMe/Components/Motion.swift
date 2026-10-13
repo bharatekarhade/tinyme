@@ -1,24 +1,12 @@
 import SwiftUI
 
-private struct CardEntranceAnimationKey: EnvironmentKey {
-    static let defaultValue = true
-}
-
-extension EnvironmentValues {
-    var cardEntranceAnimationsEnabled: Bool {
-        get { self[CardEntranceAnimationKey.self] }
-        set { self[CardEntranceAnimationKey.self] = newValue }
-    }
-}
-
 private struct GrowIn: ViewModifier {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @Environment(\.cardEntranceAnimationsEnabled) private var entranceAnimationsEnabled
     var shown: Bool
     var delay: Double
 
     func body(content: Content) -> some View {
-        content.animation(reduceMotion || !entranceAnimationsEnabled ? nil : .spring(duration: 0.8, bounce: 0.2).delay(delay), value: shown)
+        content.animation(reduceMotion ? nil : .spring(duration: 0.8, bounce: 0.2).delay(delay), value: shown)
     }
 }
 
@@ -30,26 +18,11 @@ extension View {
 
     /// Flips `shown` the first time the view scrolls into sight, so charts fill as you reach them.
     func revealOnScroll(_ shown: Binding<Bool>) -> some View {
-        modifier(RevealOnScroll(shown: shown))
-    }
-}
-
-private struct RevealOnScroll: ViewModifier {
-    @Binding var shown: Bool
-    @Environment(\.cardEntranceAnimationsEnabled) private var entranceAnimationsEnabled
-
-    func body(content: Content) -> some View {
-        content
-            .onAppear {
-                if !entranceAnimationsEnabled {
-                    shown = true
-                }
+        onScrollVisibilityChange(threshold: 0.35) { visible in
+            if visible {
+                shown.wrappedValue = true
             }
-            .onScrollVisibilityChange(threshold: 0.35) { visible in
-                if visible {
-                    shown = true
-                }
-            }
+        }
     }
 }
 

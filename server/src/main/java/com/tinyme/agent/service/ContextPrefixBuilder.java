@@ -7,6 +7,7 @@ import org.springframework.stereotype.Component;
 
 import java.math.BigDecimal;
 import java.time.Clock;
+import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneId;
 import java.time.ZonedDateTime;
@@ -43,16 +44,22 @@ public class ContextPrefixBuilder {
      * @return String
      */
     public String build(ZoneId zone) {
+        return build(zone, clock.instant());
+    }
+
+    /** Builds the context as of when the user sent the message, which may predate delivery while offline. */
+    public String build(ZoneId zone, Instant referenceTime) {
         Objects.requireNonNull(zone, "zone");
+        Objects.requireNonNull(referenceTime, "referenceTime");
         var lines = new ArrayList<String>();
         lines.add("[context]");
-        lines.add("now: " + ZonedDateTime.now(clock.withZone(zone)).format(LOCAL_TIME));
+        lines.add("now: " + ZonedDateTime.ofInstant(referenceTime, zone).format(LOCAL_TIME));
         lines.add("tz: " + zone.getId());
         var kinds = entryKinds.topKinds(KIND_LIMIT);
         if (!kinds.isEmpty()) {
             lines.add("known_kinds: " + String.join(", ", kinds));
         }
-        LocalDate today = LocalDate.now(clock.withZone(zone));
+        LocalDate today = LocalDate.ofInstant(referenceTime, zone);
         List<TodayTotal> totals = entries.todayTotals(today);
         if (!totals.isEmpty()) {
             lines.add("today: " + totals.stream().map(ContextPrefixBuilder::formatTotal)

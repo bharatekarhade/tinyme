@@ -160,13 +160,15 @@ public class TurnRunner {
         var text = request.text();
         var zone = request.zone();
         state.checkCancelled();
-        var now = clock.instant();
-        var context = new ToolContext(session.sessionRowId(), null, zone, LocalDate.ofInstant(now, zone), now);
-        String prefix = contextPrefix.build(zone);
+        var turnStartedAt = clock.instant();
+        var referenceTime = request.sentAt() == null ? turnStartedAt : request.sentAt();
+        var context = new ToolContext(session.sessionRowId(), null, zone,
+                LocalDate.ofInstant(referenceTime, zone), referenceTime);
+        String prefix = contextPrefix.build(zone, referenceTime);
         state.checkCancelled();
         try (var source = new ResilientEventSource(api, session.anthropicSessionId(), reconnectSleeper, rawEventObserver)) {
             state.source = source;
-            source.beginTurn(now);
+            source.beginTurn(turnStartedAt);
             state.checkCancelled();
             api.sendEvents(session.anthropicSessionId(), List.of(Map.of(
                     "type", "user.message",

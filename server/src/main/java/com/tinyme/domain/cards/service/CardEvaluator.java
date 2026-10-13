@@ -215,7 +215,12 @@ public class CardEvaluator {
         List<Slot> slots = result.buckets().stream().map(bucket -> new Slot(bucket.period(),
                 state(bucket.period(), groupBy, actualToday), bucket.entries() > 0,
                 activities.get(bucket.period()))).toList();
-        int done = (int) slots.stream().filter(Slot::done).count();
+        // Year check-ins use one slot per month, but the headline is the actual
+        // number of occurrences (e.g. gym visits), not the number of active months.
+        int done = groupBy == GroupBy.MONTH
+                ? result.buckets().stream().map(Bucket::value).filter(Objects::nonNull)
+                        .reduce(BigDecimal.ZERO, BigDecimal::add).intValue()
+                : (int) slots.stream().filter(Slot::done).count();
         return new CheckinsView(block.label(), slots, done,
                 applies(block.goalPeriod(), block.period(), BlockScope.checkinsRange(block.period(), range))
                         ? block.goal() : null,

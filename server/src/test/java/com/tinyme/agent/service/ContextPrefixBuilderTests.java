@@ -61,4 +61,21 @@ class ContextPrefixBuilderTests {
         assertThat(builder.build(ZoneId.of("America/New_York")))
                 .contains("now: 2026-10-05 Monday 11:30:00 -04:00\ntz: America/New_York");
     }
+
+    @Test
+    void buildsContextAndTodayTotalsAsOfTheOriginalQueuedTime() {
+        var queuedAt = Instant.parse("2026-10-04T15:30:00Z"); // Monday, Oct 5 at 00:30 in Tokyo.
+        when(kinds.topKinds(30)).thenReturn(List.of("drink"));
+        when(entries.todayTotals(LocalDate.of(2026, 10, 5))).thenReturn(List.of(
+                new TodayTotal("drink", "coffee", new BigDecimal("1"))));
+
+        assertThat(builder.build(ZoneId.of("Asia/Tokyo"), queuedAt)).isEqualTo("""
+                [context]
+                now: 2026-10-05 Monday 00:30:00 +09:00
+                tz: Asia/Tokyo
+                known_kinds: drink
+                today: drink (coffee)=1
+                [/context]""");
+        verify(entries).todayTotals(LocalDate.of(2026, 10, 5));
+    }
 }

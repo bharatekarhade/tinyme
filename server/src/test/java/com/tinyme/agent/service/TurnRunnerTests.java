@@ -58,20 +58,20 @@ class TurnRunnerTests {
     private static final UUID USER_MESSAGE_ID = UUID.fromString("5d589013-d823-4d72-aa14-3888c191872c");
 
     private TurnRunner runner(Duration timeout) throws Exception {
-        when(prefix.build(ZONE)).thenReturn("[context]\ntz: Asia/Tokyo\n[/context]");
+        when(prefix.build(eq(ZONE), any(Instant.class))).thenReturn("[context]\ntz: Asia/Tokyo\n[/context]");
         return new TurnRunner(prefix, api, dispatcher, sessionTurnLock, messages,
                 Clock.fixed(NOW, ZoneOffset.UTC), timeout);
     }
 
     private TurnRunner runner(Duration timeout, ManagedAgents agents) throws Exception {
-        when(prefix.build(ZONE)).thenReturn("[context]\ntz: Asia/Tokyo\n[/context]");
+        when(prefix.build(eq(ZONE), any(Instant.class))).thenReturn("[context]\ntz: Asia/Tokyo\n[/context]");
         return new TurnRunner(prefix, agents, dispatcher, sessionTurnLock, messages,
                 Clock.fixed(NOW, ZoneOffset.UTC), timeout);
     }
 
     private TurnRunner runner(Duration timeout, ManagedAgents agents, ResilientEventSource.Sleeper sleeper)
             throws Exception {
-        when(prefix.build(ZONE)).thenReturn("[context]\ntz: Asia/Tokyo\n[/context]");
+        when(prefix.build(eq(ZONE), any(Instant.class))).thenReturn("[context]\ntz: Asia/Tokyo\n[/context]");
         return new TurnRunner(prefix, agents, dispatcher, sessionTurnLock, messages,
                 Clock.fixed(NOW, ZoneOffset.UTC), timeout, sleeper);
     }
@@ -96,7 +96,7 @@ class TurnRunnerTests {
         assertThat(runner.run(request("hello"), TurnListener.NONE)).isEqualTo(new TurnResult("Hello there. Welcome!", 0));
 
         var order = inOrder(prefix, api);
-        order.verify(prefix).build(ZONE);
+        order.verify(prefix).build(ZONE, NOW);
         order.verify(api).openStream("sesn_test");
         order.verify(api).sendEvents("sesn_test", List.of(Map.of("type", "user.message", "content", List.of(
                 Map.of("type", "text", "text", "[context]\ntz: Asia/Tokyo\n[/context]"),

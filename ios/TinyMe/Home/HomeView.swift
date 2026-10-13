@@ -9,8 +9,6 @@ struct HomeView: View {
     @Environment(\.scenePhase) private var scenePhase
     @State private var cardToRemove: CardDTO?
     @State private var isPeriodPickerPresented = false
-    @State private var visitedSelections: Set<String> = []
-    @State private var animateCurrentSelection = true
 
     var body: some View {
         @Bindable var model = model
@@ -54,11 +52,7 @@ struct HomeView: View {
                                     }
                                 }
                             }
-                            .id(selectionKey)
-                            .environment(\.cardEntranceAnimationsEnabled, animateCurrentSelection)
-                            .onAppear {
-                                visitedSelections.insert(selectionKey)
-                            }
+                            .id("\(model.range.rawValue)-\(model.selectedDate.description)")
 
                             AddTrackerCard(ideas: model.suggestions.map(\.text)) { idea in
                                 router.openChat(draft: idea)
@@ -168,11 +162,9 @@ struct HomeView: View {
             model.show()
         }
         .onChange(of: model.range) {
-            updateSelectionAnimation()
             model.show()
         }
         .onChange(of: model.selectedDate) {
-            updateSelectionAnimation()
             model.show()
         }
         .onChange(of: scenePhase) { _, phase in
@@ -189,14 +181,6 @@ struct HomeView: View {
         return ""
     }
 
-    private var selectionKey: String {
-        "\(model.range.rawValue)-\(model.selectedDate.description)"
-    }
-
-    private func updateSelectionAnimation() {
-        animateCurrentSelection = !visitedSelections.contains(selectionKey)
-        visitedSelections.insert(selectionKey)
-    }
 }
 
 private struct HomePeriodPicker: View {

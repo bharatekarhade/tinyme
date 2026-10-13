@@ -17,6 +17,11 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.io.IOException;
+import java.time.Duration;
+import java.time.Instant;
+import java.time.LocalDate;
+import java.time.OffsetDateTime;
+import java.time.ZoneId;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -86,6 +91,25 @@ class ConversationDisconnectTests {
         var historyAfterReset = conversations.history(null);
         assertThat(historyAfterReset.messages()).hasSize(2);
         assertThat(historyAfterReset.messages()).noneMatch(message -> message.content().equals("deleted conversation"));
+    }
+
+    @Test
+    void offlineQueuedMessageUsesItsOriginalSendTimeForDefaultEntryTimestamp() throws Exception {
+        Instant queuedAt = Instant.now().minus(Duration.ofDays(2)).truncatedTo(java.time.temporal.ChronoUnit.SECONDS);
+        var request = new ConversationMessageRequest(UUID.randomUUID(), "had a coffee",
+                new ConversationMessageRequest.ClientContext("Asia/Tokyo"), queuedAt);
+        var accepted = (ConversationService.Accepted) conversations.accept(request);
+
+        conversations.runAsync(accepted, com.tinyme.agent.service.TurnListener.NONE).get();
+
+        OffsetDateTime storedAt = jdbc.queryForObject(
+                "SELECT ts FROM entries WHERE kind = 'drink' AND deleted_at IS NULL",
+                OffsetDateTime.class);
+        LocalDate storedDay = jdbc.queryForObject(
+                "SELECT local_day FROM entries WHERE kind = 'drink' AND deleted_at IS NULL",
+                LocalDate.class);
+        assertThat(storedAt.toInstant()).isEqualTo(queuedAt);
+        assertThat(storedDay).isEqualTo(LocalDate.ofInstant(queuedAt, ZoneId.of("Asia/Tokyo")));
     }
 
     private void setting(String key, String json) {

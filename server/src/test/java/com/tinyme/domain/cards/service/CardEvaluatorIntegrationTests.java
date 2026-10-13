@@ -204,6 +204,22 @@ class CardEvaluatorIntegrationTests {
     }
 
     @Test
+    void yearGymHeadlineCountsVisitsWhileTilesShowActiveMonths() {
+        add("workout", LocalDate.of(2026, 1, 5), LocalTime.of(8, 0), Map.of("type", "Leg day"));
+        add("workout", LocalDate.of(2026, 1, 9), LocalTime.of(8, 0), Map.of("type", "Run"));
+        add("workout", LocalDate.of(2026, 2, 2), LocalTime.of(8, 0), Map.of("type", "Push day"));
+
+        var gym = evaluator.evaluate(saveExample("gym-year", GYM), Range.YEAR, LocalDate.of(2026, 10, 7));
+        var checkins = (CheckinsView) gym.blocks().getFirst();
+
+        assertThat(checkins.doneCount()).isEqualTo(3);
+        assertThat(checkins.slots()).hasSize(12);
+        assertThat(checkins.slots().get(0).done()).isTrue();
+        assertThat(checkins.slots().get(1).done()).isTrue();
+        assertThat(checkins.slots().subList(2, 12)).noneMatch(slot -> slot.done());
+    }
+
+    @Test
     void cardDrilldownUsesTheSameMetricScopeAsTheCard() {
         add("expense", LocalDate.of(2026, 10, 5), LocalTime.NOON, Map.of("amount", 8470, "category", "food"));
         add("expense", LocalDate.of(2026, 10, 6), LocalTime.NOON, Map.of("amount", 4050, "category", "transport"));

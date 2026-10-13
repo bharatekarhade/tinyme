@@ -60,6 +60,8 @@ public class ConversationController {
                     "TinyMe is resetting, try again in a minute", resetting);
         } catch (ConversationService.InvalidClientTimezoneException invalidZone) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, invalidZone.getMessage(), invalidZone);
+        } catch (ConversationService.InvalidClientTimestampException invalidTimestamp) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, invalidTimestamp.getMessage(), invalidTimestamp);
         }
         if (acceptance instanceof ConversationService.Duplicate duplicate) {
             var problem = ProblemDetail.forStatusAndDetail(HttpStatus.CONFLICT,

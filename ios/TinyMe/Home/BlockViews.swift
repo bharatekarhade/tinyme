@@ -49,7 +49,8 @@ struct BlockView: View {
             GoalsBlockView(block: goals, onItem: onTap.map { tap in { tap(.item($0)) } })
         case .checkins(let checkins):
             withAverage {
-                CheckinsBlockView(block: checkins, range: range, onSlot: onTap.map { tap in { tap(.slot($0)) } })
+                CheckinsBlockView(block: checkins, range: range, period: period,
+                                  onSlot: onTap.map { tap in { tap(.slot($0)) } })
             }
         case .breakdown(let breakdown):
             withAverage {
@@ -1057,6 +1058,7 @@ struct GoalsBlockView: View {
 struct CheckinsBlockView: View {
     let block: CheckinsBlock
     let range: HomeRange
+    let period: StatPeriod
     var onSlot: ((LocalDay) -> Void)?
 
     @Environment(\.cardStyle) private var style
@@ -1084,17 +1086,10 @@ struct CheckinsBlockView: View {
                 HStack(spacing: 6) {
                     ForEach(Array(block.slots.enumerated()), id: \.offset) { index, slot in
                         VStack(spacing: 6) {
-                            dot(slot, size: 16, index: index)
+                            dot(slot, size: 30, index: index)
                             Text(letter(for: slot.period))
                                 .textStyle(.caption, weight: .semibold)
                                 .foregroundStyle(style.muted)
-                            if let activity = slot.activity {
-                                Text(activity)
-                                    .font(.system(size: 9, weight: .medium))
-                                    .foregroundStyle(style.muted)
-                                    .lineLimit(1)
-                                    .minimumScaleFactor(0.65)
-                            }
                         }
                         .frame(maxWidth: .infinity)
                     }
@@ -1138,20 +1133,24 @@ struct CheckinsBlockView: View {
 
     @ViewBuilder
     private func dot(_ slot: CheckinsBlock.Slot, size: CGFloat, index: Int) -> some View {
-        Group {
+        ZStack {
             if slot.done {
                 Circle().fill(style.accent)
             } else {
-                ZStack {
-                    switch slot.state {
-                    case "future":
-                        Circle().strokeBorder(style.accent.opacity(0.6), style: StrokeStyle(lineWidth: 1.5, dash: [4, 3]))
-                    case "current":
-                        Circle().strokeBorder(style.accent, lineWidth: 1.5)
-                    default:
-                        Circle().fill(style.track)
-                    }
+                switch slot.state {
+                case "future":
+                    Circle().strokeBorder(style.accent.opacity(0.6), style: StrokeStyle(lineWidth: 1.5, dash: [4, 3]))
+                case "current":
+                    Circle().strokeBorder(style.accent, lineWidth: 1.5)
+                default:
+                    Circle().fill(style.track)
                 }
+            }
+            if slot.done, let symbol = activitySymbol(slot.activity) {
+                Image(systemName: symbol)
+                    .font(.system(size: size * 0.48, weight: .semibold))
+                    .foregroundStyle(style.onAccent)
+                    .accessibilityHidden(true)
             }
         }
         .frame(width: size, height: size)
@@ -1179,17 +1178,17 @@ struct CheckinsBlockView: View {
             VStack(spacing: 1) {
                 Text(range == .year ? monthLetter(slot.period) : "\(slot.period.day)")
                     .textStyle(.caption, weight: isCurrent ? .bold : .medium)
-                if let activity = slot.activity {
-                    Text(activity)
-                        .font(.system(size: 8, weight: .medium))
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.55)
+                if slot.done, let symbol = activitySymbol(slot.activity) {
+                    Image(systemName: symbol)
+                        .font(.system(size: 14, weight: .semibold))
+                        .frame(height: 16)
+                        .accessibilityHidden(true)
                 }
             }
             .foregroundStyle(slot.done ? style.onAccent : style.muted)
         }
         .frame(maxWidth: .infinity)
-        .frame(height: 34)
+        .frame(height: 42)
         .overlay {
             if isFuture {
                 RoundedRectangle(cornerRadius: 10, style: .continuous)
@@ -1208,6 +1207,13 @@ struct CheckinsBlockView: View {
 
     private var caption: String {
         guard let goal = block.goal else {
+            if range == .year {
+                let periodCaption = "\(block.label) \(period.phrase)"
+                if let streak = block.streak, streak.current > 0 {
+                    return "\(periodCaption) · \(streak.current)-day streak"
+                }
+                return periodCaption
+            }
             if let streak = block.streak, streak.current > 0 {
                 return "\(block.label) · \(streak.current)-day streak"
             }
@@ -1225,6 +1231,19 @@ struct CheckinsBlockView: View {
 
     private func monthLetter(_ day: LocalDay) -> String {
         Calendar.current.veryShortMonthSymbols[day.month - 1]
+    }
+
+    /// Translate logged workout types to a compact symbol; multiple types on one period use the general strength icon.
+    private func activitySymbol(_ activity: String?) -> String? {
+        guard let activity, !activity.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
+        let activities = activity.split(separator: ",").map { $0.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() }
+        guard activities.count == 1, let value = activities.first else { return "dumbbell.fill" }
+        if value.contains("walk") { return "figure.walk" }
+        if value.contains("run") || value.contains("jog") { return "figure.run" }
+        if ["strength", "weight", "lift", "push", "pull", "leg day", "gym"].contains(where: value.contains) {
+            return "dumbbell.fill"
+        }
+        return nil
     }
 }
 
