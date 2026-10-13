@@ -50,6 +50,13 @@ final class ToolInputs {
         return integer.intValue();
     }
 
+    static Boolean optionalBoolean(JsonNode input, String key) {
+        JsonNode value = value(input, key);
+        if (value == null || value.isNull()) return null;
+        if (!value.isBoolean()) throw new IllegalArgumentException(key + " must be a boolean");
+        return value.booleanValue();
+    }
+
     static BigDecimal optionalDecimal(JsonNode input, String key) {
         JsonNode value = value(input, key);
         if (value == null || value.isNull()) return null;

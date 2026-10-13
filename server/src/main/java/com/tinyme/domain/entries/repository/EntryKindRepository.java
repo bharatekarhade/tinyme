@@ -8,6 +8,8 @@ import tools.jackson.databind.json.JsonMapper;
 
 import java.util.HashSet;
 import java.util.List;
+import java.util.LinkedHashMap;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
@@ -52,7 +54,7 @@ public class EntryKindRepository {
 
     /** Adds a card-defined kind without counting a card save as an entry use. */
     @Transactional
-    public void ensureCardKind(String kind, String description, java.util.Map<String, ?> dataHints) {
+    public void ensureCardKind(String kind, String description, Map<String, ?> dataHints) {
         Objects.requireNonNull(kind, "kind");
         Objects.requireNonNull(description, "description");
         Objects.requireNonNull(dataHints, "dataHints");
@@ -63,30 +65,47 @@ public class EntryKindRepository {
     @Transactional(readOnly = true)
     public Optional<String> resolveExisting(String kind) {
         Objects.requireNonNull(kind, "kind");
-        String current = kind;
-        Set<String> visited = new HashSet<>();
-        visited.add(current);
+        return resolve(kind, loadMergeTargets());
+    }
 
+    /** Loads and resolves the whole vocabulary in one database round trip. */
+    @Transactional(readOnly = true)
+    public Map<String, String> resolveAll() {
+        Map<String, String> targets = loadMergeTargets();
+        Map<String, String> resolved = new LinkedHashMap<>();
+        for (String start : targets.keySet()) {
+            resolved.put(start, resolve(start, targets).orElseThrow());
+        }
+        return Map.copyOf(resolved);
+    }
+
+    private Map<String, String> loadMergeTargets() {
+        Map<String, String> targets = new LinkedHashMap<>();
+        for (EntryKindEntity entryKind : kinds.findAll()) {
+            targets.put(entryKind.getKind(), entryKind.mergedIntoKind());
+        }
+        return targets;
+    }
+
+    private static Optional<String> resolve(String start, Map<String, String> targets) {
+        String current = start;
+        Set<String> visited = new HashSet<>();
         for (int hop = 0; hop <= MAX_MERGE_HOPS; hop++) {
-            EntryKindEntity entryKind = kinds.findById(current).orElse(null);
-            if (entryKind == null) {
+            if (!visited.add(current)) {
+                throw new IllegalStateException("Cycle in entry kind merges at '" + current + "'");
+            }
+            if (!targets.containsKey(current)) {
                 if (hop == 0) return Optional.empty();
                 throw new IllegalStateException("Entry kind merge target '" + current + "' does not exist");
             }
-            String target = entryKind.mergedIntoKind();
-            if (target == null) {
-                return Optional.of(current);
-            }
-            if (!visited.add(target)) {
-                throw new IllegalStateException("Cycle in entry kind merges at '" + target + "'");
-            }
+            String target = targets.get(current);
+            if (target == null) return Optional.of(current);
             if (hop == MAX_MERGE_HOPS) {
-                break;
+                throw new IllegalStateException("Entry kind merge chain for '" + start + "' exceeds "
+                        + MAX_MERGE_HOPS + " hops");
             }
             current = target;
         }
-
-        throw new IllegalStateException("Entry kind merge chain for '" + kind + "' exceeds "
-                + MAX_MERGE_HOPS + " hops");
+        throw new IllegalStateException("Unreachable entry kind merge resolution state");
     }
 }

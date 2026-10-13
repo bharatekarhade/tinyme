@@ -88,7 +88,8 @@ public class PersonService {
         List<String> addedAliases = Stream.concat(Stream.of(existing.displayName()), command.aliases().stream()).toList();
         List<String> aliases = mergeAliases(existing.aliases(), addedAliases, command.displayName());
         String relationship = command.relationship() == null ? existing.relationship() : command.relationship();
-        return people.update(command.slug(), command.displayName(), aliases, relationship)
+        return people.update(command.slug(), command.displayName(), aliases, relationship,
+                        command.birthday(), command.birthdayProvided())
                 .<UpsertOutcome>map(UpsertOutcome.Updated::new)
                 .orElseGet(() -> new UpsertOutcome.NotFound(command.slug()));
     }

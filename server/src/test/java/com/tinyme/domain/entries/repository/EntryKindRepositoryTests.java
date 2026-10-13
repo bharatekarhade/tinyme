@@ -125,6 +125,19 @@ class EntryKindRepositoryTests {
         assertThat(useCount(prefix + "0")).isZero();
     }
 
+    @Test
+    void resolveExistingAndResolveAllUseTheSameCycleRules() {
+        createChain(2);
+        jdbc.update("UPDATE entry_kinds SET merged_into = ? WHERE kind = ?", prefix + "0", prefix + "2");
+
+        assertThatThrownBy(() -> kinds.resolveExisting(prefix + "0"))
+                .isInstanceOf(InvalidDataAccessApiUsageException.class)
+                .hasMessageContaining("Cycle in entry kind merges");
+        assertThatThrownBy(kinds::resolveAll)
+                .isInstanceOf(InvalidDataAccessApiUsageException.class)
+                .hasMessageContaining("Cycle in entry kind merges");
+    }
+
     private int useCount(String kind) {
         return jdbc.queryForObject("SELECT use_count FROM entry_kinds WHERE kind = ?", Integer.class, kind);
     }

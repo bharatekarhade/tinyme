@@ -1,6 +1,7 @@
 package com.tinyme.tools.handlers;
 
 import com.tinyme.domain.people.model.PersonSnapshot;
+import com.tinyme.domain.people.model.Birthday;
 import com.tinyme.domain.people.model.upsert.PersonUpsert;
 import com.tinyme.domain.people.model.upsert.UpsertOutcome;
 import com.tinyme.domain.people.service.PersonService;
@@ -12,6 +13,7 @@ import tools.jackson.databind.JsonNode;
 
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.time.MonthDay;
 
 @Component
 public class PeopleUpsertTool implements ToolHandler {
@@ -34,7 +36,8 @@ public class PeopleUpsertTool implements ToolHandler {
                     ToolInputs.optionalString(input, "slug"),
                     ToolInputs.requiredString(input, "display_name"),
                     ToolInputs.optionalStringList(input, "aliases"),
-                    ToolInputs.optionalString(input, "relationship"));
+                    ToolInputs.optionalString(input, "relationship"),
+                    readBirthday(input), input.has("birthday"));
             return switch (people.upsert(command)) {
                 case UpsertOutcome.Created created -> ok(created.person(), true);
                 case UpsertOutcome.Updated updated -> ok(updated.person(), false);
@@ -70,5 +73,20 @@ public class PeopleUpsertTool implements ToolHandler {
 
     private static ToolResult.Err invalid(String message) {
         return new ToolResult.Err("validation_error", message == null ? "Invalid person" : message);
+    }
+
+    private static Birthday readBirthday(JsonNode input) {
+        JsonNode birthday = input.get("birthday");
+        if (birthday == null || birthday.isNull()) return null;
+        if (!birthday.isObject()) throw new IllegalArgumentException("birthday must be an object");
+        Integer month = ToolInputs.optionalInt(birthday, "month");
+        Integer day = ToolInputs.optionalInt(birthday, "day");
+        Integer year = ToolInputs.optionalInt(birthday, "year");
+        if (month == null || day == null) throw new IllegalArgumentException("birthday.month and birthday.day are required");
+        try {
+            return new Birthday(MonthDay.of(month, day), year);
+        } catch (RuntimeException error) {
+            throw new IllegalArgumentException("birthday must be a real calendar date (including in birthday.year)");
+        }
     }
 }

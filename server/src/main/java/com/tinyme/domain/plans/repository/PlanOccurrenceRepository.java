@@ -7,6 +7,9 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.util.Objects;
 import java.util.Optional;
+import java.util.List;
+import java.util.UUID;
+import java.time.LocalDate;
 
 @Repository
 public class PlanOccurrenceRepository {
@@ -24,5 +27,21 @@ public class PlanOccurrenceRepository {
     @Transactional(readOnly = true)
     public Optional<PlanOccurrenceEntity> find(PlanOccurrenceId id) {
         return occurrences.findById(Objects.requireNonNull(id, "id"));
+    }
+
+    @Transactional(readOnly = true)
+    public List<PlanOccurrenceEntity> findRelevant(List<UUID> planIds, LocalDate from, LocalDate to) {
+        if (planIds.isEmpty()) return List.of();
+        return occurrences.findRelevant(planIds, Objects.requireNonNull(from, "from"), Objects.requireNonNull(to, "to"));
+    }
+
+    @Transactional(readOnly = true)
+    public List<PlanOccurrenceEntity> findMovedIntoRange(LocalDate from, LocalDate to) {
+        return occurrences.findMovedIntoRange(Objects.requireNonNull(from, "from"), Objects.requireNonNull(to, "to"));
+    }
+
+    @Transactional
+    public void delete(PlanOccurrenceId id) {
+        occurrences.deleteById(Objects.requireNonNull(id, "id"));
     }
 }

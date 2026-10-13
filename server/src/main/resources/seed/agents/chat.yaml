@@ -15,6 +15,12 @@ system: |
     today's totals in [context] and log only the difference, or ask.
   - A fact about the user (preference, rule, routine) → edit the matching file in me/.
   - A fact about a person → people_get (people_upsert if new), then edit their memory_path file.
+  - A future commitment, appointment, reminder or routine → plans_add. "Remind me to X" is a
+    task. Use plans_query for the
+    schedule and plans_update to mark done, skip, move, cancel or edit a plan. Past events go to entries_add.
+  - Resolve plan dates from [context]. If "Friday" could mean this Friday or next Friday, or an event
+    clearly needs a time that is missing, ask one short question. Use event for appointments with people/places and task for
+    something to do by a day. Never promise a notification; say it's on Upcoming.
   - Photo storage and saved places are not available yet. Tell the user when asked;
     do not claim to save photos or places.
 
@@ -59,6 +65,10 @@ system: |
   - Never estimate numbers; use entries_aggregate. Use entries_query for the past.
   - No match means "I don't have a record of that", never "you didn't".
   - Corrections and deletions: find the entry with entries_query, then entries_update / entries_delete.
+  - Resolve people to link with plans by calling people_get first; if a person is new, call people_upsert.
+    For a habit plan that matches a card (e.g. gym → workout), set habit_kind to that card's kind.
+  - Repeating plans: use repeat for "every Monday" / "every day" / "every month on the 14th".
+    Never invent weekdays for "five times a week"; ask which days.
 
   Memory: resolve me/ and people/ relative to the attached memory store mount_path,
   never the sandbox working directory. Read me/profile.md, me/preferences.md and
@@ -204,11 +214,11 @@ tools:
   - type: custom
     name: people_upsert
     description: >
-      Create a person, or update their name, nicknames or relationship (pass slug to
+      Create a person, or update their name, nicknames, relationship or birthday (pass slug to
       update). Use relationship to tell people with the same name apart ("friend from
       work" vs "cousin"). Facts and stories do NOT go here: write those to the memory
-      file at the returned memory_path. Aliases are added to the existing ones. Returns
-      slug and memory_path.
+      file at the returned memory_path. Aliases are added to the existing ones. A birthday takes
+      month and day, plus an optional year, and then appears in Upcoming. Returns slug and memory_path.
     input_schema:
       type: object
       required: [display_name]
@@ -218,6 +228,109 @@ tools:
         display_name: { type: string, minLength: 1, maxLength: 80 }
         aliases:      { type: array, maxItems: 8, items: { type: string, maxLength: 40 } }
         relationship: { type: string, maxLength: 80 }
+        birthday:
+          type: [object, "null"]
+          additionalProperties: false
+          required: [month, day]
+          properties:
+            month: { type: integer, minimum: 1, maximum: 12 }
+            day:   { type: integer, minimum: 1, maximum: 31 }
+            year:  { type: [integer, "null"], minimum: 1900, maximum: 2100 }
+
+  # ── Upcoming plans ─────────────────────────────────────────────────────
+  - type: custom
+    name: plans_add
+    description: >
+      Put a future event or task on Upcoming. Use event for an appointment with people or a place;
+      use task for something to do by a day. day is required and must be resolved from [context].
+      time is optional (HH:mm, local to the user's timezone); no time means all day for events or
+      any time that day for tasks. Link people by slug or exact name after people_get; unknown
+      people must be added with people_upsert first. Set habit_kind only to an existing or
+      card-registered kind, e.g. workout for a gym plan. Repeat may be daily, weekly, monthly or
+      yearly; days uses mon,tue,wed,thu,fri,sat,sun. Returns the next three occurrences, overlapping
+      timed events and warnings. Never promise a notification; say it's on Upcoming.
+    input_schema:
+      type: object
+      required: [kind, title, day]
+      additionalProperties: false
+      properties:
+        kind:           { type: string, enum: [event, task] }
+        title:          { type: string, minLength: 1, maxLength: 120 }
+        day:            { type: string, format: date }
+        time:           { type: string, pattern: "^([01][0-9]|2[0-3]):[0-5][0-9]$" }
+        end_time:       { type: string, pattern: "^([01][0-9]|2[0-3]):[0-5][0-9]$" }
+        end_day:        { type: string, format: date }
+        place:          { type: string, maxLength: 200 }
+        people:         { type: array, maxItems: 10, items: { type: string, minLength: 1, maxLength: 80 } }
+        notes:          { type: string, maxLength: 2000 }
+        repeat:
+          type: object
+          additionalProperties: false
+          required: [freq]
+          properties:
+            freq:     { type: string, enum: [daily, weekly, monthly, yearly] }
+            interval: { type: integer, minimum: 1, maximum: 52, default: 1 }
+            days:     { type: array, uniqueItems: true, items: { type: string, enum: [mon, tue, wed, thu, fri, sat, sun] } }
+            until:    { type: string, format: date }
+        habit_kind:     { type: string, pattern: "^[a-z][a-z0-9_]{1,31}$" }
+        remind_minutes: { type: integer, minimum: 0, maximum: 10080 }
+
+  - type: custom
+    name: plans_query
+    description: >
+      Find plans and birthdays in an inclusive date range of at most 62 days. Use this to answer
+      what's on a day, when an appointment is, or what is planned this week. Optional filters:
+      kind (event/task), q (words in title or place), person (slug, name or alias), include_done.
+      Returns at most 30 occurrences, sorted by day and time.
+    input_schema:
+      type: object
+      required: [from, to]
+      additionalProperties: false
+      properties:
+        from:         { type: string, format: date }
+        to:           { type: string, format: date }
+        kind:         { type: string, enum: [event, task] }
+        q:            { type: string, maxLength: 120 }
+        person:       { type: string, maxLength: 80 }
+        include_done: { type: boolean, default: false }
+
+  - type: custom
+    name: plans_update
+    description: >
+      Mark a plan done, undo done, skip or move one repeating occurrence, cancel the plan, or
+      edit plan fields. For a repeating plan, done/undo_done/skip/move require occurrence_day.
+      For move, day is optional and defaults to occurrence_day, so provide only a new time to move
+      the occurrence within the same day. To edit all occurrences,
+      omit action and occurrence_day and send only changed fields. If you want to change only one
+      occurrence's time/day, use action move. People are resolved by exact slug/name; call
+      people_get first. Returns updated occurrences.
+    input_schema:
+      type: object
+      required: [id]
+      additionalProperties: false
+      properties:
+        id:             { type: string, format: uuid }
+        occurrence_day: { type: string, format: date }
+        action:         { type: string, enum: [done, undo_done, skip, move, cancel] }
+        title:          { type: string, minLength: 1, maxLength: 120 }
+        day:            { type: string, format: date }
+        time:           { type: [string, "null"], pattern: "^([01][0-9]|2[0-3]):[0-5][0-9]$" }
+        end_time:       { type: [string, "null"], pattern: "^([01][0-9]|2[0-3]):[0-5][0-9]$" }
+        end_day:        { type: [string, "null"], format: date }
+        place:          { type: [string, "null"], maxLength: 200 }
+        people:         { type: array, maxItems: 10, items: { type: string, minLength: 1, maxLength: 80 } }
+        notes:          { type: [string, "null"], maxLength: 2000 }
+        repeat:
+          type: [object, "null"]
+          additionalProperties: false
+          required: [freq]
+          properties:
+            freq:     { type: string, enum: [daily, weekly, monthly, yearly] }
+            interval: { type: integer, minimum: 1, maximum: 52, default: 1 }
+            days:     { type: array, uniqueItems: true, items: { type: string, enum: [mon, tue, wed, thu, fri, sat, sun] } }
+            until:    { type: [string, "null"], format: date }
+        habit_kind:     { type: [string, "null"], pattern: "^[a-z][a-z0-9_]{1,31}$" }
+        remind_minutes: { type: [integer, "null"], minimum: 0, maximum: 10080 }
 
   # ── Cards ──────────────────────────────────────────────────────────────
   - type: custom

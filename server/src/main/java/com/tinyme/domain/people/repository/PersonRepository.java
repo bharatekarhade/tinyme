@@ -2,6 +2,7 @@ package com.tinyme.domain.people.repository;
 
 import com.tinyme.domain.people.entity.PersonEntity;
 import com.tinyme.domain.people.model.PersonSnapshot;
+import com.tinyme.domain.people.model.BirthdayPerson;
 import com.tinyme.domain.people.model.get.PeopleLookup;
 import com.tinyme.domain.people.model.get.PersonCandidate;
 import com.tinyme.domain.people.model.upsert.PersonUpsert;
@@ -45,6 +46,15 @@ public class PersonRepository {
     }
 
     @Transactional(readOnly = true)
+    public List<BirthdayPerson> findLiveBirthdays() {
+        return people.findAllByDeletedAtIsNullAndBirthdayMonthIsNotNull().stream()
+                .map(person -> new BirthdayPerson(person.getSlug(), person.getDisplayName(),
+                        cleanAliases(person.getAliases()), person.getRelationship(), person.getMemoryPath(),
+                        person.getBirthday()))
+                .toList();
+    }
+
+    @Transactional(readOnly = true)
     public boolean existsBySlug(String slug) {
         return people.existsBySlug(slug);
     }
@@ -65,15 +75,19 @@ public class PersonRepository {
     public PersonSnapshot insert(PersonUpsert command, String slug) {
         PersonEntity person = new PersonEntity(slug, command.displayName(), command.aliases().toArray(String[]::new),
                 command.relationship(), "people/" + slug + ".md");
+        if (command.birthdayProvided()) person.setBirthday(command.birthday());
         return snapshot(people.save(person));
     }
 
     @Transactional
-    public Optional<PersonSnapshot> update(String slug, String displayName, List<String> aliases, String relationship) {
+    public Optional<PersonSnapshot> update(String slug, String displayName, List<String> aliases, String relationship,
+                                           com.tinyme.domain.people.model.Birthday birthday,
+                                           boolean birthdayProvided) {
         return people.findBySlugAndDeletedAtIsNull(slug).map(person -> {
             person.setDisplayName(displayName);
             person.setAliases(aliases.toArray(String[]::new));
             person.setRelationship(relationship);
+            if (birthdayProvided) person.setBirthday(birthday);
             return snapshot(person);
         });
     }

@@ -12,6 +12,7 @@ import com.tinyme.domain.entries.model.aggregate.BreakdownResult;
 import com.tinyme.domain.entries.model.aggregate.BreakdownOther;
 import com.tinyme.domain.entries.model.aggregate.BreakdownSlice;
 import com.tinyme.domain.entries.model.EntrySnapshot;
+import com.tinyme.domain.entries.model.EntryDay;
 import com.tinyme.domain.entries.model.RecentKind;
 import com.tinyme.domain.entries.model.query.EntryQuery;
 import com.tinyme.domain.entries.model.query.EntryQueryResult;
@@ -91,6 +92,17 @@ public class EntryRepository {
         return entries.todayTotals(day).stream()
                 .map(row -> new TodayTotal(row.getKind(), row.getType(), row.getQuantity()))
                 .toList();
+    }
+
+    @Transactional(readOnly = true)
+    public List<EntryDay> habitDays(List<String> kinds, LocalDate from, LocalDate to) {
+        Objects.requireNonNull(kinds, "kinds");
+        Objects.requireNonNull(from, "from");
+        Objects.requireNonNull(to, "to");
+        if (kinds.isEmpty()) return List.of();
+        if (from.isAfter(to)) throw new IllegalArgumentException("from must be on or before to");
+        return entries.habitDays(kinds, from, to).stream()
+                .map(row -> new EntryDay(row.getKind(), row.getDay())).toList();
     }
 
     @Transactional(readOnly = true)

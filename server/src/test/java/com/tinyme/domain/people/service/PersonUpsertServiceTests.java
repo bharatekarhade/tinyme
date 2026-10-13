@@ -1,6 +1,7 @@
 package com.tinyme.domain.people.service;
 
 import com.tinyme.domain.people.model.PersonSnapshot;
+import com.tinyme.domain.people.model.Birthday;
 import com.tinyme.domain.people.model.upsert.PersonUpsert;
 import com.tinyme.domain.people.model.upsert.UpsertOutcome;
 import org.junit.jupiter.api.AfterEach;
@@ -16,6 +17,7 @@ import org.testcontainers.postgresql.PostgreSQLContainer;
 import org.testcontainers.utility.DockerImageName;
 
 import java.util.List;
+import java.time.MonthDay;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -45,6 +47,25 @@ class PersonUpsertServiceTests {
         assertThat(created.person()).isEqualTo(new PersonSnapshot("kenji", "Kenji", List.of("Ken"),
                 "friend from work", "people/kenji.md"));
         assertThat(jdbc.queryForObject("SELECT count(*) FROM people WHERE slug = 'kenji'", Integer.class)).isEqualTo(1);
+    }
+
+    @Test
+    void createsAndUpdatesBirthdayFields() {
+        people.upsert(new PersonUpsert(null, "Kenji", List.of(), null,
+                new Birthday(MonthDay.of(2, 29), 1992), true));
+
+        assertThat(jdbc.queryForObject("SELECT birthday_month FROM people WHERE slug = 'kenji'", Short.class))
+                .isEqualTo((short) 2);
+        assertThat(jdbc.queryForObject("SELECT birthday_day FROM people WHERE slug = 'kenji'", Short.class))
+                .isEqualTo((short) 29);
+        assertThat(jdbc.queryForObject("SELECT birthday_year FROM people WHERE slug = 'kenji'", Short.class))
+                .isEqualTo((short) 1992);
+
+        people.upsert(new PersonUpsert("kenji", "Kenji", List.of(), null,
+                new Birthday(MonthDay.of(3, 1), null), true));
+        assertThat(jdbc.queryForObject("SELECT birthday_month FROM people WHERE slug = 'kenji'", Short.class))
+                .isEqualTo((short) 3);
+        assertThat(jdbc.queryForObject("SELECT birthday_year FROM people WHERE slug = 'kenji'", Short.class)).isNull();
     }
 
     @Test

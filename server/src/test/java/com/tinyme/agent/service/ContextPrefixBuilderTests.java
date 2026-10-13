@@ -3,6 +3,7 @@ package com.tinyme.agent.service;
 import com.tinyme.domain.entries.model.aggregate.TodayTotal;
 import com.tinyme.domain.entries.repository.EntryKindRepository;
 import com.tinyme.domain.entries.repository.EntryRepository;
+import com.tinyme.domain.plans.service.PlanService;
 import org.junit.jupiter.api.Test;
 
 import java.math.BigDecimal;
@@ -21,8 +22,9 @@ import static org.mockito.Mockito.when;
 class ContextPrefixBuilderTests {
     private final EntryKindRepository kinds = mock(EntryKindRepository.class);
     private final EntryRepository entries = mock(EntryRepository.class);
+    private final PlanService plans = mock(PlanService.class);
     private final Clock clock = Clock.fixed(Instant.parse("2026-10-05T15:30:00Z"), ZoneOffset.UTC);
-    private final ContextPrefixBuilder builder = new ContextPrefixBuilder(kinds, entries, clock);
+    private final ContextPrefixBuilder builder = new ContextPrefixBuilder(kinds, entries, plans, clock);
 
     @Test
     void usesLocalDateAndWeekdayAndPreservesKindRanking() {
@@ -77,5 +79,28 @@ class ContextPrefixBuilderTests {
                 today: drink (coffee)=1
                 [/context]""");
         verify(entries).todayTotals(LocalDate.of(2026, 10, 5));
+    }
+
+    @Test
+    void includesUpcomingPlanSummaryWhenAvailable() {
+        when(kinds.topKinds(30)).thenReturn(List.of());
+        when(plans.contextLine(ZoneId.of("Asia/Tokyo"), clock.instant()))
+                .thenReturn("upcoming: 13:00 Lunch with Aiko · tomorrow 09:00 Gym");
+
+        assertThat(builder.build(ZoneId.of("Asia/Tokyo"))).contains(
+                "tz: Asia/Tokyo\nupcoming: 13:00 Lunch with Aiko · tomorrow 09:00 Gym");
+    }
+
+    @Test
+    void brokenPlanContextDoesNotPreventChatContextFromBeingBuilt() {
+        ZoneId zone = ZoneId.of("Asia/Tokyo");
+        when(kinds.topKinds(30)).thenReturn(List.of());
+        when(entries.todayTotals(LocalDate.of(2026, 10, 6))).thenReturn(List.of());
+        when(plans.contextLine(zone, clock.instant())).thenThrow(new IllegalStateException("broken kind merge"));
+
+        String context = builder.build(zone);
+
+        assertThat(context).contains("[context]").contains("tz: Asia/Tokyo").doesNotContain("upcoming:");
+        verify(plans).contextLine(zone, clock.instant());
     }
 }

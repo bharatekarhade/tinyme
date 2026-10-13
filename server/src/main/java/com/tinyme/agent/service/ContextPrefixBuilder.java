@@ -3,6 +3,9 @@ package com.tinyme.agent.service;
 import com.tinyme.domain.entries.model.aggregate.TodayTotal;
 import com.tinyme.domain.entries.repository.EntryKindRepository;
 import com.tinyme.domain.entries.repository.EntryRepository;
+import com.tinyme.domain.plans.service.PlanService;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
 import java.math.BigDecimal;
@@ -19,6 +22,7 @@ import java.util.Objects;
 
 @Component
 public class ContextPrefixBuilder {
+    private static final Logger LOG = LoggerFactory.getLogger(ContextPrefixBuilder.class);
     private static final DateTimeFormatter LOCAL_TIME =
             DateTimeFormatter.ofPattern("uuuu-MM-dd EEEE HH:mm:ss XXX", Locale.ENGLISH);
     private static final int KIND_LIMIT = 30;
@@ -26,10 +30,12 @@ public class ContextPrefixBuilder {
     private final EntryKindRepository entryKinds;
     private final EntryRepository entries;
     private final Clock clock;
+    private final PlanService plans;
 
-    public ContextPrefixBuilder(EntryKindRepository entryKinds, EntryRepository entries, Clock clock) {
+    public ContextPrefixBuilder(EntryKindRepository entryKinds, EntryRepository entries, PlanService plans, Clock clock) {
         this.entryKinds = entryKinds;
         this.entries = entries;
+        this.plans = plans;
         this.clock = clock;
     }
 
@@ -64,6 +70,12 @@ public class ContextPrefixBuilder {
         if (!totals.isEmpty()) {
             lines.add("today: " + totals.stream().map(ContextPrefixBuilder::formatTotal)
                     .collect(java.util.stream.Collectors.joining(", ")));
+        }
+        try {
+            String upcoming = plans.contextLine(zone, referenceTime);
+            if (upcoming != null && !upcoming.isBlank()) lines.add(upcoming);
+        } catch (RuntimeException error) {
+            LOG.warn("Unable to build upcoming plan context; omitting it", error);
         }
         lines.add("[/context]");
         return String.join("\n", lines);

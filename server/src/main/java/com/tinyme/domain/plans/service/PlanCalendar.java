@@ -33,7 +33,6 @@ import java.util.UUID;
 /** Pure expansion and status calculation for plan rules. Repository loading stays outside this class. */
 public final class PlanCalendar {
     public static final int MAX_DAYS = 62;
-    public static final int MAX_OCCURRENCES_PER_PLAN = 400;
 
     public List<PlanOccurrence> expand(LocalDate from, LocalDate to, Instant now, ZoneId userZone,
                                        Collection<PlanInput> plans, Collection<ExceptionInput> exceptions,
@@ -59,9 +58,6 @@ public final class PlanCalendar {
             Map<LocalDate, ExceptionInput> planExceptions = exceptionsByPlan.getOrDefault(plan.id(), Map.of());
             List<PlanOccurrence> forPlan = expandPlan(plan, planExceptions, from, to, now, today,
                     completedHabits);
-            if (forPlan.size() > MAX_OCCURRENCES_PER_PLAN) {
-                throw new IllegalStateException("Plan " + plan.id() + " exceeds the occurrence limit");
-            }
             result.addAll(forPlan);
         }
 
@@ -145,7 +141,7 @@ public final class PlanCalendar {
         OccurrenceStatus status = status(plan, day, startsAt, endsAt, exception,
                 now, today, habitDays);
         String id = plan.id() + ":" + originalDay;
-        return new PlanOccurrence(id, plan.id(), originalDay, day, startTime, endTime, endDay,
+        return new PlanOccurrence(id, plan.id(), originalDay, day, plan.startDay(), startTime, endTime, endDay,
                 startsAt, endsAt, allDay, plan.kind(), plan.title(), plan.place(), plan.people(),
                 status, plan.habitKind(), plan.repeat(), plan.source().name().toLowerCase(Locale.ROOT));
     }
@@ -185,10 +181,12 @@ public final class PlanCalendar {
                 Integer birthYear = person.birthday().year();
                 if (birthYear != null && year < birthYear) continue;
                 if (birthYear != null) title += " (turns " + (year - birthYear) + ")";
-                OccurrenceStatus status = day.isBefore(today) ? OccurrenceStatus.MISSED : OccurrenceStatus.UPCOMING;
+                OccurrenceStatus status = day.isBefore(today) ? OccurrenceStatus.PAST : OccurrenceStatus.UPCOMING;
                 String id = "birthday:" + person.slug() + ":" + day;
-                birthdays.add(new PlanOccurrence(id, null, day, day, null, null, null,
-                        null, null, true, PlanKind.EVENT, title, null, List.of(), status,
+                PersonSnapshot snapshot = new PersonSnapshot(person.slug(), person.displayName(), person.aliases(),
+                        person.relationship(), person.memoryPath());
+                birthdays.add(new PlanOccurrence(id, null, day, day, null, null, null, null,
+                        null, null, true, PlanKind.EVENT, title, null, List.of(snapshot), status,
                         null, null, "people"));
             }
         }
@@ -286,10 +284,12 @@ public final class PlanCalendar {
         }
     }
 
-    public record BirthdayInput(String slug, String displayName, Birthday birthday) {
+    public record BirthdayInput(String slug, String displayName, List<String> aliases, String relationship,
+                                String memoryPath, Birthday birthday) {
         public BirthdayInput {
             Objects.requireNonNull(slug, "slug");
             Objects.requireNonNull(displayName, "displayName");
+            aliases = List.copyOf(Objects.requireNonNull(aliases, "aliases"));
             Objects.requireNonNull(birthday, "birthday");
         }
     }

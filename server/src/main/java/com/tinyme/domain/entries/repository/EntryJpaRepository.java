@@ -14,6 +14,15 @@ import java.util.Optional;
 import java.util.UUID;
 
 interface EntryJpaRepository extends JpaRepository<EntryEntity, UUID> {
+    @Query(value = """
+            SELECT DISTINCT kind AS kind, local_day AS day
+            FROM entries
+            WHERE deleted_at IS NULL AND kind IN (:kinds) AND local_day BETWEEN :from AND :to
+            """, nativeQuery = true)
+    List<EntryDayProjection> habitDays(@Param("kinds") List<String> kinds,
+                                       @Param("from") LocalDate from,
+                                       @Param("to") LocalDate to);
+
     @Query("select e.kind.kind as kind, count(e) as entryCount from EntryEntity e " +
             "where e.deletedAt is null and e.localDay between :from and :to " +
             "group by e.kind.kind having count(e) >= :minimum " +
@@ -76,4 +85,9 @@ interface TodayTotalProjection {
     String getType();
 
     BigDecimal getQuantity();
+}
+
+interface EntryDayProjection {
+    String getKind();
+    LocalDate getDay();
 }

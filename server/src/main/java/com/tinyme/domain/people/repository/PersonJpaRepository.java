@@ -11,6 +11,7 @@ import java.util.UUID;
 
 interface PersonJpaRepository extends JpaRepository<PersonEntity, UUID> {
     List<PersonEntity> findAllByDeletedAtIsNullOrderByDisplayNameAscSlugAsc();
+    List<PersonEntity> findAllByDeletedAtIsNullAndBirthdayMonthIsNotNull();
     Optional<PersonEntity> findBySlugAndDeletedAtIsNull(String slug);
 
     boolean existsBySlug(String slug);

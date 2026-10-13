@@ -171,6 +171,7 @@ public class PlanEntity {
     public void markDone(Instant now) {
         ensureLive();
         if (status == PlanStatus.CANCELLED) throw new IllegalStateException("Cancelled plans cannot be marked done");
+        if (kind != PlanKind.TASK) throw new IllegalStateException("Only tasks can be marked done");
         if (repeatFreq != null) throw new IllegalStateException("Repeating plans are completed per occurrence");
         status = PlanStatus.DONE;
         completedAt = Objects.requireNonNull(now, "now");
@@ -182,29 +183,46 @@ public class PlanEntity {
         completedAt = null;
     }
 
-    public void reschedule(LocalDate startDay, LocalTime startTime, LocalTime endTime, LocalDate endDay) {
+    public void undoDone() {
         ensureLive();
-        LocalDate previousStartDay = this.startDay;
-        LocalTime previousStartTime = this.startTime;
-        LocalTime previousEndTime = this.endTime;
-        LocalDate previousEndDay = this.endDay;
-        this.startDay = startDay;
-        this.startTime = startTime;
-        this.endTime = endTime;
-        this.endDay = endDay;
-        try {
-            validate();
-        } catch (RuntimeException error) {
-            this.startDay = previousStartDay;
-            this.startTime = previousStartTime;
-            this.endTime = previousEndTime;
-            this.endDay = previousEndDay;
-            throw error;
-        }
         if (status == PlanStatus.DONE) {
             status = PlanStatus.ACTIVE;
             completedAt = null;
         }
+    }
+
+    public void edit(String title, String notes, String place, String habitKind,
+                     Integer remindMinutes, Repeat repeat, LocalDate startDay, LocalTime startTime,
+                     LocalTime endTime, LocalDate endDay) {
+        ensureLive();
+        String candidateTitle = title == null ? null : title.strip();
+        String candidateHabitKind = normalizeHabitKind(habitKind);
+        Objects.requireNonNull(startDay, "startDay");
+        PlanStatus candidateStatus = status;
+        Instant candidateCompletedAt = completedAt;
+        boolean scheduleChanged = !Objects.equals(this.startDay, startDay)
+                || !Objects.equals(this.startTime, startTime)
+                || !Objects.equals(getRepeat(), repeat);
+        if (candidateStatus == PlanStatus.DONE && scheduleChanged) {
+            candidateStatus = PlanStatus.ACTIVE;
+            candidateCompletedAt = null;
+        }
+
+        validateValues(kind, candidateTitle, zone, startDay, startTime, endTime, endDay,
+                repeat, remindMinutes, candidateStatus, source);
+
+        this.title = candidateTitle;
+        this.notes = notes;
+        this.place = place;
+        this.habitKind = candidateHabitKind;
+        this.remindMinutes = remindMinutes;
+        this.startDay = startDay;
+        this.startTime = startTime;
+        this.endTime = endTime;
+        this.endDay = endDay;
+        applyRepeat(repeat);
+        this.status = candidateStatus;
+        this.completedAt = candidateCompletedAt;
     }
 
     public void softDelete(Instant now) {
@@ -235,6 +253,14 @@ public class PlanEntity {
     }
 
     private void validate() {
+        validateValues(kind, title, zone, startDay, startTime, endTime, endDay,
+                getRepeat(), remindMinutes, status, source);
+    }
+
+    private static void validateValues(PlanKind kind, String title, String zone, LocalDate startDay,
+                                       LocalTime startTime, LocalTime endTime, LocalDate endDay,
+                                       Repeat repeat, Integer remindMinutes, PlanStatus status,
+                                       PlanSource source) {
         Objects.requireNonNull(kind, "kind");
         Objects.requireNonNull(zone, "zone");
         Objects.requireNonNull(startDay, "startDay");
@@ -258,16 +284,13 @@ public class PlanEntity {
         if (kind == PlanKind.TASK && (endTime != null || endDay != null)) {
             throw new IllegalArgumentException("tasks cannot have endTime or endDay");
         }
-        if (repeatUntil != null && repeatUntil.isBefore(startDay)) {
+        if (repeat != null && repeat.until() != null && repeat.until().isBefore(startDay)) {
             throw new IllegalArgumentException("repeatUntil must not be before startDay");
         }
-        if (repeatDays != null && (repeatDays < 1 || repeatDays > 127)) {
-            throw new IllegalArgumentException("repeatDays must contain only the seven weekday bits");
-        }
-        if (repeatFreq != null && endDay != null) {
+        if (repeat != null && endDay != null) {
             throw new IllegalArgumentException("repeating plans cannot span multiple days");
         }
-        if (status == PlanStatus.DONE && repeatFreq != null) {
+        if (status == PlanStatus.DONE && repeat != null) {
             throw new IllegalArgumentException("repeating plans are completed per occurrence");
         }
     }

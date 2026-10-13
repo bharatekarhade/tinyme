@@ -1,6 +1,7 @@
 package com.tinyme.tools.handlers;
 
 import com.tinyme.domain.people.model.PersonSnapshot;
+import com.tinyme.domain.people.model.Birthday;
 import com.tinyme.domain.people.model.upsert.PersonUpsert;
 import com.tinyme.domain.people.model.upsert.UpsertOutcome;
 import com.tinyme.domain.people.service.PersonService;
@@ -9,6 +10,7 @@ import org.junit.jupiter.api.Test;
 import tools.jackson.databind.json.JsonMapper;
 
 import java.util.List;
+import java.time.MonthDay;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
@@ -71,5 +73,20 @@ class PeopleUpsertToolTests {
 
         assertThat(result.code()).isEqualTo("validation_error");
         assertThat(result.message()).isEqualTo("aliases must contain only strings");
+    }
+
+    @Test
+    void parsesBirthdayAndRejectsAnImpossibleDate() throws Exception {
+        when(service.upsert(any())).thenReturn(new UpsertOutcome.Created(PERSON));
+        tool.handle(JSON.readTree("""
+                {"display_name":"Kenji","birthday":{"month":2,"day":29}}
+                """), null);
+        verify(service).upsert(new PersonUpsert(null, "Kenji", List.of(), null,
+                new Birthday(MonthDay.of(2, 29), null), true));
+
+        ToolResult.Err invalid = (ToolResult.Err) tool.handle(JSON.readTree("""
+                {"display_name":"Kenji","birthday":{"month":2,"day":30}}
+                """), null);
+        assertThat(invalid.code()).isEqualTo("validation_error");
     }
 }

@@ -11,6 +11,7 @@ import java.util.UUID;
 
 /** One computed calendar item. originalDay keeps a moved occurrence's ID stable. */
 public record PlanOccurrence(String id, UUID planId, LocalDate originalDay, LocalDate day,
+                             LocalDate repeatStartDay,
                              LocalTime startTime, LocalTime endTime, LocalDate endDay,
                              Instant startsAt, Instant endsAt, boolean allDay, PlanKind kind,
                              String title, String place, List<PersonSnapshot> people,
@@ -24,6 +25,7 @@ public record PlanOccurrence(String id, UUID planId, LocalDate originalDay, Loca
         people = List.copyOf(Objects.requireNonNull(people, "people"));
         Objects.requireNonNull(status, "status");
         Objects.requireNonNull(source, "source");
+        if (repeat != null) Objects.requireNonNull(repeatStartDay, "repeatStartDay");
         if ((startsAt == null) != (endsAt == null)) {
             throw new IllegalArgumentException("startsAt and endsAt must both be set or both be null");
         }

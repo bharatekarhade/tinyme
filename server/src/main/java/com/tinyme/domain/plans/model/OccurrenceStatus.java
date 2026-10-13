@@ -6,5 +6,6 @@ public enum OccurrenceStatus {
     DONE,
     MISSED,
     SKIPPED,
-    CANCELLED
+    CANCELLED,
+    PAST
 }

@@ -164,8 +164,8 @@ class PlanCalendarTests {
 
     @Test
     void birthdaysBecomeAllDayEventsAndIncludeAgeWhenKnown() {
-        var birthday = new PlanCalendar.BirthdayInput("kenji", "Kenji",
-                new Birthday(MonthDay.of(10, 14), 1990));
+        var birthday = new PlanCalendar.BirthdayInput("kenji", "Kenji", List.of("Ken"),
+                "friend", "people/kenji.md", new Birthday(MonthDay.of(10, 14), 1990));
         var result = expand(date("2026-10-14"), date("2026-10-14"), List.of(), List.of(),
                 List.of(birthday), List.of(), false);
 
@@ -173,6 +173,10 @@ class PlanCalendarTests {
             assertThat(o.title()).isEqualTo("Kenji's birthday (turns 36)");
             assertThat(o.allDay()).isTrue();
             assertThat(o.source()).isEqualTo("people");
+            assertThat(o.people()).singleElement().satisfies(person -> {
+                assertThat(person.slug()).isEqualTo("kenji");
+                assertThat(person.aliases()).containsExactly("Ken");
+            });
         });
     }
 

@@ -23,6 +23,24 @@ class ToolValidatorTests {
     }
 
     @Test
+    void validatesUpcomingPlanToolSchemas() throws Exception {
+        ToolValidator validator = new ToolValidator(new ToolSpecLoader());
+
+        assertThat(validator.validate("plans_add", YAML.readTree("""
+                {kind: event, title: Lunch with Aiko, day: '2026-10-16', time: '13:00',
+                 repeat: {freq: weekly, days: [mon, wed, fri]}, people: [aiko]}
+                """))).isEmpty();
+        assertThat(validator.validate("plans_query", YAML.readTree("{from: '2026-10-12', to: '2026-10-18'}"))).isEmpty();
+        assertThat(validator.validate("plans_update", YAML.readTree("""
+                {id: 'a38a14cb-8d3b-41a4-9b82-37bd3a7c8e11', action: move,
+                 occurrence_day: '2026-10-13', day: '2026-10-14', time: '20:00'}
+                """))).isEmpty();
+        assertThat(validator.validate("plans_add", YAML.readTree("""
+                {kind: event, title: Lunch, day: '2026-10-16', unexpected: true}
+                """))).anySatisfy(message -> assertThat(message).contains("unexpected"));
+    }
+
+    @Test
     void validatesInputsAgainstThePackagedEntriesAddSchema() throws Exception {
         ToolValidator validator = new ToolValidator(new ToolSpecLoader());
 

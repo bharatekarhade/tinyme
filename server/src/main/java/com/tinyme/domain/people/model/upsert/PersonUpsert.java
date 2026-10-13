@@ -1,5 +1,6 @@
 package com.tinyme.domain.people.model.upsert;
 
+import com.tinyme.domain.people.model.Birthday;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
@@ -8,7 +9,8 @@ import java.util.Objects;
 import java.util.Set;
 import java.util.regex.Pattern;
 
-public record PersonUpsert(String slug, String displayName, List<String> aliases, String relationship) {
+public record PersonUpsert(String slug, String displayName, List<String> aliases, String relationship,
+                           Birthday birthday, boolean birthdayProvided) {
     private static final Pattern SLUG_PATTERN = Pattern.compile("^[a-z0-9-]{1,48}$");
 
     public PersonUpsert {
@@ -23,6 +25,10 @@ public record PersonUpsert(String slug, String displayName, List<String> aliases
         }
         relationship = relationship == null || relationship.isBlank() ? null : relationship.strip();
         aliases = cleanAliases(aliases, displayName);
+    }
+
+    public PersonUpsert(String slug, String displayName, List<String> aliases, String relationship) {
+        this(slug, displayName, aliases, relationship, null, false);
     }
 
     private static List<String> cleanAliases(List<String> values, String displayName) {
