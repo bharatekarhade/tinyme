@@ -14,7 +14,7 @@ public record PlanOccurrence(String id, UUID planId, LocalDate originalDay, Loca
                              LocalDate repeatStartDay,
                              LocalTime startTime, LocalTime endTime, LocalDate endDay,
                              Instant startsAt, Instant endsAt, boolean allDay, PlanKind kind,
-                             String title, String place, List<PersonSnapshot> people,
+                             String title, String notes, String place, List<PersonSnapshot> people,
                              OccurrenceStatus status, String habitKind, Repeat repeat, String source) {
     public PlanOccurrence {
         Objects.requireNonNull(id, "id");

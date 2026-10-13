@@ -1,9 +1,33 @@
 import Foundation
 import Observation
 
+private struct MoveOccurrenceRequest: Encodable, Sendable {
+    let day: LocalDay
+    let time: String
+}
+
+private struct EditScheduleRequest: Encodable, Sendable {
+    let day: LocalDay
+    let time: String
+    let endTime: String?
+    let endDay: LocalDay?
+
+    private enum CodingKeys: String, CodingKey {
+        case day, time
+        case endTime = "end_time"
+        case endDay = "end_day"
+    }
+}
+
 @MainActor
 @Observable
 final class UpcomingModel {
+    struct DeletedPlan: Identifiable {
+        let id: String
+        let title: String
+        let canUndo: Bool
+    }
+
     enum Phase: Equatable {
         case loading, loaded, failed(String)
     }
@@ -14,6 +38,7 @@ final class UpcomingModel {
     private(set) var selectedDay: LocalDay
     private(set) var workingIds: Set<String> = []
     private(set) var errorMessage: String?
+    private(set) var deletedPlan: DeletedPlan?
 
     private let api: APIClient
     private var loadTask: Task<Void, Never>?
@@ -32,6 +57,17 @@ final class UpcomingModel {
 
     var selectedItems: [OccurrenceDTO] {
         (upcoming?.items ?? []).filter { $0.day == selectedDay }
+    }
+
+    var allDayItems: [OccurrenceDTO] {
+        let current = selectedItems.filter { $0.allDay || ($0.isTask && $0.startsAt == nil) }
+        let overdue = selectedDay == upcoming?.today ? (upcoming?.overdue ?? []) : []
+        return (current + overdue).sorted(by: Self.occurrenceOrder)
+    }
+
+    var timedItems: [OccurrenceDTO] {
+        selectedItems.filter { !$0.allDay && $0.startsAt != nil }
+            .sorted { ($0.startsAt ?? .distantFuture) < ($1.startsAt ?? .distantFuture) }
     }
 
     var overdueItems: [OccurrenceDTO] {
@@ -92,6 +128,21 @@ final class UpcomingModel {
         selectedDay = day
     }
 
+    func moveDay(by offset: Int) {
+        guard let next = Self.adding(days: offset, to: selectedDay) else { return }
+        guard let end = Self.adding(days: 6, to: weekStart) else { return }
+        if next < weekStart || next > end {
+            let start = Self.monday(of: next) ?? next
+            weekStart = start
+            selectedDay = next
+            upcoming = nil
+            phase = .loading
+            load()
+        } else {
+            selectedDay = next
+        }
+    }
+
     func moveWeek(by offset: Int) {
         guard let next = Self.adding(days: offset * 7, to: weekStart) else { return }
         weekStart = next
@@ -147,11 +198,68 @@ final class UpcomingModel {
     func delete(_ item: OccurrenceDTO) {
         guard let planId = item.planId else { return }
         let api = self.api
-        mutate(item) { try await api.send(.deletePlan(planId)) }
+        mutate(item) {
+            try await api.send(.deletePlan(planId))
+            guard !item.isRepeating else { return }
+            let toast = DeletedPlan(id: planId, title: item.title, canUndo: true)
+            self.deletedPlan = toast
+            self.dismissToastAfterDelay(id: toast.id)
+        }
     }
 
-    private func mutate(_ item: OccurrenceDTO, operation: @escaping @MainActor () async throws -> Void) {
-        guard !workingIds.contains(item.id) else { return }
+    func undoDelete() {
+        guard let deletedPlan else { return }
+        let api = self.api
+        errorMessage = nil
+        Task {
+            do {
+                try await api.send(.restorePlan(deletedPlan.id))
+                self.deletedPlan = nil
+                load()
+            } catch {
+                errorMessage = "Couldn't restore this plan. Please try again."
+            }
+        }
+    }
+
+    func dismissDeleteToast() {
+        deletedPlan = nil
+    }
+
+    private func dismissToastAfterDelay(id: String) {
+        Task { [weak self] in
+            try? await Task.sleep(for: .seconds(5))
+            guard let self, self.deletedPlan?.id == id else { return }
+            self.deletedPlan = nil
+        }
+    }
+
+    func announceError(_ message: String) {
+        errorMessage = message
+    }
+
+    func move(_ item: OccurrenceDTO, to day: LocalDay, time: String, allDays: Bool,
+              completion: (@MainActor @Sendable (Bool) -> Void)? = nil) {
+        guard let planId = item.planId else { completion?(false); return }
+        let api = self.api
+        let duration = item.startsAt.flatMap { start in item.endsAt.map { Int($0.timeIntervalSince(start) / 60) } }
+        let endTotal = duration.map { Self.minutes(time) + $0 }
+        let endTime = endTotal.map { Self.time($0 % 1440) }
+        let endDay: LocalDay? = endTotal.flatMap { $0 >= 1440 ? Self.adding(days: 1, to: day) : nil }
+        mutate(item, completion: completion) {
+            if allDays {
+                try await api.send(.movePlanSeries(planId), body: EditScheduleRequest(
+                    day: day, time: time, endTime: endTime, endDay: endDay))
+            } else {
+                let _: OccurrenceDTO = try await api.send(.movePlanOccurrence(planId, occurrenceDay: item.actionDay),
+                    body: MoveOccurrenceRequest(day: day, time: time))
+            }
+        }
+    }
+
+    private func mutate(_ item: OccurrenceDTO, completion: (@MainActor @Sendable (Bool) -> Void)? = nil,
+                        operation: @escaping @MainActor () async throws -> Void) {
+        guard !workingIds.contains(item.id) else { completion?(false); return }
         workingIds.insert(item.id)
         errorMessage = nil
         Task {
@@ -160,8 +268,10 @@ final class UpcomingModel {
                 try await operation()
                 load()
                 await loadTask?.value
+                completion?(true)
             } catch {
                 errorMessage = "Couldn't update this plan. Please try again."
+                completion?(false)
             }
         }
     }
@@ -169,6 +279,16 @@ final class UpcomingModel {
     private static func occurrenceOrder(_ lhs: OccurrenceDTO, _ rhs: OccurrenceDTO) -> Bool {
         if lhs.day != rhs.day { return lhs.day < rhs.day }
         return (lhs.startTime ?? "") < (rhs.startTime ?? "")
+    }
+
+    private static func minutes(_ value: String) -> Int {
+        let parts = value.split(separator: ":").compactMap { Int($0) }
+        guard parts.count == 2 else { return 0 }
+        return parts[0] * 60 + parts[1]
+    }
+
+    private static func time(_ minutes: Int) -> String {
+        String(format: "%02d:%02d", minutes / 60, minutes % 60)
     }
 
     private static func monday(of day: LocalDay) -> LocalDay? {

@@ -47,6 +47,7 @@ struct OccurrenceDTO: Decodable, Sendable, Hashable, Identifiable {
     let startsAt: Date?
     let endsAt: Date?
     let allDay: Bool
+    let notes: String?
     let place: String?
     let people: [Person]
     let status: String
@@ -64,6 +65,22 @@ struct OccurrenceDTO: Decodable, Sendable, Hashable, Identifiable {
               let originalDay = LocalDay(String(id[id.index(after: separator)...])) else { return day }
         return originalDay
     }
+    /// The glyph for this plan on the timeline and in its sheet.
+    var symbol: String {
+        if source == "people" { return "birthday.cake" }
+        if title.localizedCaseInsensitiveContains("run") { return "figure.run" }
+        if title.localizedCaseInsensitiveContains("walk") { return "figure.walk" }
+        if isHabit {
+            return switch habit?.lowercased() {
+            case "workout", "gym", "strength_training": "dumbbell.fill"
+            case "run", "running": "figure.run"
+            case "walk", "walking": "figure.walk"
+            case "brush_teeth", "teeth": "sparkles"
+            default: "checkmark.circle"
+            }
+        }
+        return "calendar"
+    }
     var clockLabel: String? {
         guard let startTime else { return nil }
         let parts = startTime.split(separator: ":").compactMap { Int($0) }
@@ -76,7 +93,7 @@ struct OccurrenceDTO: Decodable, Sendable, Hashable, Identifiable {
     }
 
     private enum CodingKeys: String, CodingKey {
-        case id, source, kind, title, day, place, people, status, habit, editable
+        case id, source, kind, title, day, notes, place, people, status, habit, editable
         case planId = "plan_id"
         case startTime = "start_time"
         case endTime = "end_time"

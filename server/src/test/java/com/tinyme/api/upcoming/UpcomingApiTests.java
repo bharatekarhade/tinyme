@@ -15,6 +15,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
+import org.springframework.http.MediaType;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Import;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -34,6 +35,7 @@ import java.util.UUID;
 
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -205,6 +207,55 @@ class UpcomingApiTests {
         mvc.perform(post("/plans/{id}/occurrences/{day}/skip", UUID.randomUUID(), TODAY)
                         .header(auth, bearer))
                 .andExpect(status().isNotFound());
+    }
+
+    @Test
+    void calendarMoveAndUndoDeleteUsePlanService() throws Exception {
+        String auth = bearer("upcoming-calendar-move");
+        var repeating = plans.add(command(PlanKind.EVENT, "upcoming-api-move", TODAY,
+                        LocalTime.of(15, 0), LocalTime.of(16, 0),
+                        new Repeat(RepeatFrequency.DAILY, 1, Set.of(), null)), userZone.current(), NOW);
+
+        mvc.perform(post("/plans/{id}/occurrences/{day}/move", repeating.id(), TODAY)
+                        .header("Authorization", auth)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"day":"2026-10-13","time":"11:00"}
+                                """))
+                .andExpect(status().isBadRequest());
+
+        mvc.perform(post("/plans/{id}/occurrences/{day}/move", repeating.id(), TODAY)
+                        .header("Authorization", auth)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"day":"2026-10-13","time":"16:00"}
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.start_time").value("16:00"))
+                .andExpect(jsonPath("$.end_time").value("17:00"));
+
+        mvc.perform(patch("/plans/{id}", repeating.id())
+                        .header("Authorization", auth)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"day":"2026-10-13","time":"17:00","end_time":"18:00","end_day":null}
+                                """))
+                .andExpect(status().isNoContent());
+        mvc.perform(get("/upcoming").header("Authorization", auth)
+                        .param("from", TODAY.plusDays(1).toString()).param("to", TODAY.plusDays(1).toString()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items[0].start_time").value("17:00"));
+
+        var oneOff = plans.add(command(PlanKind.EVENT, "upcoming-api-undo", TODAY,
+                LocalTime.of(19, 0), LocalTime.of(20, 0), null), userZone.current(), NOW);
+        mvc.perform(delete("/plans/{id}", oneOff.id()).header("Authorization", auth))
+                .andExpect(status().isNoContent());
+        mvc.perform(post("/plans/{id}/restore", oneOff.id()).header("Authorization", auth))
+                .andExpect(status().isNoContent());
+        mvc.perform(get("/upcoming").header("Authorization", auth)
+                        .param("from", TODAY.toString()).param("to", TODAY.toString()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items[?(@.plan_id == '%s')]".formatted(oneOff.id())).exists());
     }
 
     private String bearer(String device) {

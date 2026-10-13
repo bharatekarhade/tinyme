@@ -59,6 +59,11 @@ public class PlanRepository {
     }
 
     @Transactional(readOnly = true)
+    public Optional<PlanEntity> findAny(UUID id) {
+        return plans.findById(Objects.requireNonNull(id, "id"));
+    }
+
+    @Transactional(readOnly = true)
     public List<PlanEntity> findForCalendar(java.time.LocalDate from, java.time.LocalDate to) {
         return plans.findCalendarPlans(Objects.requireNonNull(from, "from"), Objects.requireNonNull(to, "to"));
     }

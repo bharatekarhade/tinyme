@@ -142,7 +142,7 @@ public final class PlanCalendar {
                 now, today, habitDays);
         String id = plan.id() + ":" + originalDay;
         return new PlanOccurrence(id, plan.id(), originalDay, day, plan.startDay(), startTime, endTime, endDay,
-                startsAt, endsAt, allDay, plan.kind(), plan.title(), plan.place(), plan.people(),
+                startsAt, endsAt, allDay, plan.kind(), plan.title(), plan.notes(), plan.place(), plan.people(),
                 status, plan.habitKind(), plan.repeat(), plan.source().name().toLowerCase(Locale.ROOT));
     }
 
@@ -188,7 +188,7 @@ public final class PlanCalendar {
                 PersonSnapshot snapshot = new PersonSnapshot(person.slug(), person.displayName(), person.aliases(),
                         person.relationship(), person.memoryPath());
                 birthdays.add(new PlanOccurrence(id, null, day, day, null, null, null, null,
-                        null, null, true, PlanKind.EVENT, title, null, List.of(snapshot), status,
+                        null, null, true, PlanKind.EVENT, title, null, null, List.of(snapshot), status,
                         null, null, "people"));
             }
         }

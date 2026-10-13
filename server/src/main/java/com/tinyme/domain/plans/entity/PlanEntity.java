@@ -229,6 +229,10 @@ public class PlanEntity {
         if (deletedAt == null) deletedAt = Objects.requireNonNull(now, "now");
     }
 
+    public void restore() {
+        if (deletedAt != null) deletedAt = null;
+    }
+
     public void replacePeople(Set<PersonEntity> people) {
         ensureLive();
         this.people = new LinkedHashSet<>(Objects.requireNonNull(people, "people"));

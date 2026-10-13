@@ -1,21 +1,29 @@
 package com.tinyme.api.plans;
 
 import com.tinyme.api.upcoming.OccurrenceResponse;
+import com.tinyme.domain.plans.model.PlanChange;
 import com.tinyme.domain.plans.service.PlanService;
 import com.tinyme.domain.plans.service.PlanStateConflictException;
 import com.tinyme.settings.UserZone;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.DeleteMapping;
+import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.time.Clock;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.time.LocalTime;
+import java.util.List;
+import java.util.Set;
 import java.util.UUID;
+import com.fasterxml.jackson.annotation.JsonProperty;
 
 @RestController
 @RequestMapping("/plans")
@@ -45,9 +53,48 @@ public class PlanActionsController {
         return change(id, day, PlanService.QuickAction.SKIP);
     }
 
+    @PostMapping("/{id}/occurrences/{day}/move")
+    public OccurrenceResponse moveOccurrence(@PathVariable UUID id, @PathVariable LocalDate day,
+                                             @RequestBody MoveRequest request) {
+        try {
+            return plans.moveOccurrence(id, day, request.day(), request.time(), userZone.current(), clock.instant())
+                    .map(OccurrenceResponse::from)
+                    .orElseThrow(PlanActionsController::notFound);
+        } catch (PlanStateConflictException conflict) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, conflict.getMessage(), conflict);
+        } catch (IllegalArgumentException invalid) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, invalid.getMessage(), invalid);
+        }
+    }
+
+    @PatchMapping("/{id}")
+    public ResponseEntity<Void> moveSeries(@PathVariable UUID id, @RequestBody EditScheduleRequest request) {
+        var zone = userZone.current();
+        var now = clock.instant();
+        if (LocalDateTime.of(request.day(), request.time()).atZone(zone).toInstant().isBefore(now)) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "an event cannot be moved into the past");
+        }
+        PlanChange.Edit change = new PlanChange.Edit(Set.of("day", "time", "end_time", "end_day"),
+                null, request.day(), request.time(), request.endTime(), request.endDay(), null, List.of(), null, null, null, null);
+        try {
+            plans.update(id, change, zone, now).orElseThrow(PlanActionsController::notFound);
+            return ResponseEntity.noContent().build();
+        } catch (PlanStateConflictException conflict) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, conflict.getMessage(), conflict);
+        } catch (IllegalArgumentException invalid) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, invalid.getMessage(), invalid);
+        }
+    }
+
     @DeleteMapping("/{id}")
     public ResponseEntity<Void> delete(@PathVariable UUID id) {
         if (!plans.delete(id, clock.instant())) throw notFound();
+        return ResponseEntity.noContent().build();
+    }
+
+    @PostMapping("/{id}/restore")
+    public ResponseEntity<Void> restore(@PathVariable UUID id) {
+        if (!plans.restore(id)) throw notFound();
         return ResponseEntity.noContent().build();
     }
 
@@ -65,5 +112,19 @@ public class PlanActionsController {
 
     private static ResponseStatusException notFound() {
         return new ResponseStatusException(HttpStatus.NOT_FOUND, "Plan not found");
+    }
+
+    public record MoveRequest(LocalDate day, LocalTime time) {
+        public MoveRequest {
+            if (day == null || time == null) throw new IllegalArgumentException("day and time are required");
+        }
+    }
+
+    public record EditScheduleRequest(LocalDate day, LocalTime time,
+                                     @JsonProperty("end_time") LocalTime endTime,
+                                     @JsonProperty("end_day") LocalDate endDay) {
+        public EditScheduleRequest {
+            if (day == null || time == null) throw new IllegalArgumentException("day and time are required");
+        }
     }
 }

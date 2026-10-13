@@ -26,6 +26,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
@@ -229,6 +230,22 @@ public class PlanService {
         return Optional.of(occurrence);
     }
 
+    /** Moves one scheduled occurrence, preserving its duration through the occurrence exception. */
+    @Transactional
+    public Optional<PlanOccurrence> moveOccurrence(UUID id, LocalDate occurrenceDay, LocalDate day,
+                                                   LocalTime time, ZoneId zone, Instant now) {
+        Objects.requireNonNull(day, "day");
+        Objects.requireNonNull(time, "time");
+        Objects.requireNonNull(zone, "zone");
+        Objects.requireNonNull(now, "now");
+        if (LocalDateTime.of(day, time).atZone(zone).toInstant().isBefore(now)) {
+            throw new IllegalArgumentException("an event cannot be moved into the past");
+        }
+        Optional<PlanWriteResult> result = update(id, new PlanChange.Move(occurrenceDay, day, time), zone, now);
+        if (result.isEmpty()) return Optional.empty();
+        return occurrenceOf(id, occurrenceDay, zone, now);
+    }
+
     private Optional<PlanOccurrence> occurrenceOf(UUID id, LocalDate originalDay, ZoneId zone, Instant now) {
         PlanOccurrenceEntity exception = occurrences.find(new PlanOccurrenceId(id, originalDay)).orElse(null);
         LocalDate from = originalDay;
@@ -249,6 +266,15 @@ public class PlanService {
         PlanEntity plan = plans.findLive(id).orElse(null);
         if (plan == null) return false;
         plan.softDelete(now);
+        plans.save(plan);
+        return true;
+    }
+
+    @Transactional
+    public boolean restore(UUID id) {
+        PlanEntity plan = plans.findAny(Objects.requireNonNull(id, "id")).orElse(null);
+        if (plan == null) return false;
+        plan.restore();
         plans.save(plan);
         return true;
     }
