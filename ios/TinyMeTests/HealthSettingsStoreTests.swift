@@ -30,7 +30,6 @@ struct HealthSettingsStoreTests {
         var settings = store.saved
         settings.askedGroups = [.activity]
         settings.groups = []
-        settings.writeEnabled = false
         store.save(settings)
         #expect(store.isConnected)
         #expect(store.saved.isAllOff)
@@ -41,11 +40,10 @@ struct HealthSettingsStoreTests {
         var settings = HealthSettingsStore.Settings()
         settings.groups = [.sleepHeart, .activity]
         settings.nudgesOff = [.steps, .sleep]
-        settings.writeEnabled = true
         let json = String(decoding: try JSONEncoder().encode(HealthSettingsBody(settings)), as: UTF8.self)
         #expect(json.contains(#""groups":["activity","sleep_heart"]"#))
         #expect(json.contains(#""nudges_off":["sleep","steps"]"#))
-        #expect(json.contains(#""write_enabled":true"#))
+        #expect(json.contains(#""write_enabled":false"#))   // TinyMe never writes to Health
     }
 
     @Test func savedSwitchesSurviveARestartAndResetClearsThem() {

@@ -99,6 +99,25 @@ actor HealthSyncEngine {
         return totals
     }
 
+    /// A background wake-up: only this metric, only recent days, because iOS allows a few seconds.
+    /// The first import, if unfinished, carries on in the next foreground sync.
+    func syncOne(_ metric: HealthMetric, depth: HealthImportDepth, api: APIClient,
+                 today: LocalDay = .today()) async throws -> HealthUploader.Totals {
+        let uploader = HealthUploader(api: api)
+        switch metric.reading {
+        case .dailySum, .dailyAverage:
+            let first = HealthImportPlan.adding(-(Self.recentDays - 1), to: today)
+            let recent = (0..<Self.recentDays).map { HealthImportPlan.adding(-$0, to: today) }
+            let values = try await reader.values(for: metric, from: first, through: today)
+            let made = HealthDailyItems.make(metric: metric, values: values, days: recent, deleteEmpty: true)
+            return try await uploader.send(items: made.items, deleted: made.deleted)
+        case .samples, .workouts, .sleepNights:
+            let since = HealthImportPlan.adding(-(depth.rawValue - 1), to: today).date()
+                .map { Calendar.current.startOfDay(for: $0) } ?? .distantPast
+            return try await syncSamples(metric, since: since, today: today, uploader: uploader)
+        }
+    }
+
     /// Workouts, weight and body fat: one entry per HealthKit sample. Sleep: one entry per night.
     private func syncSamples(_ metric: HealthMetric, since: Date, today: LocalDay,
                              uploader: HealthUploader) async throws -> HealthUploader.Totals {

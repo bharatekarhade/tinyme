@@ -27,13 +27,10 @@ enum HealthImportDepth: Int, CaseIterable, Codable, Sendable, Identifiable {
 final class HealthSettingsStore {
     struct Settings: Codable, Equatable, Sendable {
         var groups: Set<HealthGroup> = Set(HealthGroup.allCases)
-        var writeEnabled = false
         var nudgesOff: Set<HealthNudgeTopic> = []
         var importDepth: HealthImportDepth = .quarter
         /// Groups iOS has already shown its permission sheet for. Empty means not connected yet.
         var askedGroups: Set<HealthGroup> = []
-        /// Whether iOS has been asked about saving to Health.
-        var askedToWrite = false
         /// The server hasn't got these switches yet (the last save failed); sent again on foreground.
         var needsPush = false
     }
@@ -95,28 +92,28 @@ extension HealthSettingsStore.Settings {
         return copy
     }
 
-    /// Everything switched off: connected, but nothing is read or written.
-    var isAllOff: Bool { groups.isEmpty && !writeEnabled }
+    /// Everything switched off: connected, but nothing is read.
+    var isAllOff: Bool { groups.isEmpty }
 
     /// What the person chose, without the bookkeeping (what iOS was asked, whether the server has it).
     struct Choices: Equatable {
         let groups: Set<HealthGroup>
-        let writeEnabled: Bool
         let nudgesOff: Set<HealthNudgeTopic>
         let importDepth: HealthImportDepth
     }
 
-    var choices: Choices { Choices(groups: groups, writeEnabled: writeEnabled, nudgesOff: nudgesOff, importDepth: importDepth) }
+    var choices: Choices { Choices(groups: groups, nudgesOff: nudgesOff, importDepth: importDepth) }
 }
 
 struct HealthSettingsBody: Codable, Sendable, Equatable {
     let groups: [String]
+    /// Always false: TinyMe only reads Health.
     let writeEnabled: Bool
     let nudgesOff: [String]
 
     init(_ settings: HealthSettingsStore.Settings) {
         groups = HealthGroup.allCases.filter(settings.groups.contains).map(\.rawValue)
-        writeEnabled = settings.writeEnabled
+        writeEnabled = false   // TinyMe never writes to Health
         nudgesOff = HealthNudgeTopic.allCases.filter(settings.nudgesOff.contains).map(\.rawValue)
     }
 

@@ -18,8 +18,10 @@ final class AppEnvironment {
         self.authStore = authStore
         self.outbox = outbox
         self.health = health
-        self.healthSync = HealthSync(settings: health)
-        self.session = SessionModel(authStore: authStore, outbox: outbox, health: health)
+        let session = SessionModel(authStore: authStore, outbox: outbox, health: health)
+        self.session = session
+        // Created at launch, so background delivery is set up before anything else (guide §3.2).
+        self.healthSync = HealthSync(settings: health, api: { session.api })
         Task { await outbox.startMonitoring() }
     }
 }

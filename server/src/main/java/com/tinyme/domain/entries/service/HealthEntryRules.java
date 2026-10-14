@@ -13,15 +13,19 @@ import java.util.Objects;
 import java.util.Set;
 
 /**
- * Apple Health entries in chat and History (guide §4.5): their measured numbers are read-only, deleting them
- * here would only bring them back on the next sync, and a Health kind isn't logged from chat while Health fills
- * it in. Workouts are the exception: one told in chat is merged with the Watch's later.
+ * Apple Health entries in chat and History (guide §4.5). TinyMe never changes what Health measured: the numbers
+ * are read-only, and deleting one here would only bring it back on the next sync. It can add beside them: a note,
+ * a workout name, or an entry for what Health missed ("my watch died, I slept 7 more hours"), marked
+ * {@code data.adds_to_health}. Without that mark a Health kind isn't logged from chat while Health fills it in,
+ * so the day isn't counted twice. Workouts are the exception: one told in chat is merged with the Watch's later.
  */
 @Component
 public class HealthEntryRules {
     public static final String SOURCE = "health";
     /** What a person may set on a Health entry: a note, and a name for a workout ("push day"). */
     public static final Set<String> EDITABLE_FIELDS = Set.of("note", "label");
+    /** Set on a chat entry that adds what Health missed, so it's counted alongside Health's instead of refused. */
+    public static final String ADDS_TO_HEALTH = "adds_to_health";
     private static final String WORKOUT = "workout";
 
     private final HealthKinds healthKinds;
@@ -32,15 +36,17 @@ public class HealthEntryRules {
         this.settings = settings;
     }
 
-    /** Refuses a chat entry for a Health kind whose group is connected, so the day isn't counted twice. */
-    void checkAdd(String requestedKind, String canonicalKind, String source) {
+    /** Refuses a chat entry for a Health kind whose group is connected, unless it adds what Health missed. */
+    void checkAdd(String requestedKind, String canonicalKind, String source, Map<String, Object> data) {
         if (SOURCE.equals(source)) return;
+        if (Boolean.TRUE.equals(data.get(ADDS_TO_HEALTH))) return;
         var kind = healthKinds.find(canonicalKind).or(() -> healthKinds.find(requestedKind));
         if (kind.isEmpty() || WORKOUT.equals(kind.get().kind())) return;
         if (!settings.load().groups().contains(kind.get().group())) return;
         throw new IllegalArgumentException("Apple Health fills in " + kind.get().kind().replace('_', ' ')
-                + " while it's connected, so this wasn't logged again. Add a note to that day's entry instead "
-                + "(entries_update with data.note).");
+                + " while it's connected, so this wasn't logged again. If the user says Health missed some "
+                + "(their watch died, they forgot it), log only the missing part with data.adds_to_health: true; "
+                + "it's counted alongside Health's. Otherwise add a note to that day's entry (entries_update with data.note).");
     }
 
     /** The patch with only what may change: text, and data.note / data.label merged into the measured data. */

@@ -48,7 +48,7 @@ public class EntryService {
     public AddResult add(AddCommand cmd) {
         Objects.requireNonNull(cmd, "cmd");
         String kind = entryKinds.upsertAndResolve(cmd.kind());
-        healthRules.checkAdd(cmd.kind(), kind, cmd.source());
+        healthRules.checkAdd(cmd.kind(), kind, cmd.source(), cmd.data());
         BigDecimal quantity = cmd.quantity() == null ? BigDecimal.ONE : cmd.quantity();
         LocalDate localDay = LocalDate.ofInstant(cmd.ts(), cmd.zone());
         UUID id = entries.insert(new NewEntry(kind, quantity, cmd.text(), cmd.data(),

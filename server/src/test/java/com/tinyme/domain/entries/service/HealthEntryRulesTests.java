@@ -80,6 +80,24 @@ class HealthEntryRulesTests {
     }
 
     @Test
+    void whatHealthMissedCanBeAddedBesideIt() {
+        jdbc.update("INSERT INTO health_settings (groups) VALUES ('{sleep_heart}')");
+        jdbc.update("""
+                INSERT INTO entries (ts, local_day, kind, quantity, data, source, external_id)
+                VALUES (?, '2026-10-14', 'sleep', 1.52, '{"hours":1.52}', 'health', 'sleep:2026-10-14')
+                """, java.sql.Timestamp.from(NOON));
+
+        // "My watch died, I slept another 7 hours": an addition, not a change to Health's 1.52.
+        entries.add(new AddCommand("sleep", BigDecimal.valueOf(7), "watch died", Map.of("hours", 7, "adds_to_health", true),
+                List.of(), NOON, TOKYO, "chat"));
+
+        assertThat(jdbc.queryForObject("SELECT sum(quantity) FROM entries WHERE kind = 'sleep' AND local_day = '2026-10-14' "
+                + "AND deleted_at IS NULL", BigDecimal.class)).isEqualByComparingTo("8.52");
+        assertThat(jdbc.queryForObject("SELECT quantity FROM entries WHERE source = 'health' AND kind = 'sleep' "
+                + "AND local_day = '2026-10-14'", BigDecimal.class)).isEqualByComparingTo("1.52");
+    }
+
+    @Test
     void withoutHealthConnectedChatLogsStepsAsBefore() {
         entries.add(chat("steps", Map.of("steps", 12000)));
         assertThat(jdbc.queryForObject("SELECT count(*) FROM entries WHERE source = 'chat' AND kind = 'steps' "

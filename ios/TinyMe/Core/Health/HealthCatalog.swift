@@ -127,23 +127,6 @@ enum HealthCatalog {
                      reading: .dailyAverage, field: "ms", unit: .secondUnit(with: .milli), decimals: 0),
     ]
 
-    /// What "Save to Health" writes: meals and drinks with calories (and macros), water, and weight told in chat.
-    static let shareTypes: Set<HKSampleType> = [
-        HKQuantityType(.dietaryEnergyConsumed), HKQuantityType(.dietaryProtein),
-        HKQuantityType(.dietaryCarbohydrates), HKQuantityType(.dietaryFatTotal),
-        HKQuantityType(.dietaryWater), HKQuantityType(.bodyMass),
-    ]
-
-    /// Plain names for share types, in a fixed order: "calories, water".
-    static func shareNames(_ types: [HKSampleType]) -> [String] {
-        let names: [(HKQuantityTypeIdentifier, String)] = [
-            (.dietaryEnergyConsumed, "calories"), (.dietaryProtein, "protein"), (.dietaryCarbohydrates, "carbs"),
-            (.dietaryFatTotal, "fat"), (.dietaryWater, "water"), (.bodyMass, "weight"),
-        ]
-        let ids = Set(types.map(\.identifier))
-        return names.filter { ids.contains($0.0.rawValue) }.map(\.1)
-    }
-
     /// The metrics read as one total or average per day.
     static func dailyMetrics(in groups: Set<HealthGroup>) -> [HealthMetric] {
         metrics.filter { groups.contains($0.group) && ($0.reading == .dailySum || $0.reading == .dailyAverage) }

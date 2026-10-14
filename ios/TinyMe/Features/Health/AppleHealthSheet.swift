@@ -1,7 +1,7 @@
 import SwiftUI
 
-/// Settings → Apple Health: what TinyMe may read, whether it saves to Health, follow-up questions,
-/// how far back to import, and the Connect button that shows iOS's permission sheet.
+/// Settings → Apple Health: what TinyMe may read, follow-up questions, how far back to import, and the
+/// Connect button that shows iOS's permission sheet. TinyMe only reads Health; it never writes to it.
 struct AppleHealthSheet: View {
     let api: APIClient
     let server: URL
@@ -14,7 +14,6 @@ struct AppleHealthSheet: View {
     @State private var isConnecting = false
     @State private var error: String?
     @State private var notice: String?
-    @State private var writeStatus: HealthAccess.WriteStatus = .notAsked
 
     var body: some View {
         ScrollView {
@@ -29,20 +28,6 @@ struct AppleHealthSheet: View {
                     ForEach(Array(HealthGroup.allCases.enumerated()), id: \.element) { index, group in
                         if index > 0 { divider }
                         toggle(group.title, detail: group.detail, symbol: group.symbol, isOn: groupBinding(group))
-                    }
-                }
-                .background(card)
-
-                VStack(alignment: .leading, spacing: 0) {
-                    toggle("Save to Health", detail: "Meals, water and weight you tell TinyMe",
-                           symbol: "square.and.arrow.down.on.square", isOn: $draft.writeEnabled)
-                    if draft.writeEnabled, let line = writeLine {
-                        Text(line)
-                            .textStyle(.caption)
-                            .foregroundStyle(writeStatus == .allowed ? Palette.inkMuted : Palette.danger)
-                            .padding(.leading, 18 + 28 + Space.s3)
-                            .padding(.trailing, 18)
-                            .padding(.bottom, 14)
                     }
                 }
                 .background(card)
@@ -121,7 +106,6 @@ struct AppleHealthSheet: View {
         .animation(.snappy(duration: 0.25), value: error)
         .onAppear {
             draft = store.saved
-            writeStatus = access.writeStatus
         }
         .task { await store.pushIfNeeded(api: api) }
         .onChange(of: draft.choices) {
@@ -245,16 +229,6 @@ struct AppleHealthSheet: View {
         return draft.isAllOff ? "Stop reading Health" : "Save changes"
     }
 
-    private var writeLine: String? {
-        switch writeStatus {
-        case .notAsked: nil
-        case .allowed: "Allowed in Health"
-        case .notAllowed: "Not allowed. Turn it on in Health → Sharing → Apps → TinyMe."
-        case .partly(let missing):
-            "Partly allowed: \(missing.formatted(.list(type: .and))) not allowed. Change it in Health → Sharing → Apps → TinyMe."
-        }
-    }
-
     // MARK: - Actions
 
     private func connect() {
@@ -269,7 +243,7 @@ struct AppleHealthSheet: View {
             if !wanted.isAllOff {
                 do {
                     // iOS only shows types it hasn't asked about, so this is quiet when nothing new is on.
-                    try await access.request(groups: wanted.groups, write: wanted.writeEnabled)
+                    try await access.request(groups: wanted.groups)
                 } catch {
                     self.error = "iOS didn't open the Health permissions. Please try again."
                     return
@@ -277,10 +251,8 @@ struct AppleHealthSheet: View {
             }
             var next = wanted
             next.askedGroups.formUnion(wanted.groups)
-            next.askedToWrite = next.askedToWrite || wanted.writeEnabled
             // Stopping everything still counts as connected, so the screen keeps offering to switch back on.
             if next.askedGroups.isEmpty { next.askedGroups = store.saved.askedGroups }
-            writeStatus = access.writeStatus
             do {
                 // Kept on this phone first: if the server misses it, it's sent again on the next foreground.
                 try await store.save(next, sendingWith: api)
