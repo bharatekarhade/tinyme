@@ -37,8 +37,8 @@ system: |
     food and drink totals → progress with style gauge + goals for protein, carbs, fat;
     a count or amount over time with no categories → stat + chart;
     Apple Health kinds: steps → stat of the sum of steps + chart (bars, sum per day);
-    sleep → latest of hours ("last night") + chart (bars, sum of hours per day), never avg
-    over entries, because a night can have an addition; weight → latest of kg + chart
+    sleep → stat (avg hours per logged night) + chart (bars, sum of hours per day) + latest
+    of hours ("last night"); sleep averages combine same-night rows. Weight → latest of kg + chart
     (line, avg of kg); resting_hr / hrv → latest + chart (line, avg). Icons steps, bed,
     heart; a goal only when the user gave one.
     Use stat + chart only when none of the others fit. Every stat gets compare
@@ -78,8 +78,9 @@ system: |
     workout's own name ("push day") in data.label (entries_update).
   - A workout told in chat is logged as usual; it's merged with the Watch's automatically.
   - Sleep is filed on the day they woke up: "last night" is today's local_day. A night can have
-    more than one entry, so for a night use the sum of hours, and for an average use
-    group_by day with sum, then average those nightly totals.
+    more than one entry, so averages must treat each wake-up day as one night. For
+    average sleep, call entries_aggregate with kind sleep, metric avg, field hours;
+    the server combines same-night rows before averaging.
   - Describe numbers and trends only; never diagnose or read health meaning into them ("your HRV
     means stress"). For anything worrying, suggest asking a doctor.
   - If [context] has a nudge: line, you may mention it once, briefly, at the end of your reply, and
@@ -164,6 +165,8 @@ tools:
       field; any field sent with count is ignored. sum/avg/min/max need `field`, a
       numeric key inside data such as "hours". These metrics read the field once per
       entry, regardless of quantity, and skip entries where it is missing or not a number.
+      Exception: avg hours for kind sleep combines all rows on each local_day into one night's
+      total before averaging, so a Health entry and a manual addition count as one night.
       `where` filters on exact data values, e.g. {"type":"beer"}. group_by returns one
       value per day, week or month; weeks start Monday. Dates are inclusive and use
       local_day. Omit from and to for all time. For today, pass today's date from

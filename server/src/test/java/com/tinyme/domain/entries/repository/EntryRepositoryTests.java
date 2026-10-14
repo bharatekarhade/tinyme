@@ -225,6 +225,26 @@ class EntryRepositoryTests {
     }
 
     @Test
+    void sleepAverageCombinesRowsFromTheSameNightBeforeAveraging() {
+        LocalDate firstNight = LocalDate.of(2026, 10, 6);
+        LocalDate secondNight = firstNight.plusDays(1);
+        List<UUID> ids = new ArrayList<>();
+        try {
+            ids.add(insert("sleep", firstNight, "1", Map.of("hours", new BigDecimal("1.5"))));
+            ids.add(insert("sleep", firstNight, "1", Map.of("hours", new BigDecimal("7.5"))));
+            ids.add(insert("sleep", secondNight, "1", Map.of("hours", new BigDecimal("6"))));
+
+            AggregateResult result = entries.aggregate(new AggregateQuery(List.of("sleep"), AggregateMetric.AVG,
+                    "hours", Map.of(), firstNight, secondNight, GroupBy.NONE));
+
+            assertThat(result.value()).isEqualByComparingTo("7.50");
+            assertThat(result.entries()).isEqualTo(2);
+        } finally {
+            for (UUID id : ids) jdbc.update("DELETE FROM entries WHERE id = ?", id);
+        }
+    }
+
+    @Test
     void groupedDaysAreZeroFilledAndWeeksAreLabeledByMonday() {
         String kind = createKind();
         LocalDate monday = LocalDate.of(2026, 10, 5);

@@ -223,8 +223,17 @@ public class EntryRepository {
         BigDecimal value = null;
         Long rowCount = null;
         if (!query.groupBy().grouped()) {
-            String sql = "SELECT " + query.metric().sqlExpression("e") + " AS value, COUNT(*) AS entries "
-                    + "FROM entries e WHERE " + baseFilters;
+            String sql;
+            if (isSleepNightAverage(query)) {
+                // Sleep can have a Health row plus a chat addition on the same wake-up day. Average
+                // nightly totals so those rows form one night instead of two separate observations.
+                sql = "SELECT ROUND(AVG(night.hours), 2) AS value, COUNT(*) AS entries FROM ("
+                        + "SELECT e.local_day, SUM((e.data ->> CAST(:field AS text))::numeric) AS hours "
+                        + "FROM entries e WHERE " + baseFilters + " GROUP BY e.local_day) night";
+            } else {
+                sql = "SELECT " + query.metric().sqlExpression("e") + " AS value, COUNT(*) AS entries "
+                        + "FROM entries e WHERE " + baseFilters;
+            }
             var result = jdbc.queryForMap(sql, parameters);
             value = (BigDecimal) result.get("value");
             rowCount = ((Number) result.get("entries")).longValue();
@@ -257,6 +266,11 @@ public class EntryRepository {
         String resultField = query.metric().requiresField() ? query.field() : null;
         return new AggregateResult(query.kinds(), List.of(), query.metric(),
                 resultField, query.where(), query.from(), query.to(), query.groupBy(), value, rowCount, buckets);
+    }
+
+    private static boolean isSleepNightAverage(AggregateQuery query) {
+        return query.metric() == AggregateMetric.AVG && "hours".equals(query.field())
+                && query.kinds().contains("sleep") && query.kinds().size() == 1;
     }
 
     @Transactional(readOnly = true)

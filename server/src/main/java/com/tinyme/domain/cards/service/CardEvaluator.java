@@ -299,23 +299,26 @@ public class CardEvaluator {
 
     private AverageDayView averageDay(MetricSpec metric, DateRange dates, BigDecimal currentValue,
                                      LocalDate actualToday) {
-        if (metric.op() != AggregateMetric.COUNT && metric.op() != AggregateMetric.SUM) return null;
+        boolean perLoggedNight = isSleepHours(metric);
+        boolean averageAlready = perLoggedNight && metric.op() == AggregateMetric.AVG;
+        if (metric.op() != AggregateMetric.COUNT && metric.op() != AggregateMetric.SUM && !averageAlready) return null;
         try {
             LocalDate baselineTo = dates.from().minusDays(1);
             LocalDate baselineFrom = baselineTo.minusDays(29);
-            boolean perLoggedNight = isSleepHours(metric);
-            AggregateResult baselineResult = aggregate(metric, new DateRange(baselineFrom, baselineTo), GroupBy.DAY);
+            MetricSpec dailyMetric = perLoggedNight
+                    ? new MetricSpec(metric.kinds(), AggregateMetric.SUM, metric.field(), metric.where()) : metric;
+            AggregateResult baselineResult = aggregate(dailyMetric, new DateRange(baselineFrom, baselineTo), GroupBy.DAY);
             boolean hasHistory = baselineResult.buckets().stream().anyMatch(bucket -> bucket.entries() > 0);
             if (dates.from().isAfter(actualToday)) return null;
 
             LocalDate observedTo = dates.to().isAfter(actualToday) ? actualToday : dates.to();
             long observedDays = ChronoUnit.DAYS.between(dates.from(), observedTo) + 1;
             if (observedDays <= 0 || currentValue == null) return null;
-            AggregateResult currentDaily = perLoggedNight ? aggregate(metric, dates, GroupBy.DAY) : null;
+            AggregateResult currentDaily = perLoggedNight ? aggregate(dailyMetric, dates, GroupBy.DAY) : null;
             long currentDays = perLoggedNight ? currentDaily.buckets().stream().filter(bucket -> bucket.entries() > 0).count()
                     : observedDays;
             if (currentDays == 0) return null;
-            BigDecimal currentPerDay = perLoggedNight
+            BigDecimal currentPerDay = averageAlready ? null : perLoggedNight
                     ? dailyTotal(currentDaily).divide(BigDecimal.valueOf(currentDays), 2, RoundingMode.HALF_UP)
                     : currentValue.divide(BigDecimal.valueOf(currentDays), 2, RoundingMode.HALF_UP);
             // Nothing earlier to compare with: the per-day figure still stands on its own.
@@ -331,7 +334,8 @@ public class CardEvaluator {
                     ? baselineResult.buckets().stream().filter(bucket -> bucket.entries() > 0).count()
                     : Math.max(1, ChronoUnit.DAYS.between(firstDay, baselineTo) + 1);
             BigDecimal baseline = baselineTotal.divide(BigDecimal.valueOf(baselineDays), 2, RoundingMode.HALF_UP);
-            return new AverageDayView(baseline, currentPerDay, percentChangePrecise(currentPerDay, baseline), basis);
+            BigDecimal comparisonValue = averageAlready ? currentValue : currentPerDay;
+            return new AverageDayView(baseline, currentPerDay, percentChangePrecise(comparisonValue, baseline), basis);
         } catch (RuntimeException error) {
             log.warn("Card average-day comparison unavailable: kinds={}, from={}, to={}", metric.kinds(),
                     dates.from(), dates.to(), error);
@@ -340,7 +344,7 @@ public class CardEvaluator {
     }
 
     private boolean isSleepHours(MetricSpec metric) {
-        return metric.op() == AggregateMetric.SUM && "hours".equals(metric.field())
+        return "hours".equals(metric.field())
                 && metric.kinds().contains("sleep");
     }
 

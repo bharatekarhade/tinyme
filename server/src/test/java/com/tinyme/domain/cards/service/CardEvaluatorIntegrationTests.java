@@ -188,6 +188,19 @@ class CardEvaluatorIntegrationTests {
         assertThat(stat.averageDay().baseline()).isEqualByComparingTo("7.00");
         assertThat(stat.averageDay().currentPerDay()).isEqualByComparingTo("7.00");
         assertThat(stat.averageDay().deltaPct()).isEqualByComparingTo("0.00");
+
+        var averageCard = saveExample("sleep-average-op", """
+                {"v":1,"title":"Average sleep","icon":"bed","accent":"mint","tone":"surface","blocks":[
+                  {"type":"stat","label":"sleep","metric":{"kinds":["sleep"],"op":"avg","field":"hours"},
+                   "period":"range"}
+                ]}
+                """);
+        var averageStat = (StatView) evaluator.evaluate(averageCard, Range.WEEK, WEDNESDAY).blocks().getFirst();
+        assertThat(averageStat.value()).isEqualByComparingTo("7.00");
+        assertThat(averageStat.entries()).isEqualTo(2); // two logged nights, even with two rows on one night
+        assertThat(averageStat.averageDay().basis()).isEqualTo("night");
+        assertThat(averageStat.averageDay().currentPerDay()).isNull(); // this card already shows the average
+        assertThat(averageStat.averageDay().deltaPct()).isEqualByComparingTo("0.00");
     }
 
     @Test

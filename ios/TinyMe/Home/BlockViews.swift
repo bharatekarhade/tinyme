@@ -27,6 +27,7 @@ struct BlockView: View {
                 StatBlockView(
                     label: progress.label, unit: progress.unit, value: progress.value, goal: nil, entries: progress.entries,
                     period: period, average: average, perDay: progress.averageDay?.currentPerDay,
+                    averageBasis: progress.averageDay?.averageLabel ?? "day",
                     onOpen: onTap.map { tap in { tap(.block) } }
                 )
             } else {
@@ -191,6 +192,8 @@ struct StatBlockView: View {
     /// The total spread over the days of the period so far. Nil for numbers that can't be averaged this way.
     var perDay: Double?
     var averageBasis = "day"
+    /// AVG sleep values are already a nightly average; there is no total to toggle to.
+    private var isAverageValue: Bool { averageBasis == "night" && perDay == nil && entries > 0 }
     /// Opens the entries behind the number. Nil: not tappable.
     var onOpen: (() -> Void)?
 
@@ -297,6 +300,7 @@ struct StatBlockView: View {
         guard entries > 0 else { return "No entries \(period.emptyPhrase)" }
         // Say which period the number covers.
         var parts = ["\(label) \(period.phrase)"]
+        if isAverageValue { parts.insert("avg per night", at: 0) }
         if let unit, !unit.isEmpty, unit != "JPY", unit != label {
             parts.insert(unit, at: 0)
         }
