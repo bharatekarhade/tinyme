@@ -6,8 +6,9 @@ private struct MoveOccurrenceRequest: Encodable, Sendable {
     let time: String
 }
 
+/// Without a day only the time changes: a series keeps its start day, so its past days and weekdays stay.
 private struct EditScheduleRequest: Encodable, Sendable {
-    let day: LocalDay
+    let day: LocalDay?
     let time: String
     let endTime: String?
     let endDay: LocalDay?
@@ -247,7 +248,10 @@ final class UpcomingModel {
         let endTime = endTotal.map { Self.time($0 % 1440) }
         let endDay: LocalDay? = endTotal.flatMap { $0 >= 1440 ? Self.adding(days: 1, to: day) : nil }
         mutate(item, completion: completion) {
-            if allDays {
+            if allDays && item.isRepeating {
+                try await api.send(.movePlanSeries(planId), body: EditScheduleRequest(
+                    day: nil, time: time, endTime: endTime, endDay: nil))
+            } else if allDays {
                 try await api.send(.movePlanSeries(planId), body: EditScheduleRequest(
                     day: day, time: time, endTime: endTime, endDay: endDay))
             } else {
@@ -270,10 +274,20 @@ final class UpcomingModel {
                 await loadTask?.value
                 completion?(true)
             } catch {
-                errorMessage = "Couldn't update this plan. Please try again."
+                errorMessage = Self.message(for: error)
                 completion?(false)
             }
         }
+    }
+
+    /// The server's own reason when it refused the change ("A plan cannot be moved into the past."), else a general line.
+    private static func message(for error: Error) -> String {
+        guard case APIError.server(let status, _, let detail?) = error, (400..<500).contains(status),
+              let first = detail.first else {
+            return "Couldn't update this plan. Please try again."
+        }
+        let sentence = first.uppercased() + detail.dropFirst()
+        return sentence.hasSuffix(".") ? sentence : sentence + "."
     }
 
     private static func occurrenceOrder(_ lhs: OccurrenceDTO, _ rhs: OccurrenceDTO) -> Bool {

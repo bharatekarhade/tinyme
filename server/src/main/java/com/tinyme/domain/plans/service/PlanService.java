@@ -14,6 +14,7 @@ import com.tinyme.domain.plans.model.OccurrenceStatus;
 import com.tinyme.domain.plans.model.PlanAddCommand;
 import com.tinyme.domain.plans.model.PlanChange;
 import com.tinyme.domain.plans.model.PlanKind;
+import com.tinyme.domain.plans.model.Repeat;
 import com.tinyme.domain.plans.model.PlanOccurrence;
 import com.tinyme.domain.plans.model.PlanQuery;
 import com.tinyme.domain.plans.model.PlanSource;
@@ -238,9 +239,6 @@ public class PlanService {
         Objects.requireNonNull(time, "time");
         Objects.requireNonNull(zone, "zone");
         Objects.requireNonNull(now, "now");
-        if (LocalDateTime.of(day, time).atZone(zone).toInstant().isBefore(now)) {
-            throw new IllegalArgumentException("an event cannot be moved into the past");
-        }
         Optional<PlanWriteResult> result = update(id, new PlanChange.Move(occurrenceDay, day, time), zone, now);
         if (result.isEmpty()) return Optional.empty();
         return occurrenceOf(id, occurrenceDay, zone, now);
@@ -324,34 +322,58 @@ public class PlanService {
             case PlanChange.Move move -> {
                 if (plan.getRepeat() == null) throw new IllegalArgumentException("only a repeating plan can be moved by occurrence");
                 requireScheduled(plan, move.occurrenceDay(), zone, now);
+                requireNotPast(move.day(), move.time() != null ? move.time() : plan.getStartTime(), zone, now);
                 occurrences.save(PlanOccurrenceEntity.moved(plan, move.occurrenceDay(), move.day(), move.time()));
             }
             case PlanChange.Cancel ignored -> plan.cancel();
-            case PlanChange.Edit edit -> edit(plan, edit);
+            case PlanChange.Edit edit -> edit(plan, edit, zone, now);
         }
     }
 
-    private void edit(PlanEntity plan, PlanChange.Edit edit) {
+    private void edit(PlanEntity plan, PlanChange.Edit edit, ZoneId zone, Instant now) {
         if (edit.fields().contains("occurrence_day")) {
             throw new IllegalArgumentException("To change only one day, use action: move or skip");
         }
         String habitKind = edit.fields().contains("habit_kind")
                 ? resolveHabitKind(edit.habitKind()) : plan.getHabitKind();
+        PlanKind kind = plan.getKind();
+        if (edit.fields().contains("kind")) {
+            if (edit.kind() == null) throw new IllegalArgumentException("kind must be event or task");
+            kind = edit.kind();
+        }
+        // A task has no end, so turning an event into one drops its end unless a new one was given.
+        boolean dropsEnd = kind == PlanKind.TASK && plan.getKind() != PlanKind.TASK;
+        Repeat repeat = edit.fields().contains("repeat") ? edit.repeat() : plan.getRepeat();
+        LocalDate day = edit.fields().contains("day") ? edit.day() : plan.getStartDay();
+        LocalTime time = edit.fields().contains("time") ? edit.time() : plan.getStartTime();
+        // A series keeps its past days whatever its new time, so only a one-off plan can be moved into the past.
+        if (repeat == null && (edit.fields().contains("day") || edit.fields().contains("time"))) {
+            requireNotPast(day, time, zone, now);
+        }
         plan.edit(
+                kind,
                 edit.fields().contains("title") ? edit.title() : plan.getTitle(),
                 edit.fields().contains("notes") ? edit.notes() : plan.getNotes(),
                 edit.fields().contains("place") ? edit.place() : plan.getPlace(),
                 habitKind,
                 edit.fields().contains("remind_minutes") ? edit.remindMinutes() : plan.getRemindMinutes(),
-                edit.fields().contains("repeat") ? edit.repeat() : plan.getRepeat(),
-                edit.fields().contains("day") ? edit.day() : plan.getStartDay(),
-                edit.fields().contains("time") ? edit.time() : plan.getStartTime(),
-                edit.fields().contains("end_time") ? edit.endTime() : plan.getEndTime(),
-                edit.fields().contains("end_day") ? edit.endDay() : plan.getEndDay());
+                repeat,
+                day,
+                time,
+                edit.fields().contains("end_time") ? edit.endTime() : dropsEnd ? null : plan.getEndTime(),
+                edit.fields().contains("end_day") ? edit.endDay() : dropsEnd ? null : plan.getEndDay());
         Set<String> personSlugs = edit.fields().contains("people")
                 ? Set.copyOf(edit.people())
                 : plan.getPeople().stream().map(PersonEntity::getSlug).collect(Collectors.toSet());
         plans.save(plan, personSlugs);
+    }
+
+    /** The one "not into the past" rule for the app and the agent: timed plans by the minute, untimed by the day. */
+    private static void requireNotPast(LocalDate day, LocalTime time, ZoneId zone, Instant now) {
+        boolean past = time != null
+                ? LocalDateTime.of(day, time).atZone(zone).toInstant().isBefore(now)
+                : day.isBefore(LocalDate.ofInstant(now, zone));
+        if (past) throw new IllegalArgumentException("a plan cannot be moved into the past");
     }
 
     /** Normalizes and validates the habit kind shared by plan tools and app endpoints. */

@@ -2,6 +2,7 @@ package com.tinyme.tools.handlers;
 
 import com.tinyme.domain.people.service.PersonService;
 import com.tinyme.domain.plans.model.PlanChange;
+import com.tinyme.domain.plans.model.PlanKind;
 import com.tinyme.domain.plans.model.PlanWriteResult;
 import com.tinyme.domain.plans.service.PlanService;
 import com.tinyme.tools.model.ToolContext;
@@ -22,7 +23,7 @@ import java.util.UUID;
 
 @Component
 public class PlansUpdateTool implements ToolHandler {
-    private static final List<String> EDIT_FIELDS = List.of("title", "day", "time", "end_time", "end_day",
+    private static final List<String> EDIT_FIELDS = List.of("kind", "title", "day", "time", "end_time", "end_day",
             "place", "people", "notes", "repeat", "habit_kind", "remind_minutes");
 
     private final PlanService plans;
@@ -77,7 +78,7 @@ public class PlansUpdateTool implements ToolHandler {
                         ToolInputs.optionalDate(input, "end_day"), ToolInputs.optionalString(input, "place"),
                         personSlugs, ToolInputs.optionalString(input, "notes"),
                         fields.contains("repeat") ? PlanToolInputs.optionalRepeat(input) : null,
-                        habitKind, ToolInputs.optionalInt(input, "remind_minutes"));
+                        habitKind, ToolInputs.optionalInt(input, "remind_minutes"), optionalKind(input));
             }
 
             var result = plans.update(id, change, context.zone(), context.now());
@@ -92,6 +93,16 @@ public class PlansUpdateTool implements ToolHandler {
         Set<String> fields = new LinkedHashSet<>();
         for (String field : EDIT_FIELDS) if (input.has(field)) fields.add(field);
         return fields;
+    }
+
+    private static PlanKind optionalKind(JsonNode input) {
+        String raw = ToolInputs.optionalString(input, "kind");
+        if (raw == null) return null;
+        return switch (raw.strip().toLowerCase(Locale.ROOT)) {
+            case "event" -> PlanKind.EVENT;
+            case "task" -> PlanKind.TASK;
+            default -> throw new IllegalArgumentException("kind must be event or task");
+        };
     }
 
     private static LocalDate requiredDate(JsonNode input, String key) {

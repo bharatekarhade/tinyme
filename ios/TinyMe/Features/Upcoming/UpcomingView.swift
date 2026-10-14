@@ -371,12 +371,16 @@ struct UpcomingView: View {
     private func beginMove(_ item: OccurrenceDTO, to day: LocalDay, time: String,
                            completion: (@MainActor @Sendable (Bool) -> Void)? = nil) {
         pendingMove = PendingMove(item: item, day: day, time: time, completion: completion)
+        // Only a time change can apply to every day; moving a repeating plan to another day moves just that one.
         if !item.isRepeating { commitMove(allDays: true) }
+        else if day != item.day { commitMove(allDays: false) }
     }
 
     private func commitMove(allDays: Bool) {
         guard let pendingMove else { return }
-        if let date = pendingMove.day.date(), let time = Self.parseTime(pendingMove.time) {
+        // A new time for every day leaves the past days alone, so only a single move can land in the past.
+        let changesEveryDay = allDays && pendingMove.item.isRepeating
+        if !changesEveryDay, let date = pendingMove.day.date(), let time = Self.parseTime(pendingMove.time) {
             let target = Calendar.current.date(bySettingHour: time.0, minute: time.1, second: 0, of: date)
             if let target, target < .now {
                 model.announceError("An event can’t be moved into the past.")
@@ -533,11 +537,11 @@ private struct RepeatMoveChoiceSheet: View {
         VStack(alignment: .leading, spacing: Space.s3) {
             Text("Move repeating event")
                 .textStyle(.heading, weight: .semibold)
-            Text("Move \(item.title) just this occurrence or every future one?")
+            Text("Change the time of \(item.title) for just this day, or for every day it repeats?")
                 .textStyle(.caption)
                 .foregroundStyle(Palette.inkMuted)
             choice(title: "This day only", detail: "Move only \(day.date()?.formatted(.dateTime.weekday(.abbreviated).day().month(.abbreviated)) ?? day.description)", symbol: "calendar", allDays: false)
-            choice(title: "All days", detail: "Move this and all future events", symbol: "repeat", allDays: true)
+            choice(title: "Every day", detail: "Change the time for all of them", symbol: "repeat", allDays: true)
             Button("Cancel", action: onCancel)
                 .textStyle(.label, weight: .semibold)
                 .frame(maxWidth: .infinity)

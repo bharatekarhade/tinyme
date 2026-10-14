@@ -221,7 +221,7 @@ class PlanRepositoryTests {
         plans.save(editable);
         planService.update(editable.getId(), new PlanChange.Edit(Set.of("day", "repeat"), null,
                 LocalDate.of(2026, 10, 14), null, null, null, null, List.of(), null,
-                new Repeat(RepeatFrequency.WEEKLY, 1, Set.of(DayOfWeek.WEDNESDAY), null), null, null), TOKYO, NOW);
+                new Repeat(RepeatFrequency.WEEKLY, 1, Set.of(DayOfWeek.WEDNESDAY), null), null, null, null), TOKYO, NOW);
         assertThat(planService.query(new PlanQuery(LocalDate.of(2026, 10, 14), LocalDate.of(2026, 10, 14),
                 null, null, null, true), TOKYO, NOW).occurrences()).singleElement()
                 .satisfies(item -> assertThat(item.day()).isEqualTo(LocalDate.of(2026, 10, 14)));
@@ -287,6 +287,64 @@ class PlanRepositoryTests {
 
         String line = planService.contextLine(TOKYO, NOW);
         assertThat(line).contains("09:00 Current visit").contains("tomorrow All-day event").doesNotContain("Gym");
+    }
+
+    @Test
+    @Transactional
+    void changingASeriesTimeKeepsItsStartDayAndWeekdayEvenWhenTodaysTimeHasPassed() {
+        LocalDate lastTuesday = TODAY.minusDays(7);
+        PlanEntity run = plans.save(plan(PlanKind.EVENT, "Run", lastTuesday, LocalTime.of(18, 0),
+                LocalTime.of(18, 30), null, new Repeat(RepeatFrequency.WEEKLY, 1, Set.of(), null)));
+
+        planService.update(run.getId(), new PlanChange.Edit(Set.of("time", "end_time"), null, null,
+                LocalTime.of(8, 0), LocalTime.of(8, 30), null, null, List.of(), null, null, null, null, null), TOKYO, NOW);
+
+        PlanEntity saved = plans.findLive(run.getId()).orElseThrow();
+        assertThat(saved.getStartDay()).isEqualTo(lastTuesday);
+        assertThat(saved.getStartTime()).isEqualTo(LocalTime.of(8, 0));
+        assertThat(planService.query(new PlanQuery(TODAY, TODAY.plusDays(6), null, null, null, true), TOKYO, NOW)
+                .occurrences()).singleElement()
+                .satisfies(item -> {
+                    assertThat(item.day()).isEqualTo(TODAY);
+                    assertThat(item.startTime()).isEqualTo(LocalTime.of(8, 0));
+                });
+    }
+
+    @Test
+    @Transactional
+    void nothingCanBeMovedIntoThePastByEditOrByMove() {
+        PlanEntity dentist = plans.save(plan(PlanKind.EVENT, "Dentist", TODAY.plusDays(1), LocalTime.of(10, 0),
+                LocalTime.of(11, 0), null, null));
+        assertThatThrownBy(() -> planService.update(dentist.getId(), new PlanChange.Edit(Set.of("day", "time"), null,
+                TODAY, LocalTime.of(9, 0), null, null, null, List.of(), null, null, null, null, null), TOKYO, NOW))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("a plan cannot be moved into the past");
+
+        PlanEntity standup = plans.save(plan(PlanKind.EVENT, "Standup", TODAY, LocalTime.of(11, 0),
+                null, null, new Repeat(RepeatFrequency.DAILY, 1, Set.of(), null)));
+        assertThatThrownBy(() -> planService.update(standup.getId(),
+                new PlanChange.Move(TODAY.plusDays(1), TODAY, LocalTime.of(9, 0)), TOKYO, NOW))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("a plan cannot be moved into the past");
+        assertThatThrownBy(() -> planService.update(standup.getId(),
+                new PlanChange.Move(TODAY.plusDays(1), TODAY.minusDays(1), null), TOKYO, NOW))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("a plan cannot be moved into the past");
+    }
+
+    @Test
+    @Transactional
+    void kindCanBeEditedAndATaskDropsTheEventsEnd() {
+        PlanEntity call = plans.save(plan(PlanKind.EVENT, "Call the bank", TODAY.plusDays(1), LocalTime.of(10, 0),
+                LocalTime.of(10, 30), null, null));
+
+        planService.update(call.getId(), new PlanChange.Edit(Set.of("kind"), null, null, null, null, null,
+                null, List.of(), null, null, null, null, PlanKind.TASK), TOKYO, NOW);
+
+        PlanEntity saved = plans.findLive(call.getId()).orElseThrow();
+        assertThat(saved.getKind()).isEqualTo(PlanKind.TASK);
+        assertThat(saved.getStartTime()).isEqualTo(LocalTime.of(10, 0));
+        assertThat(saved.getEndTime()).isNull();
     }
 
     private PlanEntity plan(PlanKind kind, String title, LocalDate day, LocalTime time,

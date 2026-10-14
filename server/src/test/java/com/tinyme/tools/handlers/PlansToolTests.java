@@ -131,6 +131,20 @@ class PlansToolTests {
         verify(service, never()).update(any(), any(), any(), any());
     }
 
+    @Test
+    void kindIsAnEditableField() throws Exception {
+        when(service.update(eq(ID), any(), eq(ZONE), eq(NOW))).thenReturn(Optional.of(
+                new PlanWriteResult(ID, "Call the bank", List.of(), List.of(), List.of())));
+
+        new PlansUpdateTool(service, people).handle(JSON.readTree("""
+                {"id":"a38a14cb-8d3b-41a4-9b82-37bd3a7c8e11", "kind":"task"}
+                """), CTX);
+
+        verify(service).update(eq(ID), org.mockito.ArgumentMatchers.argThat(change ->
+                change instanceof PlanChange.Edit edit && edit.fields().equals(java.util.Set.of("kind"))
+                        && edit.kind() == com.tinyme.domain.plans.model.PlanKind.TASK), eq(ZONE), eq(NOW));
+    }
+
     private static PlanOccurrence occurrence(UUID id, LocalDate day, LocalTime time) {
         return new PlanOccurrence(id + ":" + day, id, day, day, day, time, null, null,
                 NOW, NOW.plusSeconds(3600), false, com.tinyme.domain.plans.model.PlanKind.EVENT,

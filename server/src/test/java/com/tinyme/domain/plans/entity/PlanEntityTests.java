@@ -40,7 +40,7 @@ class PlanEntityTests {
     void editValidatesCombinedScheduleAndDoesNotMutateOnFailure() {
         PlanEntity plan = plan("Event", null, LocalTime.of(10, 0), LocalTime.of(11, 0), null);
 
-        assertThatThrownBy(() -> plan.edit("Event", null, null, null, null, null,
+        assertThatThrownBy(() -> plan.edit(PlanKind.EVENT, "Event", null, null, null, null, null,
                 START, null, LocalTime.NOON, null))
                 .isInstanceOf(IllegalArgumentException.class);
 
@@ -51,7 +51,7 @@ class PlanEntityTests {
         LocalDate laterStart = START.plusDays(16);
         PlanEntity later = new PlanEntity(PlanKind.TASK, "Reminder", null, null, ZoneId.of("Asia/Tokyo"),
                 laterStart, null, null, null, null, null, null, PlanSource.CHAT, null, Set.of());
-        later.edit("Reminder", null, null, null, null,
+        later.edit(PlanKind.TASK, "Reminder", null, null, null, null,
                 new Repeat(RepeatFrequency.DAILY, 1, Set.of(), START.plusDays(18)),
                 START.plusDays(14), null, null, null);
         assertThat(later.getStartDay()).isEqualTo(START.plusDays(14));

@@ -191,10 +191,11 @@ public class PlanEntity {
         }
     }
 
-    public void edit(String title, String notes, String place, String habitKind,
+    public void edit(PlanKind kind, String title, String notes, String place, String habitKind,
                      Integer remindMinutes, Repeat repeat, LocalDate startDay, LocalTime startTime,
                      LocalTime endTime, LocalDate endDay) {
         ensureLive();
+        Objects.requireNonNull(kind, "kind");
         String candidateTitle = title == null ? null : title.strip();
         String candidateHabitKind = normalizeHabitKind(habitKind);
         Objects.requireNonNull(startDay, "startDay");
@@ -203,7 +204,8 @@ public class PlanEntity {
         boolean scheduleChanged = !Objects.equals(this.startDay, startDay)
                 || !Objects.equals(this.startTime, startTime)
                 || !Objects.equals(getRepeat(), repeat);
-        if (candidateStatus == PlanStatus.DONE && scheduleChanged) {
+        // Only a task can be done, so a done task that becomes an event is open again.
+        if (candidateStatus == PlanStatus.DONE && (scheduleChanged || kind != PlanKind.TASK)) {
             candidateStatus = PlanStatus.ACTIVE;
             candidateCompletedAt = null;
         }
@@ -211,6 +213,7 @@ public class PlanEntity {
         validateValues(kind, candidateTitle, zone, startDay, startTime, endTime, endDay,
                 repeat, remindMinutes, candidateStatus, source);
 
+        this.kind = kind;
         this.title = candidateTitle;
         this.notes = notes;
         this.place = place;

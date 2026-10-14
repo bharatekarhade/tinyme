@@ -165,7 +165,9 @@ class UpcomingApiTests {
 
         var moved = plans.add(command(PlanKind.TASK, "upcoming-api-moved", TODAY, null, null,
                 new Repeat(RepeatFrequency.DAILY, 1, Set.of(), null)), userZone.current(), NOW);
-        plans.update(moved.id(), new PlanChange.Move(TODAY, TODAY.minusDays(1), null), userZone.current(), NOW);
+        // Moved to a day that has since passed. Nothing can be moved into the past, so the row is written directly.
+        jdbc.update("INSERT INTO plan_occurrences (plan_id, day, status, moved_day) VALUES (?, ?, 'moved', ?)",
+                moved.id(), TODAY, TODAY.minusDays(1));
         mvc.perform(post("/plans/{id}/occurrences/{day}/done", moved.id(), TODAY)
                         .header(auth, bearer))
                 .andExpect(status().isOk())
@@ -245,6 +247,20 @@ class UpcomingApiTests {
                         .param("from", TODAY.plusDays(1).toString()).param("to", TODAY.plusDays(1).toString()))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.items[0].start_time").value("17:00"));
+
+        // Without a day only the time changes, and an earlier time than now today is fine for a series.
+        mvc.perform(patch("/plans/{id}", repeating.id())
+                        .header("Authorization", auth)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"time":"09:00","end_time":"10:00"}
+                                """))
+                .andExpect(status().isNoContent());
+        mvc.perform(get("/upcoming").header("Authorization", auth)
+                        .param("from", TODAY.plusDays(1).toString()).param("to", TODAY.plusDays(1).toString()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items[0].start_time").value("09:00"))
+                .andExpect(jsonPath("$.items[0].end_time").value("10:00"));
 
         var oneOff = plans.add(command(PlanKind.EVENT, "upcoming-api-undo", TODAY,
                 LocalTime.of(19, 0), LocalTime.of(20, 0), null), userZone.current(), NOW);

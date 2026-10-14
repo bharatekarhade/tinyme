@@ -25,7 +25,8 @@ public sealed interface PlanChange permits PlanChange.Done, PlanChange.UndoDone,
     record Cancel() implements PlanChange { }
     record Edit(Set<String> fields, String title, LocalDate day, LocalTime time,
                 LocalTime endTime, LocalDate endDay, String place, List<String> people,
-                String notes, Repeat repeat, String habitKind, Integer remindMinutes) implements PlanChange {
+                String notes, Repeat repeat, String habitKind, Integer remindMinutes,
+                PlanKind kind) implements PlanChange {
         public Edit {
             fields = Set.copyOf(Objects.requireNonNull(fields, "fields"));
             people = people == null ? List.of() : List.copyOf(people);

@@ -18,7 +18,6 @@ import org.springframework.web.server.ResponseStatusException;
 
 import java.time.Clock;
 import java.time.LocalDate;
-import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.util.List;
 import java.util.Set;
@@ -67,17 +66,19 @@ public class PlanActionsController {
         }
     }
 
+    /**
+     * Changes the time of every occurrence. Without a day the start day stays, so a series keeps its past days
+     * and its weekdays; a day is only sent to move a one-off plan.
+     */
     @PatchMapping("/{id}")
     public ResponseEntity<Void> moveSeries(@PathVariable UUID id, @RequestBody EditScheduleRequest request) {
-        var zone = userZone.current();
-        var now = clock.instant();
-        if (LocalDateTime.of(request.day(), request.time()).atZone(zone).toInstant().isBefore(now)) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "an event cannot be moved into the past");
-        }
-        PlanChange.Edit change = new PlanChange.Edit(Set.of("day", "time", "end_time", "end_day"),
-                null, request.day(), request.time(), request.endTime(), request.endDay(), null, List.of(), null, null, null, null);
+        Set<String> fields = request.day() == null
+                ? Set.of("time", "end_time")
+                : Set.of("day", "time", "end_time", "end_day");
+        PlanChange.Edit change = new PlanChange.Edit(fields, null, request.day(), request.time(),
+                request.endTime(), request.endDay(), null, List.of(), null, null, null, null, null);
         try {
-            plans.update(id, change, zone, now).orElseThrow(PlanActionsController::notFound);
+            plans.update(id, change, userZone.current(), clock.instant()).orElseThrow(PlanActionsController::notFound);
             return ResponseEntity.noContent().build();
         } catch (PlanStateConflictException conflict) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, conflict.getMessage(), conflict);
@@ -124,7 +125,7 @@ public class PlanActionsController {
                                      @JsonProperty("end_time") LocalTime endTime,
                                      @JsonProperty("end_day") LocalDate endDay) {
         public EditScheduleRequest {
-            if (day == null || time == null) throw new IllegalArgumentException("day and time are required");
+            if (time == null) throw new IllegalArgumentException("time is required");
         }
     }
 }

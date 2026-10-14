@@ -143,7 +143,8 @@ struct DayTimeline: View {
                 guard target != placement.startMinute else { return }
                 let time = String(format: "%02d:%02d", target / 60, target % 60)
                 let targetDate = Calendar.current.date(bySettingHour: target / 60, minute: target % 60, second: 0, of: day.date() ?? .now)
-                guard let targetDate, targetDate >= .now else { return }
+                // A repeating plan can take an earlier time for every day; the choice that follows decides.
+                guard let targetDate, targetDate >= .now || placement.item.isRepeating else { return }
                 optimisticMinutes[placement.item.id] = target
                 onMove(placement.item, time) { success in
                     optimisticMinutes.removeValue(forKey: placement.item.id)

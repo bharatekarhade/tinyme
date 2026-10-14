@@ -302,8 +302,9 @@ tools:
       For move, day is optional and defaults to occurrence_day, so provide only a new time to move
       the occurrence within the same day. To edit all occurrences,
       omit action and occurrence_day and send only changed fields. If you want to change only one
-      occurrence's time/day, use action move. People are resolved by exact slug/name; call
-      people_get first. Returns updated occurrences.
+      occurrence's time/day, use action move. kind turns an event into a task or back; a task
+      has no end time. Nothing can be moved into the past. People are resolved by exact
+      slug/name; call people_get first. Returns updated occurrences.
     input_schema:
       type: object
       required: [id]
@@ -312,6 +313,7 @@ tools:
         id:             { type: string, format: uuid }
         occurrence_day: { type: string, format: date }
         action:         { type: string, enum: [done, undo_done, skip, move, cancel] }
+        kind:           { type: string, enum: [event, task] }
         title:          { type: string, minLength: 1, maxLength: 120 }
         day:            { type: string, format: date }
         time:           { type: [string, "null"], pattern: "^([01][0-9]|2[0-3]):[0-5][0-9]$" }
