@@ -60,7 +60,7 @@ class EntriesQueryToolTests {
     void formatsTimestampInContextZoneAndReturnsIdAndSummary() {
         UUID id = UUID.randomUUID();
         EntrySnapshot snapshot = new EntrySnapshot(id, Instant.parse("2026-10-08T14:30:00.123456789Z"),
-                LocalDate.of(2026, 10, 8), "drink", BigDecimal.ONE, null, Map.of("type", "beer"));
+                LocalDate.of(2026, 10, 8), "drink", "chat", BigDecimal.ONE, null, Map.of("type", "beer"));
         when(service.query(any())).thenReturn(new EntryQueryResult(true, List.of(snapshot), false));
 
         ToolResult.Ok result = (ToolResult.Ok) tool.handle(JSON.readTree("""

@@ -13,6 +13,7 @@ public record EntrySnapshot(
         Instant ts,
         LocalDate localDay,
         String kind,
+        String source,
         BigDecimal quantity,
         String text,
         Map<String, Object> data

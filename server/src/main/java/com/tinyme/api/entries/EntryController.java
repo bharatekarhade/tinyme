@@ -84,10 +84,10 @@ public class EntryController {
     }
 
     public record EntryResponse(String id, String ts, @JsonProperty("local_day") String localDay, String kind,
-                                BigDecimal quantity, String text, Map<String, Object> data) {
+                                String source, BigDecimal quantity, String text, Map<String, Object> data) {
         static EntryResponse from(EntrySnapshot entry) {
             return new EntryResponse(entry.id().toString(), entry.ts().truncatedTo(ChronoUnit.SECONDS).toString(),
-                    entry.localDay().toString(), entry.kind(),
+                    entry.localDay().toString(), entry.kind(), entry.source(),
                     entry.quantity(), entry.text(), new LinkedHashMap<>(entry.data()));
         }
     }

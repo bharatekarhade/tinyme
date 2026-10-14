@@ -161,7 +161,7 @@ public class EntryRepository {
         MapSqlParameterSource parameters = new MapSqlParameterSource().addValue("fetch", fetch);
         String textExpression = maxTextLength == null ? "e.text" : "left(e.text, :maxText)";
         if (maxTextLength != null) parameters.addValue("maxText", maxTextLength);
-        StringBuilder sql = new StringBuilder("SELECT e.id, e.ts, e.local_day, e.kind, e.quantity, ")
+        StringBuilder sql = new StringBuilder("SELECT e.id, e.ts, e.local_day, e.kind, e.source, e.quantity, ")
                 .append(textExpression).append(" AS text, e.data::text AS data FROM entries e ")
                 .append("WHERE e.deleted_at IS NULL");
 
@@ -201,6 +201,7 @@ public class EntryRepository {
                         result.getObject("ts", OffsetDateTime.class).toInstant(),
                         result.getObject("local_day", LocalDate.class),
                         result.getString("kind"),
+                        result.getString("source"),
                         result.getObject("quantity", BigDecimal.class),
                         result.getString("text"),
                         JSON.readValue(result.getString("data"), DATA_TYPE)));
@@ -302,11 +303,11 @@ public class EntryRepository {
         } else {
             filter += " AND source <> '" + MEASURED_SOURCE + "'";
         }
-        String sql = "SELECT id, ts, local_day, kind, quantity, text, data::text AS data FROM entries WHERE "
+        String sql = "SELECT id, ts, local_day, kind, source, quantity, text, data::text AS data FROM entries WHERE "
                 + filter + " ORDER BY ts DESC, id DESC LIMIT 1";
         return jdbc.query(sql, params, (rs, row) -> new EntrySnapshot(rs.getObject("id", UUID.class),
                 rs.getObject("ts", OffsetDateTime.class).toInstant(), rs.getObject("local_day", LocalDate.class),
-                rs.getString("kind"), rs.getObject("quantity", BigDecimal.class), rs.getString("text"),
+                rs.getString("kind"), rs.getString("source"), rs.getObject("quantity", BigDecimal.class), rs.getString("text"),
                 JSON.readValue(rs.getString("data"), DATA_TYPE))).stream().findFirst();
     }
 
@@ -398,6 +399,7 @@ public class EntryRepository {
                 entry.getTs(),
                 entry.getLocalDay(),
                 entry.getKind().getKind(),
+                entry.getSource(),
                 entry.getQuantity(),
                 entry.getText(),
                 entry.getData());

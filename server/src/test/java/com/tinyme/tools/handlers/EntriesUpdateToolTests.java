@@ -76,7 +76,7 @@ class EntriesUpdateToolTests {
     @Test
     void formatsUpdatedSummaryWithTypeAndSecondPrecisionEntryOutput() {
         EntrySnapshot entry = new EntrySnapshot(ID, Instant.parse("2026-10-09T00:30:00.987654321Z"),
-                LocalDate.of(2026, 10, 9), "drink", BigDecimal.ONE, null, Map.of("type", "tea"));
+                LocalDate.of(2026, 10, 9), "drink", "chat", BigDecimal.ONE, null, Map.of("type", "tea"));
         when(service.update(any(), eq(TOKYO))).thenReturn(Optional.of(new EntryWriteResult(entry, BigDecimal.ONE)));
 
         ToolResult.Ok result = (ToolResult.Ok) tool.handle(JSON.readTree("""

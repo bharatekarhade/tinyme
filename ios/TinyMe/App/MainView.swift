@@ -31,6 +31,13 @@ struct MainView: View {
                 HistoryView(model: history, api: api)
             }
         }
+        .sheet(isPresented: $router.showsEntry) {
+            if let entry = router.entry {
+                EntryDetailSheet(entry: entry, onClose: { router.showsEntry = false }) { draft in
+                    router.openChat(draft: draft)
+                }
+            }
+        }
         .safeAreaInset(edge: .bottom) {
             // A drill-down is its own screen: the bar comes back when you return to Home.
             if router.tab != .home || router.homePath.isEmpty {
@@ -77,15 +84,6 @@ struct MainView: View {
                 home.invalidate()
                 upcoming.invalidate()
                 home.announce("All your data was deleted.")
-            }
-        }
-        .overlay {
-            BottomPanel(isPresented: $router.showsEntry) {
-                if let entry = router.entry {
-                    EntryDetailSheet(entry: entry, onClose: { router.showsEntry = false }) { draft in
-                        router.openChat(draft: draft)
-                    }
-                }
             }
         }
         .onAppear {

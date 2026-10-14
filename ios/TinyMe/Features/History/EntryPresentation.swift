@@ -10,6 +10,7 @@ struct EntryPresentation {
 
     /// SF Symbol for the kind, or nil for a kind without one (drawn as a dot).
     let symbol: String?
+    let isHealthEntry: Bool
     let kindLabel: String
     let title: String
     /// Up to three short facts: "¥980", "food".
@@ -33,7 +34,8 @@ struct EntryPresentation {
         let text = entry.text?.trimmingCharacters(in: .whitespacesAndNewlines).nonEmpty
         let firstLine = text?.split(separator: "\n").first.map(String.init)
 
-        symbol = Self.symbol(for: entry.kind)
+        isHealthEntry = entry.source == "health"
+        symbol = isHealthEntry ? "heart.text.square.fill" : Self.symbol(for: entry.kind)
         kindLabel = Self.humanized(entry.kind)
 
         var titleFromText = false

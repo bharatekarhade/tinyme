@@ -7,6 +7,8 @@ struct EntryDetailSheet: View {
     /// Opens chat with this text in the composer.
     var onAsk: (String) -> Void
 
+    @State private var sheetHeight: CGFloat = 420
+
     var body: some View {
         let shown = EntryPresentation(entry)
 
@@ -98,5 +100,15 @@ struct EntryDetailSheet: View {
             }
             .buttonStyle(.pressable)
         }
+        .padding(.horizontal, Space.s4)
+        .padding(.top, Space.s6)
+        .padding(.bottom, Space.s2)
+        .fixedSize(horizontal: false, vertical: true)
+        .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { sheetHeight = $0 }
+        .frame(maxHeight: .infinity, alignment: .top)
+        .foregroundStyle(Palette.ink)
+        .presentationDetents([.height(sheetHeight)])
+        .presentationDragIndicator(.visible)
+        .presentationBackground { SheetBackdrop() }
     }
 }

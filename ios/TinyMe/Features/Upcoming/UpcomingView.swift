@@ -940,8 +940,7 @@ private struct PlanSheetChrome: ViewModifier {
             .foregroundStyle(Palette.ink)
             .presentationDetents([.height(height)])
             .presentationDragIndicator(.visible)
-            .presentationBackground(Palette.surface)
-            .presentationCornerRadius(Radius.lg)
+            .presentationBackground { SheetBackdrop() }
     }
 }
 

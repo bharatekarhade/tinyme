@@ -6,6 +6,7 @@ struct EntryDTO: Decodable, Sendable, Hashable, Identifiable {
     let ts: Date
     let localDay: LocalDay
     let kind: String
+    let source: String
     let quantity: Double
     let text: String?
     let data: [String: JSONValue]
@@ -16,13 +17,14 @@ struct EntryDTO: Decodable, Sendable, Hashable, Identifiable {
         ts = try container.decode(Date.self, forKey: .ts)
         localDay = try container.decode(LocalDay.self, forKey: .localDay)
         kind = try container.decode(String.self, forKey: .kind)
+        source = try container.decodeIfPresent(String.self, forKey: .source) ?? "chat"
         quantity = try container.decodeIfPresent(Double.self, forKey: .quantity) ?? 1
         text = try container.decodeIfPresent(String.self, forKey: .text)
         data = try container.decodeIfPresent([String: JSONValue].self, forKey: .data) ?? [:]
     }
 
     private enum CodingKeys: String, CodingKey {
-        case id, ts, kind, quantity, text, data
+        case id, ts, kind, source, quantity, text, data
         case localDay = "local_day"
     }
 }

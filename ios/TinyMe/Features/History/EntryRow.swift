@@ -15,6 +15,7 @@ struct EntryRow: View {
                 if let symbol = shown.symbol {
                     Image(systemName: symbol)
                         .font(.system(size: 16))
+                        .foregroundStyle(shown.isHealthEntry ? Palette.danger : Palette.ink)
                 } else {
                     Circle()
                         .fill(accent)

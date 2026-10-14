@@ -257,11 +257,11 @@
 			);
 			mainGroup = 7A0000000000000000000004;
 			minimizedProjectReferenceProxies = 1;
-			preferredProjectObjectVersion = 77;
-			productRefGroup = 7A0000000000000000000005 /* Products */;
 			packageReferences = (
 				7A0000000000000000000141 /* XCRemoteSwiftPackageReference "lottie-spm" */,
 			);
+			preferredProjectObjectVersion = 77;
+			productRefGroup = 7A0000000000000000000005 /* Products */;
 			projectDirPath = "";
 			projectRoot = "";
 			targets = (

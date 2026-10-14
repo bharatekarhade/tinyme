@@ -46,7 +46,7 @@ class EntriesDeleteToolTests {
     @Test
     void returnsDeletedSnapshotAndExpectedSummary() {
         EntrySnapshot snapshot = new EntrySnapshot(ID, Instant.parse("2026-10-08T23:15:00Z"),
-                LocalDate.of(2026, 10, 9), "drink", BigDecimal.ONE, null, Map.of("type", "coffee"));
+                LocalDate.of(2026, 10, 9), "drink", "chat", BigDecimal.ONE, null, Map.of("type", "coffee"));
         when(service.delete(ID, NOW)).thenReturn(Optional.of(new EntryWriteResult(snapshot, BigDecimal.ONE)));
 
         ToolResult.Ok result = (ToolResult.Ok) tool.handle(JSON.readTree("""

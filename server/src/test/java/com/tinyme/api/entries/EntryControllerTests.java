@@ -31,7 +31,7 @@ class EntryControllerTests {
         EntryService service = mock(EntryService.class);
         UUID id = UUID.randomUUID();
         var snapshot = new EntrySnapshot(id, Instant.parse("2026-10-08T14:30:00.123456Z"),
-                LocalDate.of(2026, 10, 8), "drink", BigDecimal.ONE, "beer", Map.of("type", "beer"));
+                LocalDate.of(2026, 10, 8), "drink", "health", BigDecimal.ONE, "beer", Map.of("type", "beer"));
         when(service.page(any(), eq(50), eq(null))).thenReturn(new EntryPage(List.of(), List.of(snapshot), "next"));
 
         var response = new EntryController(service).list(List.of("drink"), null, null,
@@ -42,6 +42,7 @@ class EntryControllerTests {
         assertThat(response.nextCursor()).isEqualTo("next");
         var json = JSON.valueToTree(response);
         assertThat(json.has("unknown_kinds")).isTrue();
+        assertThat(json.at("/entries/0/source").asText()).isEqualTo("health");
         assertThat(json.has("kind_known")).isFalse();
     }
 
