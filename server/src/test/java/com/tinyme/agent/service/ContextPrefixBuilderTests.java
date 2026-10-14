@@ -23,8 +23,22 @@ class ContextPrefixBuilderTests {
     private final EntryKindRepository kinds = mock(EntryKindRepository.class);
     private final EntryRepository entries = mock(EntryRepository.class);
     private final PlanService plans = mock(PlanService.class);
+    private final com.tinyme.domain.health.service.HealthContext health =
+            mock(com.tinyme.domain.health.service.HealthContext.class);
     private final Clock clock = Clock.fixed(Instant.parse("2026-10-05T15:30:00Z"), ZoneOffset.UTC);
-    private final ContextPrefixBuilder builder = new ContextPrefixBuilder(kinds, entries, plans, clock);
+    private final ContextPrefixBuilder builder = new ContextPrefixBuilder(kinds, entries, plans, health, clock);
+
+    @Test
+    void theHealthLineComesLastAndAFailureOnlyLeavesItOut() {
+        when(health.line(org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any()))
+                .thenReturn("health: connected sleep_heart · slept 8.2 h last night");
+        assertThat(builder.build(ZoneId.of("Asia/Tokyo")))
+                .endsWith("health: connected sleep_heart · slept 8.2 h last night\n[/context]");
+
+        when(health.line(org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any()))
+                .thenThrow(new IllegalStateException("database down"));
+        assertThat(builder.build(ZoneId.of("Asia/Tokyo"))).doesNotContain("health:").endsWith("[/context]");
+    }
 
     @Test
     void usesLocalDateAndWeekdayAndPreservesKindRanking() {

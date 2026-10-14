@@ -3,6 +3,7 @@ package com.tinyme.agent.service;
 import com.tinyme.domain.entries.model.aggregate.TodayTotal;
 import com.tinyme.domain.entries.repository.EntryKindRepository;
 import com.tinyme.domain.entries.repository.EntryRepository;
+import com.tinyme.domain.health.service.HealthContext;
 import com.tinyme.domain.plans.service.PlanService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -31,11 +32,14 @@ public class ContextPrefixBuilder {
     private final EntryRepository entries;
     private final Clock clock;
     private final PlanService plans;
+    private final HealthContext health;
 
-    public ContextPrefixBuilder(EntryKindRepository entryKinds, EntryRepository entries, PlanService plans, Clock clock) {
+    public ContextPrefixBuilder(EntryKindRepository entryKinds, EntryRepository entries, PlanService plans,
+                                HealthContext health, Clock clock) {
         this.entryKinds = entryKinds;
         this.entries = entries;
         this.plans = plans;
+        this.health = health;
         this.clock = clock;
     }
 
@@ -76,6 +80,12 @@ public class ContextPrefixBuilder {
             if (upcoming != null && !upcoming.isBlank()) lines.add(upcoming);
         } catch (RuntimeException error) {
             LOG.warn("Unable to build upcoming plan context; omitting it", error);
+        }
+        try {
+            String healthLine = health.line(zone, referenceTime);
+            if (healthLine != null) lines.add(healthLine);
+        } catch (RuntimeException error) {
+            LOG.warn("Unable to build Health context; omitting it", error);
         }
         lines.add("[/context]");
         return String.join("\n", lines);
