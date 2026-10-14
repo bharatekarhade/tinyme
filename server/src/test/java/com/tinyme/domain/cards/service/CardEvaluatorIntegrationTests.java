@@ -73,6 +73,7 @@ class CardEvaluatorIntegrationTests {
     void cleanUp() {
         jdbc.update("DELETE FROM entries WHERE kind IN ('meal', 'drink', 'expense', 'workout', 'quantity_test')");
         jdbc.update("DELETE FROM entries WHERE source = 'health'");
+        jdbc.update("DELETE FROM entries WHERE kind IN ('sleep', 'weight')");
         jdbc.update("DELETE FROM plans WHERE title LIKE ?", CARD_PREFIX + "%");
         jdbc.update("UPDATE entry_kinds SET merged_into = NULL WHERE kind IN ('meal', 'drink', 'expense', 'workout', 'quantity_test')");
         jdbc.update("DELETE FROM entry_kinds WHERE kind IN ('meal', 'drink', 'expense', 'workout', 'quantity_test')");
@@ -343,6 +344,30 @@ class CardEvaluatorIntegrationTests {
                 .hasMessageContaining("limit");
         assertThat(cardEntries.get(UUID.randomUUID(), Range.WEEK, null, null,
                 null, null, null, 50)).isEmpty();
+    }
+
+    @Test
+    void lastNightIsTheNightsTotalAcrossHealthAndAnAddition() {
+        // The Watch died: Health has 1.52 h, the user added 7.58 h in chat later that day.
+        jdbc.update("""
+                INSERT INTO entries (ts, local_day, kind, quantity, data, source, external_id) VALUES
+                  ('2026-10-06T14:10:00Z', '2026-10-07', 'sleep', 1.52, '{"hours":1.52}', 'health', 'sleep:2026-10-07'),
+                  ('2026-10-07T08:23:00Z', '2026-10-07', 'sleep', 7.58, '{"hours":7.58,"adds_to_health":true}', 'chat', NULL),
+                  ('2026-10-06T21:00:00Z', '2026-10-07', 'weight', 72.4, '{"kg":72.4}', 'health', 'w1'),
+                  ('2026-10-07T01:00:00Z', '2026-10-07', 'weight', 72.1, '{"kg":72.1}', 'health', 'w2')
+                """);
+        var card = saveExample("sleep", """
+                {"v":1,"title":"Sleep","icon":"bed","accent":"mint","tone":"surface","blocks":[
+                  {"type":"latest","label":"Last night","kinds":["sleep"],"fields":["hours"]},
+                  {"type":"latest","label":"Weight","kinds":["weight"],"fields":["kg"]}]}
+                """);
+
+        var blocks = evaluator.evaluate(card, Range.WEEK).blocks();
+        var night = (com.tinyme.domain.cards.model.view.LatestView) blocks.getFirst();
+        assertThat(new java.math.BigDecimal(night.entry().data().get("hours").toString())).isEqualByComparingTo("9.10");
+        // Weight is a reading, not a day total: the newest one, not 144.5 kg.
+        var weight = (com.tinyme.domain.cards.model.view.LatestView) blocks.get(1);
+        assertThat(new java.math.BigDecimal(weight.entry().data().get("kg").toString())).isEqualByComparingTo("72.1");
     }
 
     private CardEntity saveExample(String slug, String source) {

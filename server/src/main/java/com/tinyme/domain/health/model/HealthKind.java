@@ -11,9 +11,10 @@ import java.util.regex.Pattern;
  * @param quantityField the data field the entry's quantity equals, or null when the quantity is always 1
  * @param required      fields every item must carry (the quantity field is always required)
  * @param ranges        inclusive limits for number fields
+ * @param dayTotal      one number per day even across several entries (a night plus an addition)
  */
 public record HealthKind(String kind, HealthGroup group, String description, Map<String, String> dataHints,
-                         String quantityField, Set<String> required, Map<String, Range> ranges) {
+                         String quantityField, Set<String> required, Map<String, Range> ranges, boolean dayTotal) {
     /** Same rule as the entry_kinds.kind CHECK. */
     private static final Pattern KIND = Pattern.compile("^[a-z][a-z0-9_]{1,31}$");
     private static final Set<String> HINT_TYPES = Set.of("number", "string", "any");

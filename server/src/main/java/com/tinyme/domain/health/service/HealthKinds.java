@@ -94,7 +94,7 @@ public class HealthKinds {
             ranges.put(range.getKey(), new HealthKind.Range(limits.get(0).asDouble(), limits.get(1).asDouble()));
         }
         return new HealthKind(kind, group, text(node, "description", name), dataHints,
-                quantity.isString() ? quantity.asString() : null, required, ranges);
+                quantity.isString() ? quantity.asString() : null, required, ranges, node.path("day_total").asBoolean(false));
     }
 
     /** A required string field: a missing or misspelled key fails here instead of turning into "". */

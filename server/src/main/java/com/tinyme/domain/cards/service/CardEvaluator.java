@@ -17,6 +17,8 @@ import com.tinyme.domain.cards.model.GoalItem;
 import com.tinyme.domain.cards.model.GoalPeriod;
 import com.tinyme.domain.cards.model.GoalsBlock;
 import com.tinyme.domain.cards.model.LatestBlock;
+import com.tinyme.domain.health.model.HealthKind;
+import com.tinyme.domain.health.service.HealthKinds;
 import com.tinyme.domain.cards.model.MetricBlock;
 import com.tinyme.domain.cards.model.MetricSpec;
 import com.tinyme.domain.cards.model.ProgressBlock;
@@ -81,13 +83,15 @@ public class CardEvaluator {
             new MetricSpec(List.of("*"), AggregateMetric.COUNT, null, Map.of());
 
     private final CardSpecParser parser;
+    private final HealthKinds healthKinds;
     private final EntryService entries;
     private final PlanService plans;
     private final UserZone userZone;
     private final Clock clock;
 
     public CardEvaluator(CardSpecParser parser, EntryService entries, PlanService plans,
-                         UserZone userZone, Clock clock) {
+                         UserZone userZone, Clock clock, HealthKinds healthKinds) {
+        this.healthKinds = Objects.requireNonNull(healthKinds, "healthKinds");
         this.parser = Objects.requireNonNull(parser, "parser");
         this.entries = Objects.requireNonNull(entries, "entries");
         this.plans = Objects.requireNonNull(plans, "plans");
@@ -257,8 +261,26 @@ public class CardEvaluator {
 
     private LatestView evaluateLatest(LatestBlock block) {
         var found = entries.latest(block.kinds());
-        LatestEntryView item = found.map(entry -> latestEntry(entry, block.fields())).orElse(null);
+        LatestEntryView item = found.map(entry -> isDayTotal(block.kinds())
+                ? latestDay(entry, block) : latestEntry(entry, block.fields())).orElse(null);
         return new LatestView(block.label(), item);
+    }
+
+    /** Sleep, steps and the other daily totals are one number per day, even across a Health entry and an addition. */
+    private boolean isDayTotal(List<String> kinds) {
+        return kinds.stream().allMatch(kind -> healthKinds.find(kind).map(HealthKind::dayTotal).orElse(false));
+    }
+
+    /** "Last night" for sleep is the night's total, not whichever of its entries came last. */
+    private LatestEntryView latestDay(EntrySnapshot entry, LatestBlock block) {
+        LatestEntryView latest = latestEntry(entry, block.fields());
+        Map<String, Object> data = new LinkedHashMap<>(latest.data());
+        for (String field : block.fields()) {
+            AggregateResult day = entries.aggregate(new AggregateQuery(block.kinds(), AggregateMetric.SUM, field,
+                    Map.of(), entry.localDay(), entry.localDay(), GroupBy.NONE));
+            if (day.value() != null && day.entries() != null && day.entries() > 0) data.put(field, day.value());
+        }
+        return new LatestEntryView(latest.ts(), latest.localDay(), latest.text(), data);
     }
 
     private LatestEntryView latestEntry(EntrySnapshot entry, List<String> fields) {

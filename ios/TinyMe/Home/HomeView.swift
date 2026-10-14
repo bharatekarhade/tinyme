@@ -7,6 +7,8 @@ struct HomeView: View {
     @Environment(AppEnvironment.self) private var environment
     @Environment(MainRouter.self) private var router
     @Environment(\.scenePhase) private var scenePhase
+    @AppStorage("health.homeCardDismissed") private var healthCardDismissed = false
+    @State private var showsHealth = false
     @State private var cardToRemove: CardDTO?
     @State private var isPeriodPickerPresented = false
     /// How far Home is scrolled, to tell whether the switcher is pinned.
@@ -15,6 +17,15 @@ struct HomeView: View {
     @State private var cardsTop: CGFloat = 0
 
     private static let cardsAnchor = "home-cards"
+
+    /// The one-time "Connect Apple Health" card (guide §2.1): on a phone with Health, before connecting, until "Not now".
+    private var showsHealthCard: Bool {
+        HealthAccess.isAvailable && !environment.health.isConnected && !healthCardDismissed && model.phase == .loaded
+    }
+
+    private var signedInServer: URL? {
+        if case .signedIn(let server, _) = environment.session.state { server } else { nil }
+    }
 
     var body: some View {
         @Bindable var model = model
@@ -38,6 +49,11 @@ struct HomeView: View {
 
                     Section {
                         VStack(spacing: Space.s4) {
+                            if showsHealthCard {
+                                ConnectHealthCard(onConnect: { showsHealth = true },
+                                                  onDismiss: { withAnimation(.snappy(duration: 0.25)) { healthCardDismissed = true } })
+                                    .transition(.opacity.combined(with: .move(edge: .top)))
+                            }
                             // New identity per period, so every chart redraws for the selected dates.
                             Group {
                                 switch model.phase {
@@ -159,6 +175,11 @@ struct HomeView: View {
                 Button("Cancel", role: .cancel) {}
             } message: { _ in
                 Text("What you've logged stays. Ask me any time to build the card again.")
+            }
+            .sheet(isPresented: $showsHealth) {
+                if let api = environment.session.api, let server = signedInServer {
+                    AppleHealthSheet(api: api, server: server, store: environment.health, sync: environment.healthSync)
+                }
             }
             .sheet(isPresented: $isPeriodPickerPresented) {
                 HomePeriodPicker(model: model)
@@ -467,6 +488,56 @@ private struct LoadFailedCard: View {
 }
 
 // MARK: - Add a tracker
+
+/// Shown once on Home: what Apple Health adds, Connect (opens the Apple Health screen), and Not now.
+private struct ConnectHealthCard: View {
+    var onConnect: () -> Void
+    var onDismiss: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: Space.s4) {
+            HStack(alignment: .top, spacing: Space.s3) {
+                Image(systemName: "heart.text.square")
+                    .font(.system(size: 19, weight: .semibold))
+                    .foregroundStyle(Palette.brandStrong)
+                    .frame(width: 40, height: 40)
+                    .background(Palette.brandSoft, in: Circle())
+                    .accessibilityHidden(true)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Connect Apple Health")
+                        .textStyle(.heading)
+                    Text("Your steps, sleep and workouts from iPhone and Watch, on your cards without typing.")
+                        .textStyle(.label, weight: .regular)
+                        .foregroundStyle(Palette.inkMuted)
+                }
+            }
+            HStack(spacing: Space.s2) {
+                Button(action: onConnect) {
+                    Text("Connect")
+                        .textStyle(.label, weight: .semibold)
+                        .foregroundStyle(Palette.onBrand)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 44)
+                        .background(Palette.brand, in: Capsule())
+                }
+                .buttonStyle(.pressable)
+                Button(action: onDismiss) {
+                    Text("Not now")
+                        .textStyle(.label, weight: .semibold)
+                        .foregroundStyle(Palette.ink)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 44)
+                        .background(Palette.surfaceSunken, in: Capsule())
+                }
+                .buttonStyle(.pressable)
+            }
+        }
+        .padding(Space.s6)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Palette.surfaceRaised, in: RoundedRectangle(cornerRadius: Radius.lg, style: .continuous))
+        .cardShadow()
+    }
+}
 
 private struct AddTrackerCard: View {
     var ideas: [String]

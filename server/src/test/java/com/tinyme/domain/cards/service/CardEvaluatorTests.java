@@ -61,7 +61,9 @@ class CardEvaluatorTests {
     void setUp() {
         parser = new CardSpecParser();
         writer = new CardSpecWriter();
-        evaluator = new CardEvaluator(parser, entries, plans, userZone, Clock.fixed(NOW, ZoneId.of("UTC")));
+        evaluator = new CardEvaluator(parser, entries, plans, userZone, Clock.fixed(NOW, ZoneId.of("UTC")),
+                new com.tinyme.domain.health.service.HealthKinds(
+                        new org.springframework.core.io.ClassPathResource("seed/health/kinds.json")));
         when(userZone.current()).thenReturn(TOKYO);
     }
 
