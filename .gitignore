@@ -18,7 +18,7 @@ __pycache__/
 /ios/Config/TinyMe.xcconfig
 /server/src/main/resources/seed/.gitkeep
 /server/.gitkeep
-
+/blobs
 # Agent skills (installed locally, not part of the project)
 /.agents/
 /.claude/
