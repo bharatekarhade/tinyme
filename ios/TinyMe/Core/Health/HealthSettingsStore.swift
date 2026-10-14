@@ -82,6 +82,9 @@ final class HealthSettingsStore {
     func reset() {
         saved = Settings()
         defaults.removeObject(forKey: Self.key)
+        // The import starts over too, or old history would never be sent again.
+        defaults.removeObject(forKey: HealthSyncEngine.cursorKey)
+        defaults.removeObject(forKey: HealthSyncEngine.anchorKey)
     }
 }
 

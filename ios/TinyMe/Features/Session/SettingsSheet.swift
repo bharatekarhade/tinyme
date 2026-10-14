@@ -61,6 +61,8 @@ private struct SettingsPanel: View {
     @State private var exportNotice: String?
     @State private var exportFile: DownloadedArchive?
     @State private var showsDeleteAll = false
+    @State private var showsHealth = false
+    @Environment(AppEnvironment.self) private var environment
     @State private var status: ServerStatus = .checking
 
     private enum ServerStatus {
@@ -107,6 +109,11 @@ private struct SettingsPanel: View {
             ActivityShareSheet(items: [file.url])
                 .presentationDetents([.medium, .large])
                 .onDisappear { removeExportFile(file) }
+        }
+        .sheet(isPresented: $showsHealth) {
+            if let api = session.api, let account {
+                AppleHealthSheet(api: api, server: account.server, store: environment.health, sync: environment.healthSync)
+            }
         }
         .sheet(isPresented: $showsDeleteAll) {
             if let api = session.api {
@@ -194,6 +201,7 @@ private struct SettingsPanel: View {
                 serverSection(server: account.server)
                 appearanceSection
                 voiceSection
+                if HealthAccess.isAvailable { healthSection }
                 dataSection
             }
         }
@@ -285,6 +293,49 @@ private struct SettingsPanel: View {
             .padding(.vertical, 14)
             .background(card)
         }
+    }
+
+    private var healthSection: some View {
+        VStack(alignment: .leading, spacing: Space.s2) {
+            Text("Apple Health")
+                .textStyle(.label, weight: .semibold)
+                .foregroundStyle(Palette.inkMuted)
+                .padding(.horizontal, 4)
+            Button {
+                showsHealth = true
+            } label: {
+                HStack(spacing: Space.s3) {
+                    Image(systemName: "heart.text.square")
+                        .font(.system(size: 18, weight: .medium))
+                        .foregroundStyle(Palette.brandStrong)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Apple Health")
+                            .textStyle(.label, weight: .semibold)
+                        Text(healthSummary)
+                            .textStyle(.caption)
+                            .foregroundStyle(Palette.inkMuted)
+                            .lineLimit(1)
+                    }
+                    Spacer(minLength: Space.s2)
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(Palette.inkMuted)
+                }
+                .padding(.horizontal, 18)
+                .padding(.vertical, 14)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.pressable)
+            .background(card)
+        }
+    }
+
+    private var healthSummary: String {
+        let health = environment.health
+        guard health.isConnected else { return "Not connected" }
+        if let line = environment.healthSync.importLine { return line }
+        let groups = HealthGroup.allCases.filter(health.saved.groups.contains).map(\.title)
+        return groups.isEmpty ? "Nothing switched on" : groups.joined(separator: ", ")
     }
 
     private var dataSection: some View {

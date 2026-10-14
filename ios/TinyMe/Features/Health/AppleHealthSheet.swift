@@ -6,6 +6,7 @@ struct AppleHealthSheet: View {
     let api: APIClient
     let server: URL
     let store: HealthSettingsStore
+    let sync: HealthSync
     var access = HealthAccess()
 
     @Environment(\.dismiss) private var dismiss
@@ -72,6 +73,17 @@ struct AppleHealthSheet: View {
                         .padding(.vertical, Space.s3)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .background(Palette.surfaceSunken, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+                } else if let line = sync.importLine, !hasChanges {
+                    HStack(spacing: Space.s2) {
+                        ProgressView().tint(Palette.brandStrong)
+                        Text(line).textStyle(.label, weight: .semibold)
+                    }
+                    .padding(.horizontal, 4)
+                } else if case .failed(let message) = sync.phase, !hasChanges {
+                    Label(message, systemImage: "exclamationmark.circle")
+                        .textStyle(.label)
+                        .foregroundStyle(Palette.inkMuted)
+                        .padding(.horizontal, 4)
                 } else if store.saved.needsPush, !hasChanges {
                     Label("Your server hasn't got these yet. TinyMe sends them when it can reach it.", systemImage: "arrow.clockwise")
                         .textStyle(.label)
@@ -273,6 +285,7 @@ struct AppleHealthSheet: View {
                 // Kept on this phone first: if the server misses it, it's sent again on the next foreground.
                 try await store.save(next, sendingWith: api)
                 draft = store.saved
+                sync.start(api: api)
                 notice = next.isAllOff ? "TinyMe has stopped reading Health."
                     : wasConnected ? "Saved." : "Connected. TinyMe will start reading your Health data soon."
             } catch {

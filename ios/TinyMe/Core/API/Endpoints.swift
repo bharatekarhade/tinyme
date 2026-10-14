@@ -16,6 +16,9 @@ struct Endpoint: Sendable {
     static let deleteAll = Endpoint(method: "POST", path: "admin/delete-all", signsOutOnUnauthorized: false)
     static let postMessage = Endpoint(method: "POST", path: "conversations/today/messages")
 
+    static let healthSettings = Endpoint(method: "PUT", path: "health/settings")
+    static let healthSync = Endpoint(method: "POST", path: "health/sync")
+
     static let cardSuggestions = Endpoint(method: "GET", path: "cards/suggestions")
     static let cardOrder = Endpoint(method: "PUT", path: "cards/order")
 

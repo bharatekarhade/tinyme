@@ -18,6 +18,13 @@
 			remoteGlobalIDString = 7A0000000000000000000022;
 			remoteInfo = TinyMeWidget;
 		};
+		7A0000000000000000000046 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 7A0000000000000000000009 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 7A0000000000000000000006;
+			remoteInfo = TinyMe;
+		};
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXCopyFilesBuildPhase section */
@@ -44,6 +51,7 @@
 		7A0000000000000000000034 /* Widget-Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = "Widget-Info.plist"; sourceTree = "<group>"; };
 		7A0000000000000000000035 /* TinyMe.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = TinyMe.entitlements; sourceTree = "<group>"; };
 		7A0000000000000000000036 /* TinyMeWidget.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = TinyMeWidget.entitlements; sourceTree = "<group>"; };
+		7A0000000000000000000040 /* TinyMeTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = TinyMeTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -60,6 +68,11 @@
 		7A0000000000000000000024 /* TinyMeWidget */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			path = TinyMeWidget;
+			sourceTree = "<group>";
+		};
+		7A0000000000000000000041 /* TinyMeTests */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = TinyMeTests;
 			sourceTree = "<group>";
 		};
 /* End PBXFileSystemSynchronizedRootGroup section */
@@ -79,6 +92,13 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		7A0000000000000000000044 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
@@ -88,6 +108,7 @@
 				7A0000000000000000000002 /* TinyMe */,
 				7A0000000000000000000024 /* TinyMeWidget */,
 				7A0000000000000000000023 /* TinyMeShared */,
+				7A0000000000000000000041 /* TinyMeTests */,
 				7A0000000000000000000013 /* Config */,
 				7A0000000000000000000005 /* Products */,
 			);
@@ -98,6 +119,7 @@
 			children = (
 				7A0000000000000000000001 /* TinyMe.app */,
 				7A0000000000000000000021 /* TinyMeWidget.appex */,
+				7A0000000000000000000040 /* TinyMeTests.xctest */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -167,6 +189,29 @@
 			productReference = 7A0000000000000000000021 /* TinyMeWidget.appex */;
 			productType = "com.apple.product-type.app-extension";
 		};
+		7A0000000000000000000042 /* TinyMeTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 7A0000000000000000000048 /* Build configuration list for PBXNativeTarget "TinyMeTests" */;
+			buildPhases = (
+				7A0000000000000000000043 /* Sources */,
+				7A0000000000000000000044 /* Frameworks */,
+				7A0000000000000000000045 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				7A0000000000000000000047 /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				7A0000000000000000000041 /* TinyMeTests */,
+			);
+			name = TinyMeTests;
+			packageProductDependencies = (
+			);
+			productName = TinyMeTests;
+			productReference = 7A0000000000000000000040 /* TinyMeTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -182,6 +227,10 @@
 					};
 					7A0000000000000000000022 = {
 						CreatedOnToolsVersion = 26.0;
+					};
+					7A0000000000000000000042 = {
+						CreatedOnToolsVersion = 26.0;
+						TestTargetID = 7A0000000000000000000006;
 					};
 				};
 			};
@@ -201,6 +250,7 @@
 			targets = (
 				7A0000000000000000000006 /* TinyMe */,
 				7A0000000000000000000022 /* TinyMeWidget */,
+				7A0000000000000000000042 /* TinyMeTests */,
 			);
 		};
 /* End PBXProject section */
@@ -214,6 +264,13 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 		7A0000000000000000000027 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		7A0000000000000000000045 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -237,6 +294,13 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		7A0000000000000000000043 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
@@ -244,6 +308,11 @@
 			isa = PBXTargetDependency;
 			target = 7A0000000000000000000022 /* TinyMeWidget */;
 			targetProxy = 7A0000000000000000000031 /* PBXContainerItemProxy */;
+		};
+		7A0000000000000000000047 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 7A0000000000000000000006 /* TinyMe */;
+			targetProxy = 7A0000000000000000000046 /* PBXContainerItemProxy */;
 		};
 /* End PBXTargetDependency section */
 
@@ -405,6 +474,42 @@
 			};
 			name = Release;
 		};
+		7A0000000000000000000049 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = 7A0000000000000000000010 /* Base.xcconfig */;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = YES;
+				MARKETING_VERSION = 0.1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = "com.$(DEVELOPMENT_TEAM).tinyme.tests";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_VERSION = 6.0;
+				TARGETED_DEVICE_FAMILY = 1;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/TinyMe.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/TinyMe";
+			};
+			name = Debug;
+		};
+		7A000000000000000000004A /* Release */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = 7A0000000000000000000010 /* Base.xcconfig */;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = YES;
+				MARKETING_VERSION = 0.1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = "com.$(DEVELOPMENT_TEAM).tinyme.tests";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_VERSION = 6.0;
+				TARGETED_DEVICE_FAMILY = 1;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/TinyMe.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/TinyMe";
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -431,6 +536,15 @@
 			buildConfigurations = (
 				7A0000000000000000000029 /* Debug */,
 				7A000000000000000000002A /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		7A0000000000000000000048 /* Build configuration list for PBXNativeTarget "TinyMeTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				7A0000000000000000000049 /* Debug */,
+				7A000000000000000000004A /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;

@@ -631,12 +631,15 @@ struct ChartBlockView: View {
         let isSelected = selected == index
         let isFuture = point.state == "future"
         let isCurrent = point.state == "current"
+        // A day with nothing logged gets no dot; today still keeps its ring, and the future its dashed one.
+        let isBlank = point.entries == 0 && !isFuture
         let diameter: CGFloat = value == 0 ? 9 : 12 + 10 * value / max(scaleMax, 1)
         return VStack(spacing: 7) {
             Spacer(minLength: 0)
             Circle()
                 .fill(isFuture || value == 0 ? style.track : style.accent.opacity(isSelected ? 1 : 0.82))
                 .frame(width: diameter, height: diameter)
+                .opacity(isBlank ? 0 : 1)
                 .overlay {
                     if isFuture || isCurrent {
                         Circle().strokeBorder(style.accent.opacity(isFuture ? 0.5 : 0.9),
@@ -656,6 +659,7 @@ struct ChartBlockView: View {
         .frame(height: 54)
         .contentShape(Rectangle())
         .onTapGesture {
+            guard point.entries > 0 else { return }
             if index == selected, let onOpenDay { onOpenDay(point.period) }
             else if !isFuture { withAnimation(.snappy(duration: 0.2)) { selected = index } }
         }
@@ -729,9 +733,11 @@ struct ChartBlockView: View {
         guard !block.points.isEmpty else { return [] }
         let maxY = max(scaleMax, 1)
         let usableHeight = max(height - 8, 1)
+        // Only days with something logged get a point; the line joins them across the empty days.
         return block.points.enumerated().compactMap { index, point in
-            guard point.state != "future", let value = point.value else { return nil }
-            let x = block.points.count == 1 ? width / 2 : width * CGFloat(index) / CGFloat(block.points.count - 1)
+            guard point.state != "future", point.entries > 0, let value = point.value else { return nil }
+            // The middle of the day's column, so each point sits over its label (and where a tap picks it).
+            let x = width * (CGFloat(index) + 0.5) / CGFloat(block.points.count)
             let y = usableHeight - CGFloat(max(0, value) / maxY) * (usableHeight - 8) + 4
             return LineCoordinate(index: index, point: CGPoint(x: x, y: y))
         }
@@ -857,7 +863,8 @@ struct ChartBlockView: View {
         }
         withAnimation(.snappy(duration: 0.2)) {
             // Tapping the selected bar again, or a day that hasn't happened, clears the selection.
-            selected = index == selected || block.points[index].state == "future" ? nil : index
+            selected = index == selected || block.points[index].state == "future"
+                || (block.style == "line" && block.points[index].entries == 0) ? nil : index
         }
     }
 

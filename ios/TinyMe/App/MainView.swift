@@ -71,6 +71,7 @@ struct MainView: View {
                 router.tab = .home
                 router.historyIsStale = true
                 Task { await environment.outbox.clear() }
+                environment.health.reset()
                 WidgetSnapshot.clearAndReload()
                 home.invalidate()
                 upcoming.invalidate()
@@ -86,6 +87,10 @@ struct MainView: View {
                 }
             }
         }
+        .onAppear {
+            // Foreground is caught below; this is the launch.
+            environment.healthSync.start(api: environment.session.api)
+        }
         .task {
             // The outbox sends with chat closed too (a message queued offline): reload what a turn changed.
             let (_, events) = await environment.outbox.subscribe()
@@ -99,7 +104,14 @@ struct MainView: View {
         .onChange(of: scenePhase) { _, phase in
             if phase == .active {
                 Task { await environment.outbox.wake(retryNow: true) }
+                Task { await environment.health.pushIfNeeded(api: environment.session.api) }
+                environment.healthSync.start(api: environment.session.api)
             }
+        }
+        .onChange(of: environment.healthSync.changes) {
+            // New Health numbers: the cards and History reload.
+            home.invalidate()
+            router.historyIsStale = true
         }
         .onOpenURL { url in
             // The widget's "Journal something?" bar.

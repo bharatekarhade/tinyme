@@ -37,6 +37,11 @@ public class EntryRepository {
     private static final JsonMapper JSON = JsonMapper.builder().build();
     private static final TypeReference<Map<String, Object>> DATA_TYPE = new TypeReference<>() {};
     private static final int MAX_UNBOUNDED_BUCKETS_QUERY = AggregateQuery.MAX_BUCKETS + 1;
+    /**
+     * '*' (the Journal card) means everything you told TinyMe. Numbers Apple Health measured aren't journaling,
+     * so they're left out of it; a card that names a Health kind still counts them.
+     */
+    private static final String MEASURED_SOURCE = "health";
 
     private final EntryJpaRepository entries;
     private final EntryKindJpaRepository kinds;
@@ -294,6 +299,8 @@ public class EntryRepository {
         if (!kinds.equals(List.of("*"))) {
             filter += " AND kind IN (:kinds)";
             params.addValue("kinds", kinds.stream().distinct().toList());
+        } else {
+            filter += " AND source <> '" + MEASURED_SOURCE + "'";
         }
         String sql = "SELECT id, ts, local_day, kind, quantity, text, data::text AS data FROM entries WHERE "
                 + filter + " ORDER BY ts DESC, id DESC LIMIT 1";
@@ -317,6 +324,8 @@ public class EntryRepository {
         if (!kinds.equals(List.of("*"))) {
             filter += " AND kind IN (:kinds)";
             params.addValue("kinds", kinds.stream().distinct().toList());
+        } else {
+            filter += " AND source <> '" + MEASURED_SOURCE + "'";
         }
         if (!where.isEmpty()) {
             filter += " AND data @> CAST(:where AS jsonb)";
@@ -393,6 +402,8 @@ public class EntryRepository {
         if (!allKinds) {
             sql.append(" AND ").append(alias).append(".kind IN (:kinds)");
             parameters.addValue("kinds", kinds);
+        } else {
+            sql.append(" AND ").append(alias).append(".source <> '").append(MEASURED_SOURCE).append("'");
         }
         if (from != null) {
             sql.append(" AND ").append(alias).append(".local_day >= :from");

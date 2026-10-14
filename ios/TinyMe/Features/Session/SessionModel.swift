@@ -20,9 +20,12 @@ final class SessionModel {
 
     private let authStore: AuthStore
     private let outbox: OutboxWorker?
+    private let health: HealthSettingsStore?
     private let urlSession: URLSession
 
-    init(authStore: AuthStore, outbox: OutboxWorker? = nil, urlSession: URLSession = .shared) {
+    init(authStore: AuthStore, outbox: OutboxWorker? = nil, health: HealthSettingsStore? = nil,
+         urlSession: URLSession = .shared) {
+        self.health = health
         self.authStore = authStore
         self.outbox = outbox
         self.urlSession = urlSession
@@ -122,6 +125,7 @@ final class SessionModel {
         WidgetSnapshot.clearAndReload()   // the widget shouldn't keep showing this account's numbers
         api = nil
         await outbox?.connect(nil)   // queued messages wait for the next sign-in
+        health?.reset()   // the switches belong to this account's server
         state = .signedOut
     }
 

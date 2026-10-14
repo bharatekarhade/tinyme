@@ -72,6 +72,7 @@ class CardEvaluatorIntegrationTests {
     @AfterEach
     void cleanUp() {
         jdbc.update("DELETE FROM entries WHERE kind IN ('meal', 'drink', 'expense', 'workout', 'quantity_test')");
+        jdbc.update("DELETE FROM entries WHERE source = 'health'");
         jdbc.update("DELETE FROM plans WHERE title LIKE ?", CARD_PREFIX + "%");
         jdbc.update("UPDATE entry_kinds SET merged_into = NULL WHERE kind IN ('meal', 'drink', 'expense', 'workout', 'quantity_test')");
         jdbc.update("DELETE FROM entry_kinds WHERE kind IN ('meal', 'drink', 'expense', 'workout', 'quantity_test')");
@@ -97,6 +98,9 @@ class CardEvaluatorIntegrationTests {
         add("workout", LocalDate.of(2026, 10, 5), LocalTime.of(8, 0), Map.of("type", "Leg day", "minutes", 50));
         add("workout", LocalDate.of(2026, 10, 6), LocalTime.of(8, 0), Map.of("type", "Run", "minutes", 30));
         add("workout", WEDNESDAY, LocalTime.of(8, 0), Map.of("type", "Push day", "minutes", 70));
+        // Apple Health measured these; they aren't journaling, so the Journal count and streak ignore them.
+        healthSteps(LocalDate.of(2026, 10, 2), 6420);
+        healthSteps(WEDNESDAY, 3100);
 
         var journal = evaluator.evaluate(cards.findBySlug("journal").orElseThrow(), Range.WEEK);
         var journalStat = (StatView) journal.blocks().getFirst();
@@ -345,6 +349,14 @@ class CardEvaluatorIntegrationTests {
         var spec = parser.parse(JSON.readTree(source));
         Map<String, Object> stored = JSON.convertValue(writer.write(spec), MAP_TYPE);
         return cards.save(new CardEntity(CARD_PREFIX + slug, spec.title(), stored, CardStatus.DRAFT, false, 0, null));
+    }
+
+    private void healthSteps(LocalDate day, int steps) {
+        jdbc.update("""
+                INSERT INTO entries (ts, local_day, kind, quantity, data, source, external_id)
+                VALUES (?, ?, 'steps', ?, CAST(? AS jsonb), 'health', ?)
+                """, java.sql.Timestamp.from(day.atTime(12, 0).atZone(TOKYO).toInstant()), day, steps,
+                "{\"steps\":" + steps + "}", "steps:" + day);
     }
 
     private void add(String kind, LocalDate day, LocalTime time, Map<String, Object> data) {
