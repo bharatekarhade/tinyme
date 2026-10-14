@@ -82,6 +82,7 @@ final class HealthSettingsStore {
         // The import starts over too, or old history would never be sent again.
         defaults.removeObject(forKey: HealthSyncEngine.cursorKey)
         defaults.removeObject(forKey: HealthSyncEngine.anchorKey)
+        defaults.removeObject(forKey: HealthSyncEpoch.key)
     }
 }
 

@@ -11,6 +11,7 @@ import com.tinyme.auth.service.LoginRateLimiter;
 import com.tinyme.auth.service.PasswordService;
 import com.tinyme.domain.cards.service.CardBootstrap;
 import com.tinyme.domain.health.service.HealthKindBootstrap;
+import com.tinyme.domain.health.repository.HealthSyncEpochRepository;
 import com.tinyme.domain.admin.UserDataTables;
 import com.tinyme.maintenance.MaintenanceGate;
 import org.slf4j.Logger;
@@ -46,13 +47,14 @@ public class DeleteAllService {
     private final TransactionTemplate transactions;
     private final CardBootstrap cardBootstrap;
     private final HealthKindBootstrap healthKinds;
+    private final HealthSyncEpochRepository healthSyncEpoch;
 
     public DeleteAllService(ManagedAgents agents, AgentResources resources, AgentSessionRepository sessions,
                             MemorySeedFiles memorySeeds, AccountRepository accounts, PasswordService passwords,
                             LoginRateLimiter rateLimiter, MaintenanceGate gate,
                             com.tinyme.agent.service.SessionTurnLock turnLocks, JdbcTemplate jdbc,
                             TransactionTemplate transactions, CardBootstrap cardBootstrap,
-                            HealthKindBootstrap healthKinds) {
+                            HealthKindBootstrap healthKinds, HealthSyncEpochRepository healthSyncEpoch) {
         this.agents = agents;
         this.resources = resources;
         this.sessions = sessions;
@@ -66,6 +68,7 @@ public class DeleteAllService {
         this.transactions = transactions;
         this.cardBootstrap = cardBootstrap;
         this.healthKinds = healthKinds;
+        this.healthSyncEpoch = healthSyncEpoch;
     }
 
     public DeleteAllCounts deleteAll(String confirm, String password, short ownerId, String remoteIp) {
@@ -104,6 +107,7 @@ public class DeleteAllService {
             transactions.executeWithoutResult(status -> {
                 jdbc.execute("TRUNCATE " + String.join(", ", UserDataTables.ALL)
                         + " RESTART IDENTITY CASCADE");
+                healthSyncEpoch.bump();
                 try {
                     cardBootstrap.run(new org.springframework.boot.DefaultApplicationArguments(new String[0]));
                 } catch (Exception failure) {

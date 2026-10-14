@@ -147,4 +147,30 @@ struct HealthUploaderTests {
         _ = try await uploader().send(items: many, deleted: [])
         #expect(StubServer.bodies.count == 2)
     }
+
+    @Test func emptyChangesDoNotPostAnEmptyBatch() async throws {
+        StubServer.bodies = []
+        let totals = try await uploader().send(items: [], deleted: [])
+        #expect(totals == HealthUploader.Totals())
+        #expect(StubServer.bodies.isEmpty)
+    }
+}
+
+@Suite(.serialized)
+struct HealthSyncEpochTests {
+    @Test func changingTheServerEpochClearsAnchorsAndImportCursors() {
+        let suite = "HealthSyncEpochTests-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+        defaults.set(NSNumber(value: 4), forKey: HealthSyncEpoch.key)
+        defaults.set(Data([1]), forKey: HealthSyncEngine.cursorKey)
+        defaults.set(["workout": Data([2])], forKey: HealthSyncEngine.anchorKey)
+
+        #expect(HealthSyncEpoch.apply(4, defaults: defaults) == false)
+        #expect(defaults.data(forKey: HealthSyncEngine.cursorKey) != nil)
+        #expect(HealthSyncEpoch.apply(5, defaults: defaults) == true)
+        #expect(defaults.data(forKey: HealthSyncEngine.cursorKey) == nil)
+        #expect(defaults.dictionary(forKey: HealthSyncEngine.anchorKey) == nil)
+        #expect((defaults.object(forKey: HealthSyncEpoch.key) as? NSNumber)?.int64Value == 5)
+    }
 }

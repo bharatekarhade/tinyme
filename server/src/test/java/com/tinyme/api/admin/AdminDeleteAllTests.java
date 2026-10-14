@@ -48,6 +48,7 @@ class AdminDeleteAllTests {
     @Autowired DeviceTokenService tokens;
     @Autowired SessionTurnLock turnLocks;
     @Autowired MaintenanceGate gate;
+    @Autowired com.tinyme.domain.health.repository.HealthSyncEpochRepository healthSyncEpoch;
     @MockitoBean ManagedAgents agents;
     private final AtomicInteger ips = new AtomicInteger(1);
     private String retainedToken;
@@ -67,6 +68,7 @@ class AdminDeleteAllTests {
     @Test
     void deletesRemoteAndLocalDataButKeepsAccountTokenSettingsAndReseedsJournal() throws Exception {
         seedRows();
+        long epochBefore = healthSyncEpoch.current();
         when(agents.listMemories("memstore_saved", "/", null))
                 .thenReturn(new MemoryPage(List.of(new MemoryRef("mem_old", "/people/kenji.md")), null));
 
@@ -91,7 +93,8 @@ class AdminDeleteAllTests {
                 Long.class)).isEqualTo(3);
         assertThat(jdbc.queryForObject("SELECT count(*) FROM account", Long.class)).isEqualTo(1);
         assertThat(count("refresh_tokens")).isEqualTo(tokenCountBefore);
-        assertThat(jdbc.queryForObject("SELECT count(*) FROM settings", Long.class)).isEqualTo(5);
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM settings", Long.class)).isEqualTo(6);
+        assertThat(healthSyncEpoch.current()).isEqualTo(epochBefore + 1);
         mvc.perform(get("/people").header("Authorization", "Bearer " + retainedToken))
                 .andExpect(status().isOk());
         verify(agents).deleteSession("sesn_delete_test");

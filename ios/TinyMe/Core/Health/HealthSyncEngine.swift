@@ -42,6 +42,8 @@ actor HealthSyncEngine {
     /// - Parameter groups: the groups switched on in TinyMe (`HealthSettingsStore.readGroups`), not what iOS allows.
     func sync(groups: Set<HealthGroup>, depth: HealthImportDepth, api: APIClient, today: LocalDay = .today(),
               progress: @escaping @Sendable (Progress) async -> Void) async throws -> HealthUploader.Totals {
+        let serverStatus: HealthStatusDTO = try await api.get(.healthStatus)
+        HealthSyncEpoch.apply(serverStatus.syncEpoch, defaults: defaults)
         let uploader = HealthUploader(api: api)
         var totals = HealthUploader.Totals()
         let sampleMetrics = HealthCatalog.metrics.filter { groups.contains($0.group) && $0.reading != .dailySum && $0.reading != .dailyAverage }
@@ -103,6 +105,8 @@ actor HealthSyncEngine {
     /// The first import, if unfinished, carries on in the next foreground sync.
     func syncOne(_ metric: HealthMetric, depth: HealthImportDepth, api: APIClient,
                  today: LocalDay = .today()) async throws -> HealthUploader.Totals {
+        let serverStatus: HealthStatusDTO = try await api.get(.healthStatus)
+        HealthSyncEpoch.apply(serverStatus.syncEpoch, defaults: defaults)
         let uploader = HealthUploader(api: api)
         switch metric.reading {
         case .dailySum, .dailyAverage:

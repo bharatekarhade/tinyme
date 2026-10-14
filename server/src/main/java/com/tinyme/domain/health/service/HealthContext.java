@@ -47,26 +47,27 @@ public class HealthContext {
         Set<HealthGroup> groups = settings.load().groups();
         if (groups.isEmpty()) return null;
         LocalDate today = LocalDate.ofInstant(now, zone);
+        Map<String, String> resolutions = kinds.resolveAll();
         List<String> parts = new ArrayList<>();
         parts.add("connected " + String.join(", ", groups.stream().map(HealthGroup::key).toList()));
         if (groups.contains(HealthGroup.ACTIVITY)) {
-            dayTotal("steps", "quantity", today, 1).ifPresent(total ->
+            dayTotal(storedKinds("steps", resolutions), "quantity", today, 1).ifPresent(total ->
                     parts.add("steps " + dayWord(total.day(), today) + " " + whole(total.value())));
         }
         if (groups.contains(HealthGroup.SLEEP_HEART)) {
             // A night is filed on the day you woke up, so today's sleep is last night.
-            dayTotal("sleep", "quantity", today, 1).ifPresent(total -> parts.add("slept "
+            dayTotal(storedKinds("sleep", resolutions), "quantity", today, 1).ifPresent(total -> parts.add("slept "
                     + hours(total.value()) + " h " + (total.day().equals(today) ? "last night" : "the night before")));
         }
         if (groups.contains(HealthGroup.WORKOUTS)) {
-            latestWorkout(today).ifPresent(parts::add);
+            latestWorkout(storedKinds("workout", resolutions), today).ifPresent(parts::add);
         }
         if (groups.contains(HealthGroup.BODY)) {
-            latest("weight", today, 30).ifPresent(weight ->
+            latest(storedKinds("weight", resolutions), today, 30).ifPresent(weight ->
                     parts.add("weight " + weight.value().stripTrailingZeros().toPlainString() + " kg (" + weight.day().format(SHORT_DAY) + ")"));
         }
         if (groups.contains(HealthGroup.SLEEP_HEART)) {
-            latest("resting_hr", today, 2).ifPresent(hr ->
+            latest(storedKinds("resting_hr", resolutions), today, 2).ifPresent(hr ->
                     parts.add("resting HR " + whole(hr.value()) + " (" + dayWord(hr.day(), today) + ")"));
         }
         return "health: " + String.join(" · ", parts);
@@ -75,34 +76,34 @@ public class HealthContext {
     private record DayValue(LocalDate day, BigDecimal value) { }
 
     /** The total for today, or for the newest of the days before it within {@code daysBack}. */
-    private java.util.Optional<DayValue> dayTotal(String kind, String column, LocalDate today, int daysBack) {
+    private java.util.Optional<DayValue> dayTotal(List<String> storedKinds, String column, LocalDate today, int daysBack) {
         return jdbc.query("""
                 SELECT local_day, SUM(%s) AS value FROM entries
-                WHERE kind = :kind AND deleted_at IS NULL AND local_day BETWEEN :from AND :today
+                WHERE kind IN (:kinds) AND deleted_at IS NULL AND local_day BETWEEN :from AND :today
                 GROUP BY local_day ORDER BY local_day DESC LIMIT 1
-                """.formatted(column), params(kind, today, daysBack),
+                """.formatted(column), params(storedKinds, today, daysBack),
                 (rs, row) -> new DayValue(rs.getObject("local_day", LocalDate.class), rs.getBigDecimal("value")))
                 .stream().findFirst();
     }
 
-    private java.util.Optional<DayValue> latest(String kind, LocalDate today, int daysBack) {
+    private java.util.Optional<DayValue> latest(List<String> storedKinds, LocalDate today, int daysBack) {
         return jdbc.query("""
                 SELECT local_day, quantity AS value FROM entries
-                WHERE kind = :kind AND deleted_at IS NULL AND local_day BETWEEN :from AND :today
+                WHERE kind IN (:kinds) AND deleted_at IS NULL AND local_day BETWEEN :from AND :today
                 ORDER BY ts DESC LIMIT 1
-                """, params(kind, today, daysBack),
+                """, params(storedKinds, today, daysBack),
                 (rs, row) -> new DayValue(rs.getObject("local_day", LocalDate.class), rs.getBigDecimal("value")))
                 .stream().findFirst();
     }
 
-    private java.util.Optional<String> latestWorkout(LocalDate today) {
+    private java.util.Optional<String> latestWorkout(List<String> storedKinds, LocalDate today) {
         return jdbc.query("""
                 SELECT local_day, data ->> 'minutes' AS minutes,
                        COALESCE(NULLIF(data ->> 'label', ''), data ->> 'type') AS name
                 FROM entries
-                WHERE kind = :kind AND deleted_at IS NULL AND local_day BETWEEN :from AND :today
+                WHERE kind IN (:kinds) AND deleted_at IS NULL AND local_day BETWEEN :from AND :today
                 ORDER BY ts DESC LIMIT 1
-                """, params("workout", today, 6), (rs, row) -> {
+                """, params(storedKinds, today, 6), (rs, row) -> {
             StringBuilder text = new StringBuilder("last workout ")
                     .append(dayWord(rs.getObject("local_day", LocalDate.class), today));
             if (rs.getString("minutes") != null) text.append(" ").append(whole(new BigDecimal(rs.getString("minutes")))).append(" min");
@@ -111,8 +112,19 @@ public class HealthContext {
         }).stream().findFirst();
     }
 
-    private MapSqlParameterSource params(String kind, LocalDate today, int daysBack) {
-        return new MapSqlParameterSource(Map.of("kind", kinds.resolveExisting(kind).orElse(kind),
+    private static List<String> storedKinds(String canonical, Map<String, String> resolutions) {
+        canonical = resolutions.getOrDefault(canonical, canonical);
+        String target = canonical;
+        List<String> stored = resolutions.entrySet().stream().filter(entry -> target.equals(entry.getValue()))
+                .map(Map.Entry::getKey).toList();
+        if (stored.contains(canonical)) return stored;
+        List<String> withCanonical = new ArrayList<>(stored);
+        withCanonical.add(canonical);
+        return List.copyOf(withCanonical);
+    }
+
+    private MapSqlParameterSource params(List<String> storedKinds, LocalDate today, int daysBack) {
+        return new MapSqlParameterSource(Map.of("kinds", storedKinds,
                 "from", today.minusDays(daysBack), "today", today));
     }
 

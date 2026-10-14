@@ -67,13 +67,14 @@ public class HealthNudges {
         HealthSettings health = settings.load();
         if (health.groups().isEmpty()) return Optional.empty();
         LocalDate today = LocalDate.ofInstant(now, zone);
+        Map<String, String> kindResolutions = kinds.resolveAll();
         if (shownOn(today)) return Optional.empty();
         List<Supplier<Optional<Nudge>>> rules = List.of(
                 () -> missedHabitToday(health, today, zone, now),
-                () -> noWorkoutStreak(health, today, zone, now),
-                () -> shortSleep(health, today),
-                () -> weightGap(health, today),
-                () -> stepsGoalStreak(health, today));
+                () -> noWorkoutStreak(health, today, zone, now, kindResolutions),
+                () -> shortSleep(health, today, kindResolutions),
+                () -> weightGap(health, today, kindResolutions),
+                () -> stepsGoalStreak(health, today, kindResolutions));
         for (var rule : rules) {
             Optional<Nudge> nudge = rule.get();
             if (nudge.isEmpty() || health.nudgesOff().contains(nudge.get().topic()) || coolingDown(nudge.get().key(), today)) {
@@ -103,14 +104,15 @@ public class HealthNudges {
     }
 
     /** No workout for 4+ days while a workout habit plan exists. */
-    private Optional<Nudge> noWorkoutStreak(HealthSettings health, LocalDate today, ZoneId zone, Instant now) {
+    private Optional<Nudge> noWorkoutStreak(HealthSettings health, LocalDate today, ZoneId zone, Instant now,
+                                            Map<String, String> kindResolutions) {
         if (!health.groups().contains(HealthGroup.WORKOUTS)) return Optional.empty();
-        String workout = kind("workout");
+        String workout = kindResolutions.getOrDefault("workout", "workout");
         Long habits = jdbc.queryForObject("""
                 SELECT count(*) FROM plans WHERE habit_kind = :kind AND status = 'active' AND deleted_at IS NULL
                 """, Map.of("kind", workout), Long.class);
         if (habits == null || habits == 0) return Optional.empty();
-        LocalDate last = lastDay(workout, today);
+        LocalDate last = lastDay(workout, today, kindResolutions);
         if (last == null || ChronoUnit.DAYS.between(last, today) < WORKOUT_GAP_DAYS) return Optional.empty();
         StringBuilder text = new StringBuilder("no workout since ").append(last.format(WEEKDAY))
                 .append(" (").append(ChronoUnit.DAYS.between(last, today)).append(" days)");
@@ -122,13 +124,13 @@ public class HealthNudges {
     }
 
     /** Under 6 h on 3 of the last 4 nights (a night is the sum of its entries, additions included). */
-    private Optional<Nudge> shortSleep(HealthSettings health, LocalDate today) {
+    private Optional<Nudge> shortSleep(HealthSettings health, LocalDate today, Map<String, String> kindResolutions) {
         if (!health.groups().contains(HealthGroup.SLEEP_HEART)) return Optional.empty();
         List<BigDecimal> nights = jdbc.queryForList("""
                 SELECT SUM(quantity) FROM entries
-                WHERE kind = :kind AND deleted_at IS NULL AND local_day BETWEEN :from AND :today
+                WHERE kind IN (:kinds) AND deleted_at IS NULL AND local_day BETWEEN :from AND :today
                 GROUP BY local_day
-                """, new MapSqlParameterSource("kind", kind("sleep")).addValue("from", today.minusDays(3))
+                """, new MapSqlParameterSource("kinds", storedKinds("sleep", kindResolutions)).addValue("from", today.minusDays(3))
                 .addValue("today", today), BigDecimal.class);
         long shortNights = nights.stream().filter(hours -> hours.compareTo(SHORT_NIGHT_HOURS) < 0).count();
         if (shortNights < 3) return Optional.empty();
@@ -140,9 +142,10 @@ public class HealthNudges {
     }
 
     /** Body connected, a weight goal on a card, and no weigh-in for 10 days. */
-    private Optional<Nudge> weightGap(HealthSettings health, LocalDate today) {
-        if (!health.groups().contains(HealthGroup.BODY) || cardGoal("weight").isEmpty()) return Optional.empty();
-        LocalDate last = lastDay(kind("weight"), today);
+    private Optional<Nudge> weightGap(HealthSettings health, LocalDate today, Map<String, String> kindResolutions) {
+        String weight = kindResolutions.getOrDefault("weight", "weight");
+        if (!health.groups().contains(HealthGroup.BODY) || cardGoal(weight).isEmpty()) return Optional.empty();
+        LocalDate last = lastDay(weight, today, kindResolutions);
         if (last != null && ChronoUnit.DAYS.between(last, today) < WEIGHT_GAP_DAYS) return Optional.empty();
         String since = last == null ? "no weigh-in yet" : "no weigh-in for " + ChronoUnit.DAYS.between(last, today) + " days";
         return Optional.of(new Nudge("weight_gap", HealthNudgeTopic.WEIGHT, since
@@ -150,16 +153,17 @@ public class HealthNudges {
     }
 
     /** A steps goal on a card was met on each of the last 5 days: praise counts too. */
-    private Optional<Nudge> stepsGoalStreak(HealthSettings health, LocalDate today) {
+    private Optional<Nudge> stepsGoalStreak(HealthSettings health, LocalDate today, Map<String, String> kindResolutions) {
         if (!health.groups().contains(HealthGroup.ACTIVITY)) return Optional.empty();
-        Optional<BigDecimal> goal = cardGoal("steps");
+        String steps = kindResolutions.getOrDefault("steps", "steps");
+        Optional<BigDecimal> goal = cardGoal(steps);
         if (goal.isEmpty()) return Optional.empty();
         Long metDays = jdbc.queryForObject("""
                 SELECT count(*) FROM (
                   SELECT local_day FROM entries
-                  WHERE kind = :kind AND deleted_at IS NULL AND local_day BETWEEN :from AND :to
+                  WHERE kind IN (:kinds) AND deleted_at IS NULL AND local_day BETWEEN :from AND :to
                   GROUP BY local_day HAVING SUM(quantity) >= :goal) met
-                """, new MapSqlParameterSource("kind", kind("steps")).addValue("from", today.minusDays(STEPS_STREAK_DAYS))
+                """, new MapSqlParameterSource("kinds", storedKinds(steps, kindResolutions)).addValue("from", today.minusDays(STEPS_STREAK_DAYS))
                 .addValue("to", today.minusDays(1)).addValue("goal", goal.get()), Long.class);
         if (metDays == null || metDays < STEPS_STREAK_DAYS) return Optional.empty();
         return Optional.of(new Nudge("steps_goal_streak", HealthNudgeTopic.STEPS, STEPS_STREAK_DAYS
@@ -180,14 +184,14 @@ public class HealthNudges {
                           '$.blocks[*] ? (exists(@.goal) && @.goal != null && @.metric.kinds[*] == $kind).goal',
                           jsonb_build_object('kind', CAST(:kind AS text))) #>> '{}')::numeric
                 FROM cards WHERE status = 'active' AND deleted_at IS NULL
-                """, Map.of("kind", kind(kind)), BigDecimal.class).stream()
+                """, Map.of("kind", kind), BigDecimal.class).stream()
                 .filter(java.util.Objects::nonNull).findFirst();
     }
 
-    private LocalDate lastDay(String kind, LocalDate today) {
+    private LocalDate lastDay(String kind, LocalDate today, Map<String, String> kindResolutions) {
         return jdbc.queryForObject("""
-                SELECT max(local_day) FROM entries WHERE kind = :kind AND deleted_at IS NULL AND local_day <= :today
-                """, new MapSqlParameterSource("kind", kind).addValue("today", today), LocalDate.class);
+                SELECT max(local_day) FROM entries WHERE kind IN (:kinds) AND deleted_at IS NULL AND local_day <= :today
+                """, new MapSqlParameterSource("kinds", storedKinds(kind, kindResolutions)).addValue("today", today), LocalDate.class);
     }
 
     private boolean shownOn(LocalDate today) {
@@ -203,5 +207,15 @@ public class HealthNudges {
 
     private String kind(String kind) {
         return kinds.resolveExisting(kind).orElse(kind);
+    }
+
+    private static List<String> storedKinds(String canonical, Map<String, String> kindResolutions) {
+        String target = kindResolutions.getOrDefault(canonical, canonical);
+        List<String> stored = kindResolutions.entrySet().stream()
+                .filter(entry -> target.equals(entry.getValue())).map(Map.Entry::getKey).toList();
+        if (stored.contains(target)) return stored;
+        java.util.ArrayList<String> withCanonical = new java.util.ArrayList<>(stored);
+        withCanonical.add(target);
+        return List.copyOf(withCanonical);
     }
 }

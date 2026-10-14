@@ -20,8 +20,8 @@ final class HealthSync {
     private let engine: HealthSyncEngine
     private let background: HealthBackground
     private let api: () -> APIClient?
-    /// Background wake-ups that arrived during another run, by kind, with the completions iOS is waiting on.
-    private var waiting: [String: (metric: HealthMetric, completions: [HealthBackground.Completion])] = [:]
+    /// Background wake-ups that arrived during another run. iOS completion handlers are returned immediately.
+    private var waiting: [String: HealthMetric] = [:]
 
     init(settings: HealthSettingsStore, engine: HealthSyncEngine = HealthSyncEngine(),
          background: HealthBackground = HealthBackground(), api: @escaping () -> APIClient?) {
@@ -76,17 +76,17 @@ final class HealthSync {
     /// After Disconnect: nothing is watched any more, and Home and History reload without the Health entries.
     func disconnected() {
         background.watch(groups: [])
-        waiting.values.forEach { $0.completions.forEach { $0() } }
         waiting = [:]
         lastSyncedAt = nil
         phase = .idle
         changes += 1
     }
 
-    /// iOS woke TinyMe because this metric has new data. During another run it waits for that run to end.
+    /// iOS woke TinyMe because this metric has new data. Return its completion promptly; sync after any active run.
     private func wake(for metric: HealthMetric, done: @escaping HealthBackground.Completion) {
         guard settings.readGroups.contains(metric.group), api() != nil else { done(); return }
-        waiting[metric.kind, default: (metric, [])].completions.append(done)
+        waiting[metric.kind] = metric
+        done()
         guard !isSyncing else { return }
         isSyncing = true
         Task {
@@ -97,16 +97,15 @@ final class HealthSync {
 
     /// One small sync per waiting metric; every completion is called, success or not, so iOS keeps delivering.
     private func runWaiting() async {
-        while let (kind, entry) = waiting.first {
+        while let (kind, metric) = waiting.first {
             waiting[kind] = nil
-            if let api = api(), settings.readGroups.contains(entry.metric.group) {
-                if let totals = try? await engine.syncOne(entry.metric, depth: settings.saved.importDepth, api: api),
+            if let api = api(), settings.readGroups.contains(metric.group) {
+                if let totals = try? await engine.syncOne(metric, depth: settings.saved.importDepth, api: api),
                    totals.changedSomething {
                     changes += 1
                 }
                 lastSyncedAt = .now
             }
-            entry.completions.forEach { $0() }
         }
     }
 }

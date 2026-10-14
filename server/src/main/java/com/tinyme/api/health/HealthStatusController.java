@@ -4,6 +4,7 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 import com.tinyme.domain.health.model.HealthGroup;
 import com.tinyme.domain.health.repository.HealthEntryRepository;
 import com.tinyme.domain.health.repository.HealthSettingsRepository;
+import com.tinyme.domain.health.repository.HealthSyncEpochRepository;
 import com.tinyme.domain.health.service.HealthDisconnect;
 import com.tinyme.maintenance.MaintenanceGate;
 import org.springframework.http.HttpStatus;
@@ -27,14 +28,17 @@ public class HealthStatusController {
 
     private final HealthSettingsRepository settings;
     private final HealthEntryRepository entries;
+    private final HealthSyncEpochRepository syncEpoch;
     private final HealthDisconnect disconnect;
     private final MaintenanceGate gate;
     private final Clock clock;
 
     public HealthStatusController(HealthSettingsRepository settings, HealthEntryRepository entries,
+                                  HealthSyncEpochRepository syncEpoch,
                                   HealthDisconnect disconnect, MaintenanceGate gate, Clock clock) {
         this.settings = settings;
         this.entries = entries;
+        this.syncEpoch = syncEpoch;
         this.disconnect = disconnect;
         this.gate = gate;
         this.clock = clock;
@@ -43,7 +47,7 @@ public class HealthStatusController {
     @GetMapping("/status")
     public StatusBody status() {
         var stored = settings.load();
-        return new StatusBody(stored.groups().stream().map(HealthGroup::key).toList(), false,
+        return new StatusBody(stored.groups().stream().map(HealthGroup::key).toList(), false, syncEpoch.current(),
                 entries.syncLog().stream().map(row -> new KindStatus(row.kind(), row.lastSyncAt(), row.lastDay(),
                         row.itemsTotal())).toList());
     }
@@ -65,6 +69,7 @@ public class HealthStatusController {
     public record ConfirmBody(String confirm) { }
 
     public record StatusBody(List<String> groups, @JsonProperty("write_enabled") boolean writeEnabled,
+                             @JsonProperty("sync_epoch") long syncEpoch,
                              List<KindStatus> kinds) { }
 
     public record KindStatus(String kind, @JsonProperty("last_sync_at") Instant lastSyncAt,
