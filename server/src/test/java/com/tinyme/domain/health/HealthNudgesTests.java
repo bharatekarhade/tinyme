@@ -32,7 +32,9 @@ class HealthNudgesTests {
 
     @AfterEach
     void clean() {
-        jdbc.update("DELETE FROM entries WHERE kind IN ('steps', 'sleep', 'workout', 'weight')");
+        jdbc.update("DELETE FROM entries WHERE kind IN ('steps', 'sleep', 'workout', 'gym', 'weight')");
+        jdbc.update("UPDATE entry_kinds SET merged_into = NULL WHERE kind = 'gym'");
+        jdbc.update("DELETE FROM entry_kinds WHERE kind = 'gym'");
         jdbc.update("DELETE FROM plans WHERE title LIKE 'nudge-test%'");
         jdbc.update("DELETE FROM cards WHERE slug LIKE 'nudge-test%'");
         jdbc.update("DELETE FROM nudge_log");
@@ -79,6 +81,17 @@ class HealthNudgesTests {
         assertThat(nudge.key()).isEqualTo("no_workout_streak");
         assertThat(nudge.text()).isEqualTo("no workout since Friday (5 days); nudge-test gym is planned today at 19:30;"
                 + " ask if it's still on or a rest day");
+    }
+
+    @Test
+    void workoutNudgeSeesEntriesStoredUnderAMergedKind() {
+        connect("{workouts}", "{}");
+        jdbc.update("INSERT INTO entry_kinds (kind, merged_into) VALUES ('gym', 'workout')");
+        entry("gym", TODAY.minusDays(5), 1);
+        habitPlan("nudge-test gym", TODAY, "19:30");
+
+        assertThat(nudges.pick(TOKYO, NOW).orElseThrow().text())
+                .contains("no workout since Friday (5 days)");
     }
 
     @Test

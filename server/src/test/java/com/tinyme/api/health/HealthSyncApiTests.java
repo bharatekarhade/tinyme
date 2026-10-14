@@ -44,6 +44,7 @@ class HealthSyncApiTests {
     @Autowired JdbcTemplate jdbc;
     @Autowired DeviceTokenService tokens;
     @Autowired MaintenanceGate gate;
+    @Autowired com.tinyme.domain.health.repository.HealthSyncEpochRepository syncEpoch;
 
     private static final String STEPS = """
             {"external_id":"steps:2026-10-14","kind":"steps","local_day":"2026-10-14",
@@ -58,6 +59,8 @@ class HealthSyncApiTests {
         jdbc.update("DELETE FROM entries WHERE source = 'health'");
         jdbc.update("DELETE FROM health_sync_log");
         jdbc.update("UPDATE entry_kinds SET use_count = 0 WHERE kind IN ('steps', 'workout', 'sleep')");
+        jdbc.update("UPDATE entry_kinds SET merged_into = NULL WHERE kind = 'gym'");
+        jdbc.update("DELETE FROM entry_kinds WHERE kind = 'gym'");
     }
 
     @Test
@@ -275,6 +278,33 @@ class HealthSyncApiTests {
     }
 
     @Test
+    void deletingAHealthWorkoutRestoresTheChatWorkoutItHadMerged() throws Exception {
+        try {
+            jdbc.update("INSERT INTO entry_kinds (kind, merged_into) VALUES ('gym', 'workout')");
+            chatWorkout("2026-10-14T01:50:00Z", "2026-10-14", "push day", "push day, felt strong", "gym");
+            sync(batch(WORKOUT, "")).andExpect(jsonPath("$.merged").value(1));
+            assertThat(jdbc.queryForObject("SELECT count(*) FROM entries WHERE source = 'chat' AND kind = 'gym' "
+                    + "AND deleted_at IS NULL", Long.class)).isZero();
+
+            sync(batch("", "\"3F2A-WORKOUT\"")).andExpect(status().isOk()).andExpect(jsonPath("$.deleted").value(1));
+
+            assertThat(jdbc.queryForObject("SELECT count(*) FROM entries WHERE source = 'chat' AND kind = 'gym' "
+                    + "AND deleted_at IS NULL AND text = 'push day, felt strong'", Long.class)).isEqualTo(1);
+        } finally {
+            jdbc.update("DELETE FROM entries WHERE source = 'chat' AND kind = 'gym'");
+        }
+    }
+
+    @Test
+    void healthStatusExposesTheDurableSyncEpoch() throws Exception {
+        long before = syncEpoch.current();
+        long bumped = syncEpoch.bump();
+        assertThat(bumped).isEqualTo(before + 1);
+        mvc.perform(get("/health/status").header("Authorization", "Bearer " + tokens.issue("health-sync-tests").token()))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.sync_epoch").value(bumped));
+    }
+
+    @Test
     void statusSaysWhatIsStoredPerKind() throws Exception {
         jdbc.update("INSERT INTO health_settings (groups) VALUES ('{activity,workouts}')");
         try {
@@ -283,6 +313,7 @@ class HealthSyncApiTests {
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$.groups[0]").value("activity"))
                     .andExpect(jsonPath("$.write_enabled").value(false))
+                    .andExpect(jsonPath("$.sync_epoch").isNumber())
                     .andExpect(jsonPath("$.kinds[?(@.kind == 'steps')].items_total").value(1))
                     .andExpect(jsonPath("$.kinds[?(@.kind == 'steps')].last_day").value("2026-10-14"))
                     .andExpect(jsonPath("$.kinds[?(@.kind == 'steps')].last_sync_at").value(NOW.toString()));
@@ -294,6 +325,7 @@ class HealthSyncApiTests {
     @Test
     void disconnectRemovesWhatHealthMadeAndGivesBackYourWorkout() throws Exception {
         jdbc.update("INSERT INTO health_settings (groups, nudges_off) VALUES ('{activity,workouts}', '{sleep}')");
+        long epochBefore = syncEpoch.current();
         try {
             chatWorkout("2026-10-14T01:50:00Z", "2026-10-14", "push day", "push day, felt strong");
             jdbc.update("""
@@ -307,6 +339,7 @@ class HealthSyncApiTests {
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$.removed").value(2))
                     .andExpect(jsonPath("$.restored_chat_workouts").value(1));
+            assertThat(syncEpoch.current()).isEqualTo(epochBefore + 1);
 
             assertThat(jdbc.queryForObject("SELECT count(*) FROM entries WHERE source = 'health' AND deleted_at IS NULL",
                     Long.class)).isZero();
@@ -331,10 +364,14 @@ class HealthSyncApiTests {
     }
 
     private void chatWorkout(String ts, String day, String type, String text) {
+        chatWorkout(ts, day, type, text, "workout");
+    }
+
+    private void chatWorkout(String ts, String day, String type, String text, String kind) {
         jdbc.update("""
                 INSERT INTO entries (ts, local_day, kind, quantity, text, data, source)
-                VALUES (CAST(? AS timestamptz), CAST(? AS date), 'workout', 1, ?, CAST(? AS jsonb), 'chat')
-                """, ts, day, text, "{\"type\":\"" + type + "\"}");
+                VALUES (CAST(? AS timestamptz), CAST(? AS date), ?, 1, ?, CAST(? AS jsonb), 'chat')
+                """, ts, day, kind, text, "{\"type\":\"" + type + "\"}");
     }
 
     private ResultActions sync(String body) throws Exception {

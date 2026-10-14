@@ -30,7 +30,9 @@ class HealthContextTests {
 
     @AfterEach
     void clean() {
-        jdbc.update("DELETE FROM entries WHERE kind IN ('steps', 'sleep', 'workout', 'weight', 'resting_hr')");
+        jdbc.update("DELETE FROM entries WHERE kind IN ('steps', 'sleep', 'workout', 'gym', 'weight', 'resting_hr')");
+        jdbc.update("UPDATE entry_kinds SET merged_into = NULL WHERE kind = 'gym'");
+        jdbc.update("DELETE FROM entry_kinds WHERE kind = 'gym'");
         jdbc.update("DELETE FROM health_settings");
     }
 
@@ -65,6 +67,15 @@ class HealthContextTests {
         entry("resting_hr", "2026-10-09", 60, "{\"bpm\":60}", "health");           // 5 days old: left out
 
         assertThat(context.line(TOKYO, NOW)).isEqualTo("health: connected sleep_heart · slept 7.2 h the night before");
+    }
+
+    @Test
+    void workoutContextIncludesStoredKindsMergedIntoWorkout() {
+        jdbc.update("INSERT INTO entry_kinds (kind, merged_into) VALUES ('gym', 'workout')");
+        jdbc.update("INSERT INTO health_settings (groups) VALUES ('{workouts}')");
+        entry("gym", "2026-10-13", 1, "{\"type\":\"strength training\",\"minutes\":45}", "chat");
+
+        assertThat(context.line(TOKYO, NOW)).isEqualTo("health: connected workouts · last workout yesterday 45 min (strength training)");
     }
 
     private void entry(String kind, String day, double quantity, String data, String source) {

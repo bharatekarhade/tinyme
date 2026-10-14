@@ -3,6 +3,7 @@ package com.tinyme.domain.health.service;
 import com.tinyme.domain.health.model.HealthSettings;
 import com.tinyme.domain.health.repository.HealthEntryRepository;
 import com.tinyme.domain.health.repository.HealthSettingsRepository;
+import com.tinyme.domain.health.repository.HealthSyncEpochRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -24,10 +25,13 @@ public class HealthDisconnect {
 
     private final HealthEntryRepository entries;
     private final HealthSettingsRepository settings;
+    private final HealthSyncEpochRepository syncEpoch;
 
-    public HealthDisconnect(HealthEntryRepository entries, HealthSettingsRepository settings) {
+    public HealthDisconnect(HealthEntryRepository entries, HealthSettingsRepository settings,
+                            HealthSyncEpochRepository syncEpoch) {
         this.entries = entries;
         this.settings = settings;
+        this.syncEpoch = syncEpoch;
     }
 
     @Transactional
@@ -36,6 +40,7 @@ public class HealthDisconnect {
         int restored = entries.restoreMergedChatEntries();
         int removed = entries.softDeleteAll(now);
         entries.clearSyncLog();
+        syncEpoch.bump();
         var current = settings.load();
         settings.save(new HealthSettings(Set.of(), false, current.nudgesOff()), now);
         log.info("Health disconnected: removed={} restored_chat_workouts={}", removed, restored);

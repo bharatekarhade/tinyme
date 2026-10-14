@@ -15,6 +15,7 @@ struct HealthUploader: Sendable {
 
     func send(items: [HealthUploadItem], deleted: [String]) async throws -> Totals {
         var totals = Totals()
+        guard !items.isEmpty || !deleted.isEmpty else { return totals }
         var start = 0
         var deletesLeft = deleted
         repeat {

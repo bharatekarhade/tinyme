@@ -87,8 +87,9 @@ public class HealthSyncService {
                 upserted++;
             }
         }
-        List<String> deletedKinds = entries.softDelete(deleted, now);
-        touchedKinds.addAll(deletedKinds);
+        List<HealthEntryRepository.DeletedHealth> deletedEntries = entries.softDelete(deleted, now);
+        touchedKinds.addAll(deletedEntries.stream().map(HealthEntryRepository.DeletedHealth::kind).toList());
+        entries.restoreMergedChatEntries(deletedEntries.stream().map(HealthEntryRepository.DeletedHealth::id).toList());
 
         int merged = mergeChatWorkouts(zone, now);
 
@@ -97,8 +98,8 @@ public class HealthSyncService {
         Map<String, Integer> perKind = new TreeMap<>();
         items.forEach(item -> perKind.merge(item.kind(), 1, Integer::sum));
         log.info("Health sync: items={} upserted={} unchanged={} deleted={} merged={} per_kind={}",
-                items.size(), upserted, unchanged, deletedKinds.size(), merged, perKind);
-        return new HealthSyncResult(upserted, unchanged, deletedKinds.size(), merged);
+                items.size(), upserted, unchanged, deletedEntries.size(), merged, perKind);
+        return new HealthSyncResult(upserted, unchanged, deletedEntries.size(), merged);
     }
 
     /**
@@ -106,8 +107,12 @@ public class HealthSyncService {
      * the last 30 days, so it works whichever arrived first, and for pairs from before this existed.
      */
     private int mergeChatWorkouts(ZoneId zone, Instant now) {
-        String workout = entryKinds.resolveExisting("workout").orElse("workout");
-        var pairs = entries.workoutMergePairs(workout, LocalDate.ofInstant(now, zone).minusDays(MERGE_DAYS));
+        Map<String, String> resolutions = entryKinds.resolveAll();
+        String workout = resolutions.getOrDefault("workout", "workout");
+        List<String> workoutKinds = new ArrayList<>(resolutions.entrySet().stream()
+                .filter(entry -> entry.getValue().equals(workout)).map(Map.Entry::getKey).toList());
+        if (!workoutKinds.contains(workout)) workoutKinds.add(workout);
+        var pairs = entries.workoutMergePairs(workoutKinds, LocalDate.ofInstant(now, zone).minusDays(MERGE_DAYS));
         pairs.forEach(pair -> entries.merge(pair, now));
         return pairs.size();
     }

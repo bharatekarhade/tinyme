@@ -42,7 +42,13 @@ struct HealthStatusDTO: Decodable, Sendable, Equatable {
     }
 
     let groups: [String]
+    let syncEpoch: Int64
     let kinds: [Kind]
+
+    private enum CodingKeys: String, CodingKey {
+        case groups, kinds
+        case syncEpoch = "sync_epoch"
+    }
 }
 
 struct HealthDisconnectBody: Encodable, Sendable {

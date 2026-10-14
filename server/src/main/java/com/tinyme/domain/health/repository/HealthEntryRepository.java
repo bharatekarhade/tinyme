@@ -68,14 +68,17 @@ public class HealthEntryRepository {
                 """, params(item, kind, data).addValue("id", id));
     }
 
-    /** Soft-deletes the live Health entries with these ids and returns the kind of each one deleted. */
-    public List<String> softDelete(Collection<String> externalIds, Instant now) {
+    public record DeletedHealth(UUID id, String kind) { }
+
+    /** Soft-deletes the live Health entries with these ids and returns their database IDs and kinds. */
+    public List<DeletedHealth> softDelete(Collection<String> externalIds, Instant now) {
         if (externalIds.isEmpty()) return List.of();
-        return jdbc.queryForList("""
+        return jdbc.query("""
                 UPDATE entries SET deleted_at = :now
                 WHERE source = 'health' AND deleted_at IS NULL AND external_id IN (:ids)
-                RETURNING kind
-                """, new MapSqlParameterSource("ids", externalIds).addValue("now", Timestamp.from(now)), String.class);
+                RETURNING id, kind
+                """, new MapSqlParameterSource("ids", externalIds).addValue("now", Timestamp.from(now)),
+                (rs, row) -> new DeletedHealth(rs.getObject("id", UUID.class), rs.getString("kind")));
     }
 
     public record MergePair(UUID healthId, UUID chatId, String chatText, String chatType, String chatNote) { }
@@ -84,7 +87,8 @@ public class HealthEntryRepository {
      * Chat workouts that are the same session as a Health workout: same day, logged from 3 h before it started
      * to 3 h after it ended. Nearest first, each Health workout at most once (one already merged is skipped).
      */
-    public List<MergePair> workoutMergePairs(String workoutKind, LocalDate since) {
+    public List<MergePair> workoutMergePairs(Collection<String> workoutKinds, LocalDate since) {
+        if (workoutKinds.isEmpty()) return List.of();
         List<MergePair> pairs = new java.util.ArrayList<>();
         java.util.Set<UUID> usedHealth = new java.util.HashSet<>();
         java.util.Set<UUID> usedChat = new java.util.HashSet<>();
@@ -92,14 +96,14 @@ public class HealthEntryRepository {
                 SELECT h.id AS health_id, c.id AS chat_id, c.text AS chat_text,
                        c.data ->> 'type' AS chat_type, c.data ->> 'note' AS chat_note
                 FROM entries h
-                JOIN entries c ON c.kind = h.kind AND c.local_day = h.local_day
-                WHERE h.source = 'health' AND h.kind = :kind AND h.deleted_at IS NULL AND h.local_day >= :since
+                JOIN entries c ON c.kind IN (:kinds) AND c.local_day = h.local_day
+                WHERE h.source = 'health' AND h.kind IN (:kinds) AND h.deleted_at IS NULL AND h.local_day >= :since
                   AND h.data -> 'merged_from' IS NULL
                   AND c.source <> 'health' AND c.deleted_at IS NULL
                   AND c.ts BETWEEN h.ts - interval '3 hours'
                       AND h.ts + make_interval(mins => COALESCE((h.data ->> 'minutes')::numeric, 0)::int) + interval '3 hours'
                 ORDER BY abs(extract(epoch FROM c.ts - h.ts)), h.id, c.id
-                """, new MapSqlParameterSource("kind", workoutKind).addValue("since", since), rs -> {
+                """, new MapSqlParameterSource("kinds", workoutKinds).addValue("since", since), rs -> {
             UUID health = rs.getObject("health_id", UUID.class);
             UUID chat = rs.getObject("chat_id", UUID.class);
             if (usedHealth.contains(health) || usedChat.contains(chat)) return;
@@ -143,6 +147,17 @@ public class HealthEntryRepository {
                 WHERE h.source = 'health' AND h.deleted_at IS NULL AND h.data ->> 'merged_from' = c.id::text
                   AND c.source <> 'health' AND c.deleted_at IS NOT NULL
                 """, Map.of());
+    }
+
+    /** Restores only chat workouts absorbed by the Health rows that this sync just deleted. */
+    public int restoreMergedChatEntries(Collection<UUID> deletedHealthIds) {
+        if (deletedHealthIds.isEmpty()) return 0;
+        return jdbc.update("""
+                UPDATE entries c SET deleted_at = NULL
+                FROM entries h
+                WHERE h.id IN (:healthIds) AND h.data ->> 'merged_from' = c.id::text
+                  AND c.source <> 'health' AND c.deleted_at IS NOT NULL
+                """, Map.of("healthIds", deletedHealthIds));
     }
 
     public int softDeleteAll(Instant now) {
