@@ -134,6 +134,8 @@ struct HomeView: View {
                 }
             }
             .scrollIndicators(.hidden)
+            // Leave the last card clear of the floating tab bar and its chat button.
+            .contentMargins(.bottom, 88, for: .scrollContent)
             .onScrollGeometryChange(for: CGFloat.self) { $0.contentOffset.y + $0.contentInsets.top } action: { _, offset in
                 scrollOffset = offset
             }

@@ -1,4 +1,5 @@
 import SwiftUI
+import Lottie
 
 /// The colours a card's blocks draw with, decided by the card's `tone` and `accent`.
 struct CardStyle: Sendable {
@@ -96,8 +97,7 @@ struct CardView: View {
                 onOpen?(CardTap())
             } label: {
                 HStack(spacing: Space.s3) {
-                    Image(systemName: Self.symbol(for: card.icon))
-                        .font(.system(size: 17))
+                    AnimatedCardIcon(icon: card.icon, animated: !isPreview)
                         .frame(width: 36, height: 36)
                         .background(style.tile, in: RoundedRectangle(cornerRadius: Radius.sm, style: .continuous))
                         .accessibilityHidden(true)
@@ -207,6 +207,99 @@ struct CardView: View {
         case "star": "star"
         case "chart": "chart.bar"
         default: "square.grid.2x2"
+        }
+    }
+}
+
+/// Small, card-specific motion. It stays inside the icon tile and rests for previews
+/// or when the user has Reduce Motion enabled.
+private struct AnimatedCardIcon: View {
+    let icon: String
+    let animated: Bool
+
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var heartScale: CGFloat = 1
+    @State private var zIsFloating = false
+
+    private var motionEnabled: Bool { animated && !reduceMotion }
+
+    var body: some View {
+        ZStack(alignment: .topTrailing) {
+            symbol
+                .font(.system(size: 17, weight: .regular))
+                .scaleEffect(icon == "heart" ? heartScale : 1)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+
+            if icon == "bed", motionEnabled {
+                VStack(spacing: -5) {
+                    Text("z").font(.system(size: 8, weight: .bold, design: .rounded))
+                    Text("z").font(.system(size: 6, weight: .bold, design: .rounded))
+                }
+                .foregroundStyle(Palette.brandStrong)
+                .opacity(zIsFloating ? 0 : 0.9)
+                .offset(x: zIsFloating ? 3 : 0, y: zIsFloating ? -9 : 0)
+                .animation(.easeOut(duration: 1.1), value: zIsFloating)
+                .padding(.top, 3)
+                .padding(.trailing, 3)
+            }
+        }
+        .accessibilityHidden(true)
+        .task(id: motionEnabled) {
+            guard motionEnabled else {
+                heartScale = 1
+                zIsFloating = false
+                return
+            }
+            switch icon {
+            case "heart": await beatHeart()
+            case "bed": await floatSleepMarks()
+            default: break
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var symbol: some View {
+        switch icon {
+        case "journal": lottieIcon("JournalPageFlip")
+        case "heart": Image(systemName: "heart")
+        default: Image(systemName: CardView.symbol(for: icon))
+        }
+    }
+
+    private func lottieIcon(_ name: String) -> some View {
+        LottieView(animation: .named(name))
+            .playbackMode(motionEnabled
+                ? .playing(.fromProgress(0, toProgress: 1, loopMode: .loop))
+                : .paused)
+            .animationSpeed(0.75)
+            .frame(width: 25, height: 25)
+    }
+
+    @MainActor
+    private func beatHeart() async {
+        while !Task.isCancelled {
+            try? await Task.sleep(for: .seconds(2.6))
+            guard !Task.isCancelled else { return }
+            withAnimation(.easeInOut(duration: 0.12)) { heartScale = 1.13 }
+            try? await Task.sleep(for: .milliseconds(140))
+            withAnimation(.easeInOut(duration: 0.12)) { heartScale = 0.98 }
+            try? await Task.sleep(for: .milliseconds(120))
+            withAnimation(.easeInOut(duration: 0.12)) { heartScale = 1.08 }
+            try? await Task.sleep(for: .milliseconds(140))
+            withAnimation(.easeInOut(duration: 0.18)) { heartScale = 1 }
+        }
+    }
+
+    @MainActor
+    private func floatSleepMarks() async {
+        while !Task.isCancelled {
+            try? await Task.sleep(for: .seconds(1.4))
+            guard !Task.isCancelled else { return }
+            zIsFloating = true
+            try? await Task.sleep(for: .seconds(1.15))
+            zIsFloating = false
+            try? await Task.sleep(for: .seconds(2.4))
         }
     }
 }

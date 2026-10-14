@@ -108,9 +108,12 @@ struct AverageDay: Decodable, Sendable, Hashable {
     let baseline: Double?
     let currentPerDay: Double?
     let deltaPct: Double?
+    let basis: String?
+
+    var averageLabel: String { basis == "night" ? "night" : "day" }
 
     private enum CodingKeys: String, CodingKey {
-        case baseline
+        case baseline, basis
         case currentPerDay = "current_per_day"
         case deltaPct = "delta_pct"
     }

@@ -18,7 +18,9 @@ struct BlockView: View {
             StatBlockView(
                 label: stat.label, unit: stat.unit, value: stat.value, goal: stat.goal, entries: stat.entries,
                 period: period, previous: showsChange ? stat.previous : nil, deltaPct: showsChange ? stat.deltaPct : nil,
-                average: average, perDay: stat.averageDay?.currentPerDay, onOpen: onTap.map { tap in { tap(.block) } }
+                average: average, perDay: stat.averageDay?.currentPerDay,
+                averageBasis: stat.averageDay?.averageLabel ?? "day",
+                onOpen: onTap.map { tap in { tap(.block) } }
             )
         case .progress(let progress):
             if progress.goal == nil {
@@ -115,9 +117,9 @@ extension BlockView {
 }
 
 extension AverageDay {
-    /// "↑ 15% vs your usual day": the usual day is the average of the 30 days before this period.
+    /// "↑ 15% vs your usual day/night": the prior daily baseline, or the prior logged-night baseline for sleep.
     var text: String? {
-        deltaPct.map { Formatters.change($0, versus: "your usual day") }
+        deltaPct.map { Formatters.change($0, versus: "your usual \(averageLabel)") }
     }
 }
 
@@ -188,6 +190,7 @@ struct StatBlockView: View {
     var average: AverageDay?
     /// The total spread over the days of the period so far. Nil for numbers that can't be averaged this way.
     var perDay: Double?
+    var averageBasis = "day"
     /// Opens the entries behind the number. Nil: not tappable.
     var onOpen: (() -> Void)?
 
@@ -253,7 +256,7 @@ struct StatBlockView: View {
         .accessibilityAction { onOpen?() }
         .accessibilityActions {
             if canAverage {
-                Button(showsAverage ? "Show total" : "Show average per day") { wantsAverage.toggle() }
+                Button(showsAverage ? "Show total" : "Show average per \(averageBasis)") { wantsAverage.toggle() }
             }
         }
     }
@@ -272,6 +275,7 @@ struct StatBlockView: View {
                 .contentShape(Rectangle())
         }
         .buttonStyle(.pressable)
+        .accessibilityLabel(showsAverage ? "Show total" : "Show average per \(averageBasis)")
     }
 
     private var isOver: Bool {
@@ -297,7 +301,7 @@ struct StatBlockView: View {
             parts.insert(unit, at: 0)
         }
         if showsAverage {
-            return (["avg per day"] + parts).joined(separator: " · ")
+            return (["avg per \(averageBasis)"] + parts).joined(separator: " · ")
         }
         // A stat's goal is a limit (calories, budget): say what's left, or how far over.
         if let goal, let value {
@@ -650,6 +654,9 @@ struct ChartBlockView: View {
                 .overlay {
                     if isSelected { Circle().stroke(style.foreground.opacity(0.35), lineWidth: 2).padding(-4) }
                 }
+                .overlay {
+                    if isCurrent { ChartPulse(color: style.accent) }
+                }
             Text(dotLabel(index: index, day: point.period))
                 .textStyle(.caption, weight: isCurrent ? .bold : .medium)
                 .foregroundStyle(isCurrent ? style.foreground : style.muted)
@@ -700,6 +707,9 @@ struct ChartBlockView: View {
                             .fill(point.state == "current" ? style.pillBackground : style.accent)
                             .frame(width: selected == item.index ? 13 : 9, height: selected == item.index ? 13 : 9)
                             .overlay(Circle().stroke(style.accent, lineWidth: point.state == "current" ? 2 : 0))
+                            .overlay {
+                                if point.state == "current" { ChartPulse(color: style.accent) }
+                            }
                             .position(item.point)
                     }
                     HStack(alignment: .bottom, spacing: 0) {
@@ -825,6 +835,9 @@ struct ChartBlockView: View {
             }
             .frame(maxWidth: 34)
             .frame(height: shown ? fullHeight : 3)
+            .overlay(alignment: .top) {
+                if isCurrent { ChartPulse(color: style.accent) }
+            }
             Text(label.isEmpty ? " " : label)
                 .textStyle(.caption, weight: .semibold)
                 .fixedSize()
@@ -898,6 +911,35 @@ struct ChartBlockView: View {
     private var summary: String {
         let total = block.points.compactMap(\.value).reduce(0, +)
         return "\(block.label): \(Formatters.number(total)) in total over \(block.points.count) periods"
+    }
+}
+
+/// A quiet heartbeat at the live edge of a chart. Past periods stay still, and
+/// Reduce Motion leaves only the steady center point.
+private struct ChartPulse: View {
+    let color: Color
+
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var isBreathing = false
+
+    var body: some View {
+        ZStack {
+            Circle()
+                .stroke(color.opacity(isBreathing ? 0 : 0.58), lineWidth: 1.5)
+                .scaleEffect(isBreathing ? 1.8 : 0.65)
+            Circle()
+                .fill(color)
+                .frame(width: 6, height: 6)
+        }
+        .frame(width: 18, height: 18)
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
+        .onAppear {
+            guard !reduceMotion else { return }
+            withAnimation(.easeOut(duration: 1.35).repeatForever(autoreverses: false)) {
+                isBreathing = true
+            }
+        }
     }
 }
 

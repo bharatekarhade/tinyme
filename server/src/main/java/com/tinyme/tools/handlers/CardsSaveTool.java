@@ -128,6 +128,7 @@ public class CardsSaveTool implements ToolHandler {
             comparison.put("baseline", averageDay.baseline());
             comparison.put("current_per_day", averageDay.currentPerDay());
             if (averageDay.deltaPct() != null) comparison.put("delta_pct", averageDay.deltaPct());
+            comparison.put("basis", averageDay.basis());
             item.put("average_day", comparison);
         }
         return item;

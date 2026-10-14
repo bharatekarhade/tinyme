@@ -303,6 +303,7 @@ public class CardEvaluator {
         try {
             LocalDate baselineTo = dates.from().minusDays(1);
             LocalDate baselineFrom = baselineTo.minusDays(29);
+            boolean perLoggedNight = isSleepHours(metric);
             AggregateResult baselineResult = aggregate(metric, new DateRange(baselineFrom, baselineTo), GroupBy.DAY);
             boolean hasHistory = baselineResult.buckets().stream().anyMatch(bucket -> bucket.entries() > 0);
             if (dates.from().isAfter(actualToday)) return null;
@@ -310,25 +311,42 @@ public class CardEvaluator {
             LocalDate observedTo = dates.to().isAfter(actualToday) ? actualToday : dates.to();
             long observedDays = ChronoUnit.DAYS.between(dates.from(), observedTo) + 1;
             if (observedDays <= 0 || currentValue == null) return null;
-            BigDecimal currentPerDay = currentValue.divide(BigDecimal.valueOf(observedDays), 2, RoundingMode.HALF_UP);
+            AggregateResult currentDaily = perLoggedNight ? aggregate(metric, dates, GroupBy.DAY) : null;
+            long currentDays = perLoggedNight ? currentDaily.buckets().stream().filter(bucket -> bucket.entries() > 0).count()
+                    : observedDays;
+            if (currentDays == 0) return null;
+            BigDecimal currentPerDay = perLoggedNight
+                    ? dailyTotal(currentDaily).divide(BigDecimal.valueOf(currentDays), 2, RoundingMode.HALF_UP)
+                    : currentValue.divide(BigDecimal.valueOf(currentDays), 2, RoundingMode.HALF_UP);
             // Nothing earlier to compare with: the per-day figure still stands on its own.
-            if (!hasHistory) return new AverageDayView(null, currentPerDay, null);
+            String basis = perLoggedNight ? "night" : "day";
+            if (!hasHistory) return new AverageDayView(null, currentPerDay, null, basis);
 
-            BigDecimal baselineTotal = baselineResult.buckets().stream().map(bucket -> bucket.value() == null
-                            ? BigDecimal.ZERO : bucket.value())
-                    .reduce(BigDecimal.ZERO, BigDecimal::add);
-            // Average over the days since tracking began (at most 30), not a flat 30:
-            // otherwise a new tracker's few days are diluted and every comparison reads as +1000%.
+            BigDecimal baselineTotal = dailyTotal(baselineResult);
+            // General totals use calendar days since tracking began, not a flat 30; sleep uses
+            // only nights with data so a missing night doesn't become zero hours of sleep.
             LocalDate firstDay = baselineResult.buckets().stream().filter(bucket -> bucket.entries() > 0)
                     .map(Bucket::period).min(LocalDate::compareTo).orElse(baselineFrom);
-            long baselineDays = Math.max(1, ChronoUnit.DAYS.between(firstDay, baselineTo) + 1);
+            long baselineDays = perLoggedNight
+                    ? baselineResult.buckets().stream().filter(bucket -> bucket.entries() > 0).count()
+                    : Math.max(1, ChronoUnit.DAYS.between(firstDay, baselineTo) + 1);
             BigDecimal baseline = baselineTotal.divide(BigDecimal.valueOf(baselineDays), 2, RoundingMode.HALF_UP);
-            return new AverageDayView(baseline, currentPerDay, percentChangePrecise(currentPerDay, baseline));
+            return new AverageDayView(baseline, currentPerDay, percentChangePrecise(currentPerDay, baseline), basis);
         } catch (RuntimeException error) {
             log.warn("Card average-day comparison unavailable: kinds={}, from={}, to={}", metric.kinds(),
                     dates.from(), dates.to(), error);
             return null;
         }
+    }
+
+    private boolean isSleepHours(MetricSpec metric) {
+        return metric.op() == AggregateMetric.SUM && "hours".equals(metric.field())
+                && metric.kinds().contains("sleep");
+    }
+
+    private BigDecimal dailyTotal(AggregateResult result) {
+        return result.buckets().stream().map(bucket -> bucket.value() == null ? BigDecimal.ZERO : bucket.value())
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
     }
 
     /** The journaling streak as of today, whatever period Home is showing. Null if it can't be worked out. */

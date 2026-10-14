@@ -167,6 +167,30 @@ class CardEvaluatorIntegrationTests {
     }
 
     @Test
+    void sleepAverageUsesLoggedNightsAndCombinesSameNightRows() {
+        add("sleep", LocalDate.of(2026, 9, 20), LocalTime.NOON, Map.of("hours", 8));
+        add("sleep", LocalDate.of(2026, 10, 1), LocalTime.NOON, Map.of("hours", 6));
+        add("sleep", LocalDate.of(2026, 10, 5), LocalTime.NOON, Map.of("hours", 7));
+        // A manual addition and Health data on the same night are one night's total, not two nights.
+        add("sleep", WEDNESDAY, LocalTime.of(7, 0), Map.of("hours", 2));
+        add("sleep", WEDNESDAY, LocalTime.of(8, 0), Map.of("hours", 5));
+        var card = saveExample("sleep-average", """
+                {"v":1,"title":"Sleep average","icon":"bed","accent":"mint","tone":"surface","blocks":[
+                  {"type":"stat","label":"sleep","metric":{"kinds":["sleep"],"op":"sum","field":"hours"},
+                   "period":"range"}
+                ]}
+                """);
+
+        var stat = (StatView) evaluator.evaluate(card, Range.WEEK, WEDNESDAY).blocks().getFirst();
+
+        assertThat(stat.value()).isEqualByComparingTo("14");
+        assertThat(stat.entries()).isEqualTo(3);
+        assertThat(stat.averageDay().baseline()).isEqualByComparingTo("7.00");
+        assertThat(stat.averageDay().currentPerDay()).isEqualByComparingTo("7.00");
+        assertThat(stat.averageDay().deltaPct()).isEqualByComparingTo("0.00");
+    }
+
+    @Test
     void historicalWeekMonthAndYearChartsKeepTheirRecordedBarsVisible() {
         LocalDate previousWeek = LocalDate.of(2026, 9, 28);
         LocalDate previousMonth = LocalDate.of(2026, 9, 1);
