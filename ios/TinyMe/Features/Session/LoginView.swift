@@ -228,21 +228,6 @@ struct LoginView: View {
     }
 }
 
-/// TinyMe's face: a mint disc with two eyes. Also the chat avatar.
-struct TinyMeFace: View {
-    var size: CGFloat
-
-    var body: some View {
-        HStack(spacing: size * 0.16) {
-            Capsule().frame(width: size * 0.125, height: size * 0.19)
-            Capsule().frame(width: size * 0.125, height: size * 0.19)
-        }
-        .foregroundStyle(Palette.onBrand)
-        .frame(width: size, height: size)
-        .background(Palette.brand, in: Circle())
-    }
-}
-
 #Preview("Empty") {
     LoginView(session: SessionModel(authStore: AuthStore(service: "app.tinyme.preview")))
 }

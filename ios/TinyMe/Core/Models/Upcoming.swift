@@ -79,7 +79,8 @@ struct OccurrenceDTO: Decodable, Sendable, Hashable, Identifiable {
             default: "checkmark.circle"
             }
         }
-        return "calendar"
+        if isTask { return "checklist" }
+        return allDay ? "sun.max" : "calendar"
     }
     var clockLabel: String? {
         guard let startTime else { return nil }

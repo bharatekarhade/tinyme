@@ -185,13 +185,13 @@ struct UpcomingView: View {
                     Button { model.select(day) } label: {
                         VStack(spacing: 6) {
                             Text(Self.weekday(day)).font(.system(size: 11, weight: .semibold))
-                                .foregroundStyle(selected ? Palette.onBrand : Palette.inkMuted)
+                                .foregroundStyle(selected ? Palette.brandStrong : Palette.inkMuted)
                             Text("\(day.day)")
                                 .font(.system(size: 16, weight: .semibold))
                                 .foregroundStyle(selected ? Palette.onBrand : Palette.ink)
                                 .frame(width: 38, height: 38)
                                 .background { if selected { Circle().fill(Palette.brand) } }
-                            Circle().fill((summary?.count ?? 0) > 0 ? (selected ? Palette.onBrand : Palette.brandStrong) : .clear)
+                            Circle().fill((summary?.count ?? 0) > 0 ? Palette.brandStrong : .clear)
                                 .frame(width: 4, height: 4)
                         }
                         .frame(maxWidth: .infinity).frame(height: 70)
@@ -214,84 +214,137 @@ struct UpcomingView: View {
         .accessibilityHint("Swipe left or right to change week")
     }
 
-    @ViewBuilder
     private func nextUp(_ item: OccurrenceDTO) -> some View {
-        VStack(alignment: .leading, spacing: Space.s2) {
-            HStack {
-                Label("NEXT UP", systemImage: "sparkle").font(.system(size: 11, weight: .bold)).tracking(1)
-                Spacer()
-                if let start = item.startsAt { Text(start.formatted(.dateTime.hour().minute())).textStyle(.caption, weight: .semibold) }
-            }
-            .foregroundStyle(Palette.onInk.opacity(0.75))
-            HStack {
-                Text(item.title).textStyle(.heading, weight: .semibold).foregroundStyle(Palette.onInk)
-                Spacer()
-                if let place = item.place, !place.isEmpty {
-                    Image(systemName: "mappin.and.ellipse").foregroundStyle(Palette.brand)
+        Button { open(item) } label: {
+            HStack(spacing: 0) {
+                VStack(alignment: .leading, spacing: Space.s2) {
+                    Text(nextUpLabel(item)).textStyle(.label).foregroundStyle(Palette.inkMuted)
+                    HStack(alignment: .center, spacing: Space.s3) {
+                        Image(systemName: item.symbol)
+                            .font(.system(size: 19, weight: .semibold))
+                            .foregroundStyle(Palette.brandStrong)
+                            .frame(width: 44, height: 44)
+                            .background(Palette.brandSoft, in: Circle())
+                        HStack(alignment: .firstTextBaseline, spacing: Space.s3) {
+                            if let time = item.clockLabel {
+                                Text(time)
+                                    .textStyle(.heading, weight: .semibold)
+                                    .monospacedDigit()
+                                    .lineLimit(1)
+                                    .fixedSize()
+                            }
+                            Text(item.title)
+                                .textStyle(.heading, weight: .semibold)
+                                .lineLimit(1)
+                                .truncationMode(.tail)
+                        }
+                        Spacer(minLength: 0)
+                        Image(systemName: "chevron.right")
+                            .font(.system(size: 15, weight: .semibold))
+                            .foregroundStyle(Palette.inkMuted)
+                            .fixedSize()
+                    }
                 }
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
-            if let place = item.place, !place.isEmpty {
-                Text(place).textStyle(.caption).foregroundStyle(Palette.onInk.opacity(0.7))
-            }
+            .padding(Space.s4)
+            .background(Palette.surfaceRaised, in: RoundedRectangle(cornerRadius: Radius.md, style: .continuous))
+            .overlay { RoundedRectangle(cornerRadius: Radius.md, style: .continuous).strokeBorder(Palette.line) }
+            .contentShape(RoundedRectangle(cornerRadius: Radius.md, style: .continuous))
         }
-        .padding(Space.s4)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Palette.ink, in: RoundedRectangle(cornerRadius: Radius.lg, style: .continuous))
+        .buttonStyle(.plain)
+        .accessibilityElement(children: .combine)
+        .accessibilityHint("Shows the details")
     }
 
+    /// "Next up", with the day after it when the next thing isn't today.
+    private func nextUpLabel(_ item: OccurrenceDTO) -> String {
+        let today = model.upcoming?.today ?? .today()
+        if item.day == today { return "Next up" }
+        if item.day == Self.adding(1, to: today) { return "Next up · Tomorrow" }
+        return "Next up · \(item.day.date()?.formatted(.dateTime.weekday(.wide)) ?? item.day.description)"
+    }
+
+    @ViewBuilder
     private var allDayAndTasks: some View {
-        let items = model.allDayItems
-        return Group {
-            if !items.isEmpty {
-                VStack(alignment: .leading, spacing: Space.s2) {
-                    ScrollView(.horizontal) {
-                        HStack(spacing: Space.s2) {
-                            Text("All-day")
-                                .font(.system(size: 11, weight: .semibold))
-                                .foregroundStyle(Palette.inkMuted)
-                                .padding(.horizontal, 10)
-                                .frame(height: 36)
-                                .background(Palette.surfaceRaised, in: Capsule())
-                            ForEach(items) { item in allDayChip(item) }
-                        }
-                        .padding(.vertical, 1)
+        // Today's things first, what was left over from earlier days last.
+        let today = model.upcoming?.today ?? .today()
+        let items = model.allDayItems.filter { $0.day >= today } + model.allDayItems.filter { $0.day < today }
+        if !items.isEmpty {
+            let tasks = items.filter(\.isTask)
+            let left = tasks.filter { !$0.isDone }.count
+            VStack(alignment: .leading, spacing: Space.s3) {
+                HStack {
+                    Text("ALL DAY · TASKS").textStyle(.caption, weight: .semibold).tracking(0.6)
+                    Spacer()
+                    if !tasks.isEmpty {
+                        Text(left == 0 ? "All done" : "\(left) left").textStyle(.caption)
                     }
-                    .scrollIndicators(.hidden)
                 }
+                .foregroundStyle(Palette.inkMuted)
+                .padding(.horizontal, Space.s4)
+                ScrollView(.horizontal) {
+                    HStack(spacing: Space.s2) {
+                        ForEach(items) { item in allDayChip(item) }
+                    }
+                    .padding(.horizontal, Space.s4)
+                }
+                .scrollIndicators(.hidden)
             }
+            .padding(.vertical, Space.s4)
+            .background(Palette.surfaceRaised, in: RoundedRectangle(cornerRadius: Radius.md, style: .continuous))
+            .overlay { RoundedRectangle(cornerRadius: Radius.md, style: .continuous).strokeBorder(Palette.line) }
+            .clipShape(RoundedRectangle(cornerRadius: Radius.md, style: .continuous))
         }
     }
 
     private func allDayChip(_ item: OccurrenceDTO) -> some View {
-        HStack(spacing: 8) {
+        let isOverdue = item.day < (model.upcoming?.today ?? .today()) && !item.isDone
+        return HStack(spacing: 0) {
+            Button { open(item) } label: {
+                HStack(spacing: Space.s2) {
+                    Image(systemName: isOverdue ? "exclamationmark.circle" : item.symbol)
+                        .font(.system(size: 18, weight: .medium))
+                        .foregroundStyle(isOverdue ? Palette.danger : Palette.brandStrong)
+                        .frame(width: 24)
+                    VStack(alignment: .leading, spacing: 2) {
+                        if isOverdue {
+                            Text("From \(Self.shortWeekday(item.day))")
+                                .textStyle(.caption, weight: .semibold)
+                                .foregroundStyle(Palette.danger)
+                        }
+                        Text(item.title)
+                            .textStyle(.label, weight: .semibold)
+                            .lineLimit(1)
+                            .strikethrough(item.isDone)
+                            .foregroundStyle(item.isDone ? Palette.inkMuted : Palette.ink)
+                    }
+                }
+                .padding(.leading, Space.s3)
+                .padding(.trailing, item.isTask ? 0 : Space.s3)
+                .frame(height: 56)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
             if item.isTask {
                 Button { model.markDone(item) } label: {
                     Image(systemName: item.isDone ? "checkmark.circle.fill" : "circle")
-                        .foregroundStyle(item.isDone ? Palette.brandStrong : Palette.inkMuted)
+                        .font(.system(size: 21))
+                        .foregroundStyle(item.isDone ? Palette.brand : Palette.inkMuted)
+                        .frame(width: 44, height: 56)
+                        .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
                 .disabled(model.workingIds.contains(item.id))
-            } else {
-                Image(systemName: item.source == "people" ? "birthday.cake" : "sun.max")
-                    .foregroundStyle(item.source == "people" ? Palette.sunny : Palette.brandStrong)
+                .accessibilityLabel(item.isDone ? "Mark \(item.title) not done" : "Mark \(item.title) done")
             }
-            Button {
-                if item.isTask {
-                    selectedTask = item
-                } else {
-                    selectedEvent = item
-                }
-            } label: {
-                Text(item.title)
-                    .textStyle(.caption, weight: .semibold)
-                    .lineLimit(1)
-                    .foregroundStyle(Palette.ink)
-            }
-            .buttonStyle(.plain)
         }
-        .padding(.horizontal, 11)
-        .frame(height: 36)
-        .background(Palette.surfaceRaised, in: Capsule())
+        .background(isOverdue ? Palette.accentSoft : Palette.brandSoft.opacity(0.6),
+                    in: RoundedRectangle(cornerRadius: Radius.sm, style: .continuous))
+    }
+
+    private func open(_ item: OccurrenceDTO) {
+        if item.isTask && item.startsAt == nil { selectedTask = item } else { selectedEvent = item }
     }
 
     private func moveDaySheet(_ item: OccurrenceDTO) -> some View {
@@ -356,6 +409,7 @@ struct UpcomingView: View {
         return LocalDay(date: shifted)
     }
 
+    private static func shortWeekday(_ day: LocalDay) -> String { day.date()?.formatted(.dateTime.weekday(.abbreviated)) ?? day.description }
     private static func weekday(_ day: LocalDay) -> String { day.date()?.formatted(.dateTime.weekday(.narrow)) ?? "·" }
     private static func fullDate(_ day: LocalDay) -> String { day.date()?.formatted(.dateTime.weekday(.wide).month(.abbreviated).day()) ?? day.description }
     private static func parseTime(_ value: String) -> (Int, Int)? {

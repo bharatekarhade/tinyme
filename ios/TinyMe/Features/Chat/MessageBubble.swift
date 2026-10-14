@@ -78,7 +78,8 @@ struct MessageBubble: View {
 
     private func assistantRow(text: String, actions: [ActionDTO], status: ChatItem.AssistantStatus) -> some View {
         HStack(alignment: .bottom, spacing: Space.s2) {
-            TinyMeFace(size: 28)
+            // Only the reply being written moves; a column of blinking faces would be too much.
+            TinyMeFace(size: 28, mood: status == .streaming ? .thinking : .awake, isAlive: status == .streaming)
                 .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: Space.s2) {
                 if !actions.isEmpty {

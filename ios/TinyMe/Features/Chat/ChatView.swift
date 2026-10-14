@@ -171,7 +171,7 @@ struct ChatView: View {
             .buttonStyle(.pressable)
             .accessibilityLabel("Back to Home")
 
-            TinyMeFace(size: 36)
+            TinyMeFace(size: 36, mood: model.isTurnRunning ? .thinking : .awake)
                 .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 0) {
                 Text("TinyMe")
@@ -204,8 +204,8 @@ struct ChatView: View {
     private var emptyState: some View {
         VStack(spacing: Space.s3) {
             if model.isLoadingHistory {
-                ProgressView()
-                    .tint(Palette.inkMuted)
+                TinyMeFace(size: 56, mood: .thinking)
+                    .accessibilityLabel("Loading today's chat")
             } else if let error = model.historyError {
                 Text("Couldn't load today's chat")
                     .textStyle(.heading)
@@ -214,7 +214,7 @@ struct ChatView: View {
                     .textStyle(.label, weight: .regular)
                     .foregroundStyle(Palette.inkMuted)
             } else {
-                TinyMeFace(size: 56)
+                TinyMeFace(size: 56, reactsToTap: true)
                     .accessibilityHidden(true)
                 Text("What's on your mind?")
                     .textStyle(.title)
