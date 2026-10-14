@@ -55,6 +55,18 @@ struct Endpoint: Sendable {
         Endpoint(method: "GET", path: "people/\(slug)")
     }
 
+    static func personPhotos(_ slug: String) -> Endpoint {
+        Endpoint(method: "GET", path: "people/\(slug)/photos")
+    }
+
+    static func attachPersonPhoto(_ slug: String) -> Endpoint {
+        Endpoint(method: "POST", path: "people/\(slug)/photos")
+    }
+
+    static func personPhotoContent(_ slug: String, id: String) -> Endpoint {
+        Endpoint(method: "GET", path: "people/\(slug)/photos/\(id)/content")
+    }
+
     static func upcoming(from: LocalDay, to: LocalDay) -> Endpoint {
         Endpoint(method: "GET", path: "upcoming", query: [
             URLQueryItem(name: "from", value: from.description),

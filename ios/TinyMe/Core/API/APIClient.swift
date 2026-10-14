@@ -81,6 +81,27 @@ actor APIClient {
         try decode(try await data(for: try await authorizedRequest(endpoint), endpoint), endpoint)
     }
 
+    func getData(_ endpoint: Endpoint) async throws -> Data {
+        try await data(for: try await authorizedRequest(endpoint), endpoint)
+    }
+
+    func sendMultipart<T: Decodable & Sendable>(
+        _ endpoint: Endpoint, fileData: Data, fileName: String, contentType: String, fields: [String: String] = [:]
+    ) async throws -> T {
+        let boundary = "TinyMe-\(UUID().uuidString)"
+        var body = Data()
+        for (name, value) in fields {
+            body.append(Data("--\(boundary)\r\nContent-Disposition: form-data; name=\"\(name)\"\r\n\r\n\(value)\r\n".utf8))
+        }
+        body.append(Data("--\(boundary)\r\nContent-Disposition: form-data; name=\"file\"; filename=\"\(fileName)\"\r\nContent-Type: \(contentType)\r\n\r\n".utf8))
+        body.append(fileData)
+        body.append(Data("\r\n--\(boundary)--\r\n".utf8))
+        var request = try await authorizedRequest(endpoint)
+        request.httpBody = body
+        request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
+        return try decode(try await data(for: request, endpoint), endpoint)
+    }
+
     func send<T: Decodable & Sendable>(_ endpoint: Endpoint, body: some Encodable & Sendable) async throws -> T {
         try decode(try await data(for: try await authorizedRequest(endpoint, body: body), endpoint), endpoint)
     }

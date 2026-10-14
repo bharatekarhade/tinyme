@@ -14,6 +14,7 @@ import com.tinyme.domain.health.service.HealthKindBootstrap;
 import com.tinyme.domain.health.repository.HealthSyncEpochRepository;
 import com.tinyme.domain.admin.UserDataTables;
 import com.tinyme.maintenance.MaintenanceGate;
+import com.tinyme.storage.BlobStore;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
@@ -48,13 +49,14 @@ public class DeleteAllService {
     private final CardBootstrap cardBootstrap;
     private final HealthKindBootstrap healthKinds;
     private final HealthSyncEpochRepository healthSyncEpoch;
+    private final BlobStore blobs;
 
     public DeleteAllService(ManagedAgents agents, AgentResources resources, AgentSessionRepository sessions,
                             MemorySeedFiles memorySeeds, AccountRepository accounts, PasswordService passwords,
                             LoginRateLimiter rateLimiter, MaintenanceGate gate,
                             com.tinyme.agent.service.SessionTurnLock turnLocks, JdbcTemplate jdbc,
                             TransactionTemplate transactions, CardBootstrap cardBootstrap,
-                            HealthKindBootstrap healthKinds, HealthSyncEpochRepository healthSyncEpoch) {
+                            HealthKindBootstrap healthKinds, HealthSyncEpochRepository healthSyncEpoch, BlobStore blobs) {
         this.agents = agents;
         this.resources = resources;
         this.sessions = sessions;
@@ -69,6 +71,7 @@ public class DeleteAllService {
         this.cardBootstrap = cardBootstrap;
         this.healthKinds = healthKinds;
         this.healthSyncEpoch = healthSyncEpoch;
+        this.blobs = blobs;
     }
 
     public DeleteAllCounts deleteAll(String confirm, String password, short ownerId, String remoteIp) {
@@ -99,6 +102,7 @@ public class DeleteAllService {
             try {
                 deleteSessions(sessionIds);
                 memoryDocuments = resetMemories(memoryStoreId);
+                blobs.deleteAll();
             } catch (IOException | InterruptedException | RuntimeException remoteFailure) {
                 if (remoteFailure instanceof InterruptedException) Thread.currentThread().interrupt();
                 throw remoteFailure(remoteFailure);
@@ -172,6 +176,6 @@ public class DeleteAllService {
     private static org.springframework.web.server.ResponseStatusException remoteFailure(Exception failure) {
         log.warn("Delete-all stopped before the local database wipe because remote cleanup failed", failure);
         return new org.springframework.web.server.ResponseStatusException(HttpStatus.BAD_GATEWAY,
-                "Could not clear Anthropic sessions or memory. Your local data is unchanged; try again.", failure);
+                "Could not clear Anthropic sessions, memory, or local photo files. The database is unchanged; try again.", failure);
     }
 }

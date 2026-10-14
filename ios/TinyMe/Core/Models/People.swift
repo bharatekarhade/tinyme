@@ -71,6 +71,9 @@ final class PersonDetailModel {
     }
 
     private(set) var phase: Phase = .loading
+    private(set) var photos: [PhotoDTO] = []
+    private(set) var photosError: String?
+    private(set) var isUploadingPhoto = false
     private let api: APIClient
     private let slug: String
 
@@ -81,11 +84,30 @@ final class PersonDetailModel {
 
     func load() async {
         phase = .loading
+        async let detailRequest: PersonDetailDTO = api.get(.person(slug))
+        async let photosRequest: [PhotoDTO] = api.get(.personPhotos(slug))
+        do { phase = .loaded(try await detailRequest) }
+        catch { phase = .failed(error.localizedDescription) }
+        do { photos = try await photosRequest; photosError = nil }
+        catch { photosError = error.localizedDescription }
+    }
+
+    func uploadPhoto(_ data: Data) async {
+        guard !isUploadingPhoto else { return }
+        isUploadingPhoto = true
+        defer { isUploadingPhoto = false }
         do {
-            let detail: PersonDetailDTO = try await api.get(.person(slug))
-            phase = .loaded(detail)
+            let photo: PhotoDTO = try await api.sendMultipart(
+                .attachPersonPhoto(slug), fileData: data, fileName: "photo.jpg", contentType: "image/jpeg"
+            )
+            photos.insert(photo, at: 0)
+            photosError = nil
         } catch {
-            phase = .failed(error.localizedDescription)
+            photosError = error.localizedDescription
         }
+    }
+
+    func setPhotoError(_ message: String) {
+        photosError = message
     }
 }

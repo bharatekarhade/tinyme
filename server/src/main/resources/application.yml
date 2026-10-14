@@ -1,6 +1,10 @@
 spring:
   application:
     name: tinyme-server
+  servlet:
+    multipart:
+      max-file-size: 16MB
+      max-request-size: 17MB
   threads:
     virtual:
       enabled: true

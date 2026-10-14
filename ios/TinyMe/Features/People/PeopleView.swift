@@ -1,4 +1,6 @@
 import SwiftUI
+import PhotosUI
+import UIKit
 
 struct PeopleView: View {
     @Environment(\.dismiss) private var dismiss
@@ -107,6 +109,7 @@ private struct PersonDetailView: View {
     let api: APIClient
     let person: PersonDTO
     @State private var model: PersonDetailModel
+    @State private var photoSelection: PhotosPickerItem?
 
     init(api: APIClient, person: PersonDTO) {
         self.api = api
@@ -118,6 +121,7 @@ private struct PersonDetailView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: Space.s4) {
                 profileHeader
+                photoGallery
                 switch model.phase {
                 case .loading:
                     ProgressView("Loading notes…")
@@ -144,6 +148,19 @@ private struct PersonDetailView: View {
         .navigationTitle(person.displayName)
         .navigationBarTitleDisplayMode(.inline)
         .task { await model.load() }
+        .onChange(of: photoSelection) { _, selection in
+            guard let selection else { return }
+            Task {
+                guard let data = try? await selection.loadTransferable(type: Data.self),
+                      let jpeg = Self.optimizedJPEG(data) else {
+                    model.setPhotoError("Couldn't read that photo. Try choosing another one.")
+                    photoSelection = nil
+                    return
+                }
+                await model.uploadPhoto(jpeg)
+                photoSelection = nil
+            }
+        }
     }
 
     private var profileHeader: some View {
@@ -163,6 +180,73 @@ private struct PersonDetailView: View {
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, Space.s6)
+    }
+
+    private var photoGallery: some View {
+        VStack(alignment: .leading, spacing: Space.s3) {
+            HStack {
+                Label("Photos", systemImage: "photo.on.rectangle.angled")
+                    .textStyle(.heading, weight: .semibold)
+                Spacer()
+                PhotosPicker(selection: $photoSelection, matching: .images, photoLibrary: .shared()) {
+                    Label("Add", systemImage: "plus")
+                        .font(.system(size: 14, weight: .semibold))
+                }
+                .disabled(model.isUploadingPhoto)
+                .accessibilityLabel("Add a photo of \(person.displayName)")
+                if model.isUploadingPhoto {
+                    ProgressView().tint(Palette.brandStrong)
+                }
+            }
+
+            if model.photos.isEmpty {
+                HStack(spacing: Space.s3) {
+                    Image(systemName: "photo.badge.plus")
+                        .font(.system(size: 20, weight: .medium))
+                        .foregroundStyle(Palette.brandStrong)
+                        .frame(width: 44, height: 44)
+                        .background(Palette.brandSoft, in: RoundedRectangle(cornerRadius: Radius.sm))
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text("Add a shared memory")
+                            .textStyle(.label, weight: .semibold)
+                            .foregroundStyle(Palette.ink)
+                        Text("Choose a photo from your library")
+                            .textStyle(.caption)
+                            .foregroundStyle(Palette.inkMuted)
+                    }
+                    Spacer()
+                }
+                .padding(Space.s3)
+                .background(Palette.surfaceSunken, in: RoundedRectangle(cornerRadius: Radius.md, style: .continuous))
+            } else {
+                LazyVGrid(columns: [GridItem(.flexible(), spacing: Space.s2), GridItem(.flexible(), spacing: Space.s2)], spacing: Space.s2) {
+                    ForEach(model.photos) { photo in
+                        PersonPhotoTile(api: api, slug: person.slug, photo: photo)
+                    }
+                }
+            }
+            if let error = model.photosError {
+                Text(error)
+                    .textStyle(.caption)
+                    .foregroundStyle(Palette.danger)
+            }
+        }
+        .padding(Space.s4)
+        .background(Palette.surfaceRaised, in: RoundedRectangle(cornerRadius: Radius.lg, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: Radius.lg, style: .continuous)
+                .stroke(Palette.line, lineWidth: 1)
+        }
+    }
+
+    private static func optimizedJPEG(_ data: Data) -> Data? {
+        guard let image = UIImage(data: data) else { return nil }
+        let longestSide = max(image.size.width, image.size.height)
+        let scale = min(1, 2048 / max(longestSide, 1))
+        let size = CGSize(width: image.size.width * scale, height: image.size.height * scale)
+        let renderer = UIGraphicsImageRenderer(size: size)
+        return renderer.image { _ in image.draw(in: CGRect(origin: .zero, size: size)) }
+            .jpegData(compressionQuality: 0.82)
     }
 
     @ViewBuilder
@@ -201,6 +285,52 @@ private struct PersonDetailView: View {
             RoundedRectangle(cornerRadius: Radius.lg, style: .continuous)
                 .stroke(Palette.line, lineWidth: 1)
         }
+    }
+}
+
+private struct PersonPhotoTile: View {
+    let api: APIClient
+    let slug: String
+    let photo: PhotoDTO
+    @State private var image: UIImage?
+
+    var body: some View {
+        ZStack(alignment: .bottomLeading) {
+            Group {
+                if let image {
+                    Image(uiImage: image)
+                        .resizable()
+                        .scaledToFill()
+                } else {
+                    Rectangle()
+                        .fill(Palette.surfaceSunken)
+                        .overlay {
+                            Image(systemName: "photo")
+                                .font(.system(size: 24))
+                                .foregroundStyle(Palette.inkMuted)
+                        }
+                }
+            }
+            .frame(height: 150)
+            .frame(maxWidth: .infinity)
+            .clipped()
+            if let caption = photo.caption, !caption.isEmpty {
+                Text(caption)
+                    .textStyle(.caption, weight: .semibold)
+                    .foregroundStyle(.white)
+                    .lineLimit(2)
+                    .padding(Space.s2)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(.linearGradient(colors: [.clear, .black.opacity(0.68)], startPoint: .top, endPoint: .bottom))
+            }
+        }
+        .clipShape(RoundedRectangle(cornerRadius: Radius.md, style: .continuous))
+        .task(id: photo.id) {
+            guard image == nil else { return }
+            guard let data = try? await api.getData(.personPhotoContent(slug, id: photo.id)) else { return }
+            image = UIImage(data: data)
+        }
+        .accessibilityLabel(photo.caption ?? "Photo of \(slug)")
     }
 }
 
