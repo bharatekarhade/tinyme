@@ -90,10 +90,11 @@ public final class PlanCalendar {
         }
 
         for (ExceptionInput exception : exceptions.values()) {
+            if (exception.status() == OccurrenceExceptionStatus.DELETED) continue;
             if (exception.status() != OccurrenceExceptionStatus.MOVED
                     || !within(exception.movedDay(), from, to)
                     || !occursOn(plan.startDay(), plan.repeat(), exception.originalDay())) continue;
-            occurrences.add(create(plan, exception.originalDay(), exception.movedDay(), exception.movedTime(),
+            occurrences.add(create(plan, exception.originalDay(), exception.movedDay(), exception.movedTime(), exception.movedEndTime(),
                     exception, now, today, habitDays));
         }
 
@@ -103,25 +104,31 @@ public final class PlanCalendar {
     private static void addOriginal(PlanInput plan, LocalDate originalDay, ExceptionInput exception,
                                     List<PlanOccurrence> out, Instant now, LocalDate today,
                                     Set<HabitDay> habitDays) {
+        if (exception != null && exception.status() == OccurrenceExceptionStatus.DELETED) return;
         if (exception != null && exception.status() == OccurrenceExceptionStatus.MOVED) {
             return;
         }
         LocalDate actualDay = originalDay;
-        out.add(create(plan, originalDay, actualDay, null, exception, now, today, habitDays));
+        out.add(create(plan, originalDay, actualDay, null, null, exception, now, today, habitDays));
     }
 
     private static PlanOccurrence create(PlanInput plan, LocalDate originalDay, LocalDate day,
-                                         LocalTime movedTime, ExceptionInput exception, Instant now,
+                                         LocalTime movedTime, LocalTime movedEndTime, ExceptionInput exception, Instant now,
                                          LocalDate today, Set<HabitDay> habitDays) {
         LocalTime startTime = movedTime == null ? plan.startTime() : movedTime;
         LocalDate endDay = plan.repeat() == null && day.equals(plan.startDay()) ? plan.endDay() : null;
         LocalTime endTime = plan.endTime();
-        if (movedTime != null && plan.endTime() != null && plan.startTime() != null) {
-            long durationMinutes = ChronoUnit.MINUTES.between(plan.startTime(), plan.endTime());
-            if (durationMinutes < 0) durationMinutes += 24 * 60L;
-            LocalDateTime movedEnd = LocalDateTime.of(day, movedTime).plusMinutes(durationMinutes);
-            endDay = movedEnd.toLocalDate().equals(day) ? null : movedEnd.toLocalDate();
-            endTime = movedEnd.toLocalTime();
+        if (movedTime != null) {
+            if (movedEndTime != null) {
+                endTime = movedEndTime;
+                endDay = null;
+            } else if (plan.endTime() != null && plan.startTime() != null) {
+                long durationMinutes = ChronoUnit.MINUTES.between(plan.startTime(), plan.endTime());
+                if (durationMinutes < 0) durationMinutes += 24 * 60L;
+                LocalDateTime movedEnd = LocalDateTime.of(day, movedTime).plusMinutes(durationMinutes);
+                endDay = movedEnd.toLocalDate().equals(day) ? null : movedEnd.toLocalDate();
+                endTime = movedEnd.toLocalTime();
+            }
         }
 
         boolean allDay = startTime == null;
@@ -275,7 +282,7 @@ public final class PlanCalendar {
     }
 
     public record ExceptionInput(UUID planId, LocalDate originalDay, OccurrenceExceptionStatus status,
-                                 LocalDate movedDay, LocalTime movedTime, Instant completedAt) {
+                                 LocalDate movedDay, LocalTime movedTime, LocalTime movedEndTime, Instant completedAt) {
         public ExceptionInput {
             Objects.requireNonNull(planId, "planId");
             Objects.requireNonNull(originalDay, "originalDay");

@@ -13,12 +13,18 @@ public sealed interface PlanChange permits PlanChange.Done, PlanChange.UndoDone,
     record Skip(LocalDate occurrenceDay) implements PlanChange {
         public Skip { Objects.requireNonNull(occurrenceDay, "occurrenceDay"); }
     }
-    record Move(LocalDate occurrenceDay, LocalDate day, LocalTime time) implements PlanChange {
+    record Move(LocalDate occurrenceDay, LocalDate day, LocalTime time, LocalTime endTime) implements PlanChange {
+        public Move(LocalDate occurrenceDay, LocalDate day, LocalTime time) {
+            this(occurrenceDay, day, time, null);
+        }
         public Move {
             Objects.requireNonNull(occurrenceDay, "occurrenceDay");
             day = day == null ? occurrenceDay : day;
             if (day.equals(occurrenceDay) && time == null) {
                 throw new IllegalArgumentException("nothing to move: give a new day or time");
+            }
+            if (endTime != null && (time == null || !endTime.isAfter(time))) {
+                throw new IllegalArgumentException("end_time must be after time on the same day");
             }
         }
     }

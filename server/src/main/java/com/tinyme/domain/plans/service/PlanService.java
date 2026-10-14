@@ -235,13 +235,42 @@ public class PlanService {
     @Transactional
     public Optional<PlanOccurrence> moveOccurrence(UUID id, LocalDate occurrenceDay, LocalDate day,
                                                    LocalTime time, ZoneId zone, Instant now) {
+        return moveOccurrence(id, occurrenceDay, day, time, null, zone, now);
+    }
+
+    @Transactional
+    public Optional<PlanOccurrence> moveOccurrence(UUID id, LocalDate occurrenceDay, LocalDate day,
+                                                   LocalTime time, LocalTime endTime, ZoneId zone, Instant now) {
         Objects.requireNonNull(day, "day");
         Objects.requireNonNull(time, "time");
         Objects.requireNonNull(zone, "zone");
         Objects.requireNonNull(now, "now");
-        Optional<PlanWriteResult> result = update(id, new PlanChange.Move(occurrenceDay, day, time), zone, now);
+        Optional<PlanWriteResult> result = update(id, new PlanChange.Move(occurrenceDay, day, time, endTime), zone, now);
         if (result.isEmpty()) return Optional.empty();
         return occurrenceOf(id, occurrenceDay, zone, now);
+    }
+
+    /** Hides one scheduled instance of a repeating plan without changing its series. */
+    @Transactional
+    public boolean deleteOccurrence(UUID id, LocalDate occurrenceDay, ZoneId zone, Instant now) {
+        Objects.requireNonNull(id, "id");
+        Objects.requireNonNull(occurrenceDay, "occurrenceDay");
+        Objects.requireNonNull(zone, "zone");
+        Objects.requireNonNull(now, "now");
+        PlanEntity plan = plans.findLive(id).orElse(null);
+        if (plan == null) return false;
+        if (plan.getRepeat() == null) throw new IllegalArgumentException("only a repeating plan has individual occurrences");
+        PlanOccurrenceId occurrenceId = new PlanOccurrenceId(id, occurrenceDay);
+        if (occurrences.find(occurrenceId).filter(row -> row.getStatus() == OccurrenceExceptionStatus.DELETED).isPresent()) {
+            return true;
+        }
+        PlanCalendar.PlanInput input = toInput(plan, kinds.resolveAll());
+        boolean scheduled = calendar.expand(occurrenceDay, occurrenceDay, now, zone,
+                        List.of(input), List.of(), List.of(), List.of(), true).stream()
+                .anyMatch(item -> id.equals(item.planId()) && occurrenceDay.equals(item.originalDay()));
+        if (!scheduled) throw new IllegalArgumentException("day is not an occurrence of this plan");
+        occurrences.save(PlanOccurrenceEntity.deleted(plan, occurrenceDay));
+        return true;
     }
 
     private Optional<PlanOccurrence> occurrenceOf(UUID id, LocalDate originalDay, ZoneId zone, Instant now) {
@@ -291,7 +320,7 @@ public class PlanService {
                             .filter(row -> row.getStatus() == OccurrenceExceptionStatus.MOVED)
                             .ifPresentOrElse(
                                     row -> occurrences.save(PlanOccurrenceEntity.doneMoved(plan, day,
-                                            row.getMovedDay(), row.getMovedTime(), now)),
+                                            row.getMovedDay(), row.getMovedTime(), row.getMovedEndTime(), now)),
                                     () -> occurrences.save(PlanOccurrenceEntity.done(plan, day, now)));
                 }
             }
@@ -309,7 +338,7 @@ public class PlanService {
                         } else if (row.getStatus() == OccurrenceExceptionStatus.MOVED
                                 && row.getCompletedAt() != null) {
                             occurrences.save(PlanOccurrenceEntity.moved(plan, day,
-                                    row.getMovedDay(), row.getMovedTime()));
+                                    row.getMovedDay(), row.getMovedTime(), row.getMovedEndTime()));
                         }
                     });
                 }
@@ -323,7 +352,7 @@ public class PlanService {
                 if (plan.getRepeat() == null) throw new IllegalArgumentException("only a repeating plan can be moved by occurrence");
                 requireScheduled(plan, move.occurrenceDay(), zone, now);
                 requireNotPast(move.day(), move.time() != null ? move.time() : plan.getStartTime(), zone, now);
-                occurrences.save(PlanOccurrenceEntity.moved(plan, move.occurrenceDay(), move.day(), move.time()));
+                occurrences.save(PlanOccurrenceEntity.moved(plan, move.occurrenceDay(), move.day(), move.time(), move.endTime()));
             }
             case PlanChange.Cancel ignored -> plan.cancel();
             case PlanChange.Edit edit -> edit(plan, edit, zone, now);
@@ -410,7 +439,7 @@ public class PlanService {
         for (PlanOccurrenceEntity exception : exceptions) {
             exceptionMap.put(exception.getPlan().getId() + ":" + exception.getDay(), new PlanCalendar.ExceptionInput(
                     exception.getPlan().getId(), exception.getDay(), exception.getStatus(), exception.getMovedDay(),
-                    exception.getMovedTime(), exception.getCompletedAt()));
+                    exception.getMovedTime(), exception.getMovedEndTime(), exception.getCompletedAt()));
         }
         Map<String, String> kindResolutions = kinds.resolveAll();
         List<PlanCalendar.PlanInput> planInputs = loaded.stream()

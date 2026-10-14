@@ -4,5 +4,6 @@ package com.tinyme.domain.plans.model;
 public enum OccurrenceExceptionStatus {
     DONE,
     SKIPPED,
-    MOVED
+    MOVED,
+    DELETED
 }

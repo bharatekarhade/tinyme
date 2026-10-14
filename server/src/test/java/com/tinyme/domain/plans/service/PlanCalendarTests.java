@@ -96,11 +96,12 @@ class PlanCalendarTests {
         var plan = plan(PlanKind.EVENT, "Gym", date("2026-10-05"), LocalTime.of(18, 0), LocalTime.of(19, 0), null,
                 new Repeat(RepeatFrequency.WEEKLY, 1, Set.of(DayOfWeek.MONDAY), null), null, PlanStatus.ACTIVE);
         var skipped = new PlanCalendar.ExceptionInput(plan.id(), date("2026-10-12"),
-                OccurrenceExceptionStatus.SKIPPED, null, null, null);
+                OccurrenceExceptionStatus.SKIPPED, null, null, null, null);
         var movedOut = new PlanCalendar.ExceptionInput(plan.id(), date("2026-10-19"),
-                OccurrenceExceptionStatus.MOVED, date("2026-10-26"), LocalTime.of(20, 0), null);
+                OccurrenceExceptionStatus.MOVED, date("2026-10-26"), LocalTime.of(20, 0), null, null);
         var movedIn = new PlanCalendar.ExceptionInput(plan.id(), date("2026-10-05"),
-                OccurrenceExceptionStatus.MOVED, date("2026-10-20"), LocalTime.of(20, 0), null);
+                OccurrenceExceptionStatus.MOVED, date("2026-10-20"), LocalTime.of(20, 0),
+                LocalTime.of(21, 30), null);
 
         var result = expand(date("2026-10-12"), date("2026-10-26"), List.of(plan),
                 List.of(skipped, movedOut, movedIn), List.of(), List.of(), false);
@@ -113,6 +114,7 @@ class PlanCalendarTests {
                 .satisfies(o -> {
                     assertThat(o.originalDay()).isEqualTo(date("2026-10-05"));
                     assertThat(o.startTime()).isEqualTo(LocalTime.of(20, 0));
+                    assertThat(o.endTime()).isEqualTo(LocalTime.of(21, 30));
                 });
         assertThat(result).filteredOn(o -> o.day().equals(date("2026-10-26"))
                         && o.originalDay().equals(date("2026-10-19"))).singleElement()
@@ -120,6 +122,19 @@ class PlanCalendarTests {
 
         assertThat(expand(date("2026-10-19"), date("2026-10-19"), List.of(plan),
                 List.of(movedOut), List.of(), List.of(), false)).isEmpty();
+    }
+
+    @Test
+    void deletedExceptionHidesOnlyThatOccurrence() {
+        var repeat = new Repeat(RepeatFrequency.DAILY, 1, Set.of(), null);
+        var plan = plan(PlanKind.TASK, "Meal cheat day", TODAY, null, null, null,
+                repeat, null, PlanStatus.ACTIVE);
+        var deleted = new PlanCalendar.ExceptionInput(plan.id(), TODAY,
+                OccurrenceExceptionStatus.DELETED, null, null, null, null);
+
+        var result = expand(TODAY, TODAY.plusDays(1), List.of(plan), List.of(deleted), List.of(), List.of(), false);
+
+        assertThat(result).extracting(PlanOccurrence::day).containsExactly(TODAY.plusDays(1));
     }
 
     @Test
@@ -137,7 +152,7 @@ class PlanCalendarTests {
         var cancelled = plan(PlanKind.EVENT, "Cancelled", TODAY, null, null, null,
                 null, null, PlanStatus.CANCELLED);
         var doneException = new PlanCalendar.ExceptionInput(overdue.id(), date("2026-10-10"),
-                OccurrenceExceptionStatus.DONE, null, null, NOW);
+                OccurrenceExceptionStatus.DONE, null, null, null, NOW);
         var result = expand(TODAY, TODAY, List.of(inProgress, ended, overdue, habit, missedHabit, cancelled),
                 List.of(doneException), List.of(), List.of(new PlanCalendar.HabitDay("workout", TODAY)), false);
 

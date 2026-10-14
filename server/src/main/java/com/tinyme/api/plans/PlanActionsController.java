@@ -52,11 +52,23 @@ public class PlanActionsController {
         return change(id, day, PlanService.QuickAction.SKIP);
     }
 
+    @DeleteMapping("/{id}/occurrences/{day}")
+    public ResponseEntity<Void> deleteOccurrence(@PathVariable UUID id, @PathVariable LocalDate day) {
+        try {
+            if (!plans.deleteOccurrence(id, day, userZone.current(), clock.instant())) throw notFound();
+            return ResponseEntity.noContent().build();
+        } catch (PlanStateConflictException conflict) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, conflict.getMessage(), conflict);
+        } catch (IllegalArgumentException invalid) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, invalid.getMessage(), invalid);
+        }
+    }
+
     @PostMapping("/{id}/occurrences/{day}/move")
     public OccurrenceResponse moveOccurrence(@PathVariable UUID id, @PathVariable LocalDate day,
                                              @RequestBody MoveRequest request) {
         try {
-            return plans.moveOccurrence(id, day, request.day(), request.time(), userZone.current(), clock.instant())
+            return plans.moveOccurrence(id, day, request.day(), request.time(), request.endTime(), userZone.current(), clock.instant())
                     .map(OccurrenceResponse::from)
                     .orElseThrow(PlanActionsController::notFound);
         } catch (PlanStateConflictException conflict) {
@@ -115,7 +127,8 @@ public class PlanActionsController {
         return new ResponseStatusException(HttpStatus.NOT_FOUND, "Plan not found");
     }
 
-    public record MoveRequest(LocalDate day, LocalTime time) {
+    public record MoveRequest(LocalDate day, LocalTime time,
+                              @JsonProperty("end_time") LocalTime endTime) {
         public MoveRequest {
             if (day == null || time == null) throw new IllegalArgumentException("day and time are required");
         }

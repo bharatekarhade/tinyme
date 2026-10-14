@@ -23,8 +23,9 @@ struct DayTimeline: View {
 
     @State private var drag: DragPreview?
     @State private var optimisticMinutes: [String: Int] = [:]
-    private let laneWidth: CGFloat = 58
+    private let laneWidth: CGFloat = 44
     private let pointsPerMinute: CGFloat = 1.05
+    private let topInset: CGFloat = 12
 
     private struct DragPreview {
         let item: OccurrenceDTO
@@ -33,17 +34,10 @@ struct DayTimeline: View {
     }
 
     private var placements: [EventPlacement] { Self.place(items) }
-    private var startHour: Int {
-        let firstEvent = placements.map { $0.startMinute / 60 }.min() ?? 7
-        let currentHour = day == today ? Calendar.current.component(.hour, from: now ?? .now) : 7
-        return max(0, min(7, firstEvent, currentHour))
-    }
-    private var endHour: Int {
-        let lastEvent = ((placements.map(\.endMinute).max() ?? 20 * 60) + 59) / 60 + 1
-        let currentHour = day == today ? Calendar.current.component(.hour, from: now ?? .now) + 2 : 22
-        return min(24, max(22, lastEvent, currentHour))
-    }
+    private let startHour = 0
+    private let endHour = 24
     private var timelineHeight: CGFloat { CGFloat((endHour - startHour) * 60) * pointsPerMinute }
+    private var contentHeight: CGFloat { timelineHeight + topInset }
 
     var body: some View {
         timeline
@@ -56,18 +50,24 @@ struct DayTimeline: View {
                 GeometryReader { geometry in
                     ZStack(alignment: .topLeading) {
                         ForEach(startHour..<endHour, id: \.self) { hour in
-                            let y = CGFloat((hour - startHour) * 60) * pointsPerMinute
+                            let y = CGFloat((hour - startHour) * 60) * pointsPerMinute + topInset
                             Text(Self.hourLabel(hour))
                                 .font(.system(size: 11, weight: .medium))
                                 .foregroundStyle(Palette.inkMuted)
                                 .frame(width: laneWidth - 8, alignment: .trailing)
-                                .position(x: (laneWidth - 8) / 2, y: y + 8)
+                                .position(x: (laneWidth - 8) / 2, y: y)
                                 .id("hour-\(hour)")
                             Rectangle()
                                 .fill(Palette.line)
                                 .frame(width: max(0, geometry.size.width - laneWidth), height: 1)
                                 .position(x: laneWidth + max(0, geometry.size.width - laneWidth) / 2, y: y)
                         }
+
+                        Rectangle()
+                            .fill(Palette.line)
+                            .frame(width: max(0, geometry.size.width - laneWidth), height: 1)
+                            .position(x: laneWidth + max(0, geometry.size.width - laneWidth) / 2,
+                                      y: contentHeight)
 
                         ForEach(placements) { placement in
                             eventBlock(placement, availableWidth: geometry.size.width - laneWidth)
@@ -77,9 +77,9 @@ struct DayTimeline: View {
                             nowLine(now, width: geometry.size.width)
                         }
                     }
-                    .frame(width: geometry.size.width, height: timelineHeight, alignment: .topLeading)
+                    .frame(width: geometry.size.width, height: contentHeight, alignment: .topLeading)
                 }
-                .frame(height: timelineHeight)
+                .frame(height: contentHeight)
             }
             .scrollIndicators(.hidden)
             .contentShape(Rectangle())
@@ -97,7 +97,7 @@ struct DayTimeline: View {
         let minute = drag?.item.id == placement.item.id
             ? placement.startMinute + (drag?.offsetMinutes ?? 0)
             : (optimisticMinutes[placement.item.id] ?? placement.startMinute)
-        let top = CGFloat(minute - startHour * 60) * pointsPerMinute
+        let top = CGFloat(minute - startHour * 60) * pointsPerMinute + topInset
         let duration = max(35, placement.endMinute - placement.startMinute)
         let height = max(42, CGFloat(duration) * pointsPerMinute)
         let gap: CGFloat = 4
@@ -160,7 +160,7 @@ struct DayTimeline: View {
     private func nowLine(_ now: Date, width: CGFloat) -> some View {
         let components = Calendar.current.dateComponents([.hour, .minute], from: now)
         let minute = (components.hour ?? 0) * 60 + (components.minute ?? 0)
-        let y = CGFloat(minute - startHour * 60) * pointsPerMinute
+        let y = CGFloat(minute - startHour * 60) * pointsPerMinute + topInset
         return HStack(spacing: 5) {
             Text(now.formatted(.dateTime.hour().minute()))
                 .font(.system(size: 10, weight: .bold)).foregroundStyle(Palette.accent)
@@ -175,7 +175,13 @@ struct DayTimeline: View {
     }
 
     private func scrollToOpeningHour(_ proxy: ScrollViewProxy) {
-        let initial = day == today ? max(startHour, (Calendar.current.component(.hour, from: now ?? .now) - 1)) : startHour
+        let initial: Int
+        if day == today {
+            initial = max(startHour, Calendar.current.component(.hour, from: now ?? .now) - 1)
+        } else {
+            let firstEventHour = placements.map { $0.startMinute / 60 }.min() ?? 8
+            initial = max(startHour, min(endHour - 1, firstEventHour - 1))
+        }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) {
             withAnimation(.easeOut(duration: 0.25)) { proxy.scrollTo("hour-\(initial)", anchor: .top) }
         }

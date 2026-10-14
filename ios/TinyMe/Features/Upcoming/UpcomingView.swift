@@ -7,6 +7,7 @@ struct UpcomingView: View {
     @Environment(\.scenePhase) private var scenePhase
     @State private var selectedEvent: OccurrenceDTO?
     @State private var planToDelete: OccurrenceDTO?
+    @State private var timeEditTarget: OccurrenceDTO?
     @State private var dayMoveTarget: OccurrenceDTO?
     @State private var dayMoveDate = Date.now
     @State private var pendingMove: PendingMove?
@@ -63,7 +64,7 @@ struct UpcomingView: View {
                     }
                 }
             }
-            .padding(.horizontal, Space.s4)
+            .padding(.horizontal, Space.s2)
             .padding(.top, Space.s3)
             .padding(.bottom, 120)
         }
@@ -103,6 +104,10 @@ struct UpcomingView: View {
                     selectedEvent = nil
                     onOpenChat(draft)
                 },
+                onEditTime: {
+                    selectedEvent = nil
+                    timeEditTarget = item
+                },
                 onDelete: { requestDelete(item) },
                 onDone: { model.markDone(item) },
                 onSkip: { model.skip(item) }
@@ -137,18 +142,24 @@ struct UpcomingView: View {
             .presentationDragIndicator(.visible)
             .presentationBackground(Palette.surface)
         }
-        .confirmationDialog(
-            "Delete \(planToDelete?.title ?? "this plan")?",
-            isPresented: Binding(get: { planToDelete != nil }, set: { if !$0 { planToDelete = nil } }),
-            titleVisibility: .visible
-        ) {
-            Button("Delete series", role: .destructive) {
-                if let item = planToDelete { model.delete(item) }
-                planToDelete = nil
+        .sheet(item: $planToDelete) { item in
+            RepeatDeleteChoiceSheet(
+                item: item,
+                onDeleteOccurrence: { model.deleteOccurrence(item); planToDelete = nil },
+                onDeleteSeries: { model.delete(item); planToDelete = nil },
+                onCancel: { planToDelete = nil }
+            )
+        }
+        .sheet(item: $timeEditTarget) { item in
+            ManualEventTimeSheet(item: item) { start, end, allDays in
+                model.move(item, to: item.day, time: start, endTime: end, allDays: allDays)
+                timeEditTarget = nil
+            } onCancel: {
+                timeEditTarget = nil
             }
-            Button("Cancel", role: .cancel) { planToDelete = nil }
-        } message: {
-            Text("This removes every occurrence in the series.")
+            .presentationDetents([.height(item.isRepeating ? 430 : 370)])
+            .presentationDragIndicator(.visible)
+            .presentationBackground(Palette.surface)
         }
         .onAppear { model.load() }
         .onChange(of: scenePhase) { _, phase in
@@ -423,11 +434,79 @@ struct UpcomingView: View {
     }
 }
 
+private struct RepeatDeleteChoiceSheet: View {
+    let item: OccurrenceDTO
+    let onDeleteOccurrence: () -> Void
+    let onDeleteSeries: () -> Void
+    let onCancel: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: Space.s4) {
+            PlanSheetHeader(
+                title: "Delete this plan?",
+                subtitle: "\(item.title) · \(item.day.date()?.formatted(date: .long, time: .omitted) ?? item.day.description)",
+                onClose: onCancel
+            ) {
+                Image(systemName: "calendar.badge.minus")
+                    .font(.system(size: 21, weight: .medium))
+                    .foregroundStyle(Palette.danger)
+                    .frame(width: 40, height: 44)
+            }
+
+            VStack(spacing: 0) {
+                deleteOption(
+                    "Delete this occurrence",
+                    detail: "Keep the rest of the repeating plan",
+                    action: onDeleteOccurrence
+                )
+                Rectangle().fill(Palette.line).frame(height: 1).padding(.horizontal, Space.s4)
+                deleteOption(
+                    "Delete entire series",
+                    detail: "Remove every occurrence",
+                    action: onDeleteSeries
+                )
+            }
+            .background(Palette.surfaceRaised, in: RoundedRectangle(cornerRadius: Radius.md, style: .continuous))
+            .overlay { RoundedRectangle(cornerRadius: Radius.md, style: .continuous).strokeBorder(Palette.line) }
+
+            Button("Cancel", action: onCancel)
+                .buttonStyle(PlanSheetButtonStyle(kind: .quiet))
+        }
+        .planSheet()
+    }
+
+    private func deleteOption(_ title: String, detail: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack(spacing: Space.s3) {
+                Image(systemName: "trash")
+                    .font(.system(size: 17, weight: .medium))
+                    .foregroundStyle(Palette.danger)
+                    .frame(width: 24)
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(title).textStyle(.label, weight: .semibold).foregroundStyle(Palette.danger)
+                    Text(detail).textStyle(.caption).foregroundStyle(Palette.inkMuted)
+                }
+                .multilineTextAlignment(.leading)
+                Spacer(minLength: Space.s2)
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(Palette.inkMuted)
+            }
+            .padding(.horizontal, Space.s4)
+            .padding(.vertical, Space.s3)
+            .frame(maxWidth: .infinity, minHeight: 62, alignment: .leading)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+}
+
 private struct PlanEventDetailSheet: View {
     let item: OccurrenceDTO
     let onMove: () -> Void
     /// Opens chat with a draft: the details are changed by asking TinyMe.
     let onAsk: (String) -> Void
+    let onEditTime: () -> Void
     let onDelete: () -> Void
     let onDone: () -> Void
     let onSkip: () -> Void
@@ -511,6 +590,7 @@ private struct PlanEventDetailSheet: View {
             rows.append(PlanSheetRow(symbol: "text.alignleft", text: notes))
         }
         if item.editable, !item.isTask, item.startTime != nil {
+            rows.append(PlanSheetRow(symbol: "clock", text: "Edit time", action: onEditTime))
             rows.append(PlanSheetRow(symbol: "calendar", text: "Move to another day", action: onMove))
         }
         return rows
@@ -520,6 +600,109 @@ private struct PlanEventDetailSheet: View {
         var components = URLComponents(string: "https://maps.apple.com/")
         components?.queryItems = [URLQueryItem(name: "q", value: place)]
         return components?.url
+    }
+}
+
+private struct ManualEventTimeSheet: View {
+    let item: OccurrenceDTO
+    let onSave: (String, String, Bool) -> Void
+    let onCancel: () -> Void
+
+    @State private var from: Date
+    @State private var to: Date
+    @State private var appliesToSeries = false
+
+    init(item: OccurrenceDTO, onSave: @escaping (String, String, Bool) -> Void,
+         onCancel: @escaping () -> Void) {
+        self.item = item
+        self.onSave = onSave
+        self.onCancel = onCancel
+        let day = item.day.date() ?? .now
+        let start = Self.date(day, time: item.startTime) ?? item.startsAt ?? day
+        let end = Self.date(day, time: item.endTime) ?? item.endsAt ?? start.addingTimeInterval(60 * 60)
+        _from = State(initialValue: start)
+        _to = State(initialValue: end)
+    }
+
+    private var validRange: Bool { to > from }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: Space.s4) {
+            VStack(alignment: .leading, spacing: Space.s2) {
+                Text("Edit event time")
+                    .textStyle(.heading, weight: .semibold)
+                    .foregroundStyle(Palette.ink)
+                Text(item.title)
+                    .textStyle(.caption)
+                    .foregroundStyle(Palette.inkMuted)
+                    .lineLimit(1)
+            }
+
+            VStack(spacing: 0) {
+                timeRow("From", selection: $from)
+                Rectangle().fill(Palette.line).frame(height: 1).padding(.horizontal, Space.s4)
+                timeRow("To", selection: $to)
+            }
+            .background(Palette.surfaceRaised, in: RoundedRectangle(cornerRadius: Radius.md, style: .continuous))
+            .overlay { RoundedRectangle(cornerRadius: Radius.md, style: .continuous).strokeBorder(Palette.line) }
+
+            if item.isRepeating {
+                VStack(alignment: .leading, spacing: Space.s2) {
+                    Text("Apply to")
+                        .textStyle(.caption, weight: .semibold)
+                        .foregroundStyle(Palette.inkMuted)
+                    Picker("Apply to", selection: $appliesToSeries) {
+                        Text("This occurrence").tag(false)
+                        Text("Entire series").tag(true)
+                    }
+                    .pickerStyle(.segmented)
+                }
+            }
+
+            if !validRange {
+                Text("The end time must be later than the start time.")
+                    .textStyle(.caption)
+                    .foregroundStyle(Palette.danger)
+            }
+
+            HStack(spacing: Space.s3) {
+                Button("Cancel", action: onCancel)
+                    .buttonStyle(PlanSheetButtonStyle(kind: .quiet))
+                Button("Save") {
+                    onSave(Self.time(from), Self.time(to), item.isRepeating ? appliesToSeries : true)
+                }
+                .buttonStyle(PlanSheetButtonStyle(kind: .primary))
+                .disabled(!validRange)
+            }
+        }
+        .padding(.horizontal, Space.s4)
+        .padding(.top, Space.s4)
+        .padding(.bottom, Space.s3)
+    }
+
+    private func timeRow(_ label: String, selection: Binding<Date>) -> some View {
+        HStack {
+            Text(label).textStyle(.body).foregroundStyle(Palette.ink)
+            Spacer()
+            DatePicker(label, selection: selection, displayedComponents: .hourAndMinute)
+                .labelsHidden()
+                .datePickerStyle(.compact)
+                .tint(Palette.brandStrong)
+        }
+        .padding(.horizontal, Space.s4)
+        .frame(height: 58)
+    }
+
+    private static func time(_ date: Date) -> String {
+        let components = Calendar.current.dateComponents([.hour, .minute], from: date)
+        return String(format: "%02d:%02d", components.hour ?? 0, components.minute ?? 0)
+    }
+
+    private static func date(_ day: Date, time: String?) -> Date? {
+        guard let time else { return nil }
+        let parts = time.split(separator: ":").compactMap { Int($0) }
+        guard parts.count == 2 else { return nil }
+        return Calendar.current.date(bySettingHour: parts[0], minute: parts[1], second: 0, of: day)
     }
 }
 

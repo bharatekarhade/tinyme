@@ -222,11 +222,18 @@ struct ChatView: View {
                 Text("Tell me what you did, ate or spent, or ask me to track something new.")
                     .textStyle(.body)
                     .foregroundStyle(Palette.inkMuted)
+                if model.composer.isEmpty {
+                    ChatQuickStart { prompt in
+                        model.composer = prompt
+                        composerFocused = true
+                    }
+                    .padding(.top, Space.s3)
+                }
             }
         }
         .multilineTextAlignment(.center)
         .padding(.horizontal, Space.s6)
-        .padding(.vertical, 80)
+        .padding(.vertical, 48)
         .frame(maxWidth: .infinity)
     }
 

@@ -4,6 +4,12 @@ import Observation
 private struct MoveOccurrenceRequest: Encodable, Sendable {
     let day: LocalDay
     let time: String
+    let endTime: String?
+
+    private enum CodingKeys: String, CodingKey {
+        case day, time
+        case endTime = "end_time"
+    }
 }
 
 /// Without a day only the time changes: a series keeps its start day, so its past days and weekdays stay.
@@ -196,6 +202,12 @@ final class UpcomingModel {
         mutate(item) { try await api.send(.planSkip(planId, day: item.actionDay)) }
     }
 
+    func deleteOccurrence(_ item: OccurrenceDTO) {
+        guard let planId = item.planId else { return }
+        let api = self.api
+        mutate(item) { try await api.send(.deletePlanOccurrence(planId, day: item.actionDay)) }
+    }
+
     func delete(_ item: OccurrenceDTO) {
         guard let planId = item.planId else { return }
         let api = self.api
@@ -239,24 +251,26 @@ final class UpcomingModel {
         errorMessage = message
     }
 
-    func move(_ item: OccurrenceDTO, to day: LocalDay, time: String, allDays: Bool,
+    func move(_ item: OccurrenceDTO, to day: LocalDay, time: String, endTime: String? = nil, allDays: Bool,
               completion: (@MainActor @Sendable (Bool) -> Void)? = nil) {
         guard let planId = item.planId else { completion?(false); return }
         let api = self.api
         let duration = item.startsAt.flatMap { start in item.endsAt.map { Int($0.timeIntervalSince(start) / 60) } }
         let endTotal = duration.map { Self.minutes(time) + $0 }
-        let endTime = endTotal.map { Self.time($0 % 1440) }
-        let endDay: LocalDay? = endTotal.flatMap { $0 >= 1440 ? Self.adding(days: 1, to: day) : nil }
+        let resolvedEndTime = endTime ?? endTotal.map { Self.time($0 % 1440) }
+        let endDay: LocalDay? = endTime == nil
+            ? endTotal.flatMap { $0 >= 1440 ? Self.adding(days: 1, to: day) : nil }
+            : nil
         mutate(item, completion: completion) {
             if allDays && item.isRepeating {
                 try await api.send(.movePlanSeries(planId), body: EditScheduleRequest(
-                    day: nil, time: time, endTime: endTime, endDay: nil))
+                    day: nil, time: time, endTime: resolvedEndTime, endDay: nil))
             } else if allDays {
                 try await api.send(.movePlanSeries(planId), body: EditScheduleRequest(
-                    day: day, time: time, endTime: endTime, endDay: endDay))
+                    day: day, time: time, endTime: resolvedEndTime, endDay: endDay))
             } else {
                 let _: OccurrenceDTO = try await api.send(.movePlanOccurrence(planId, occurrenceDay: item.actionDay),
-                    body: MoveOccurrenceRequest(day: day, time: time))
+                    body: MoveOccurrenceRequest(day: day, time: time, endTime: resolvedEndTime))
             }
         }
     }

@@ -68,6 +68,10 @@ struct Endpoint: Sendable {
         Endpoint(method: "POST", path: "plans/\(id)/occurrences/\(day.description)/skip")
     }
 
+    static func deletePlanOccurrence(_ id: String, day: LocalDay) -> Endpoint {
+        Endpoint(method: "DELETE", path: "plans/\(id)/occurrences/\(day.description)")
+    }
+
     static func movePlanOccurrence(_ id: String, occurrenceDay: LocalDay) -> Endpoint {
         Endpoint(method: "POST", path: "plans/\(id)/occurrences/\(occurrenceDay.description)/move")
     }

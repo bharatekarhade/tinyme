@@ -159,6 +159,19 @@ class UpcomingApiTests {
                         .header(auth, bearer))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("skipped"));
+        var repeatingDelete = plans.add(command(PlanKind.TASK, "upcoming-api-delete-one", TODAY, null, null,
+                new Repeat(RepeatFrequency.DAILY, 1, Set.of(), null)), userZone.current(), NOW);
+        mvc.perform(delete("/plans/{id}/occurrences/{day}", repeatingDelete.id(), TODAY)
+                        .header(auth, bearer))
+                .andExpect(status().isNoContent());
+        mvc.perform(get("/upcoming").header(auth, bearer)
+                        .param("from", TODAY.toString()).param("to", TODAY.plusDays(1).toString()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items[?(@.id == '" + repeatingDelete.id() + ":2026-10-13')]" ).doesNotExist())
+                .andExpect(jsonPath("$.items[?(@.id == '" + repeatingDelete.id() + ":2026-10-14')]" ).exists());
+        mvc.perform(delete("/plans/{id}/occurrences/{day}", repeatingDelete.id(), TODAY)
+                        .header(auth, bearer))
+                .andExpect(status().isNoContent());
         mvc.perform(post("/plans/{id}/occurrences/{day}/done", repeating.id(), TODAY.minusDays(1))
                         .header(auth, bearer))
                 .andExpect(status().isBadRequest());
@@ -217,6 +230,16 @@ class UpcomingApiTests {
         var repeating = plans.add(command(PlanKind.EVENT, "upcoming-api-move", TODAY,
                         LocalTime.of(15, 0), LocalTime.of(16, 0),
                         new Repeat(RepeatFrequency.DAILY, 1, Set.of(), null)), userZone.current(), NOW);
+
+        mvc.perform(post("/plans/{id}/occurrences/{day}/move", repeating.id(), TODAY)
+                        .header("Authorization", auth)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"day":"2026-10-13","time":"19:00","end_time":"20:30"}
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.start_time").value("19:00"))
+                .andExpect(jsonPath("$.end_time").value("20:30"));
 
         mvc.perform(post("/plans/{id}/occurrences/{day}/move", repeating.id(), TODAY)
                         .header("Authorization", auth)
