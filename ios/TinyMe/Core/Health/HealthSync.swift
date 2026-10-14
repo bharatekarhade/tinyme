@@ -73,6 +73,16 @@ final class HealthSync {
         }
     }
 
+    /// After Disconnect: nothing is watched any more, and Home and History reload without the Health entries.
+    func disconnected() {
+        background.watch(groups: [])
+        waiting.values.forEach { $0.completions.forEach { $0() } }
+        waiting = [:]
+        lastSyncedAt = nil
+        phase = .idle
+        changes += 1
+    }
+
     /// iOS woke TinyMe because this metric has new data. During another run it waits for that run to end.
     private func wake(for metric: HealthMetric, done: @escaping HealthBackground.Completion) {
         guard settings.readGroups.contains(metric.group), api() != nil else { done(); return }

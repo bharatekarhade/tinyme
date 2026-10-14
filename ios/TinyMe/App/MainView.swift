@@ -72,6 +72,7 @@ struct MainView: View {
                 router.historyIsStale = true
                 Task { await environment.outbox.clear() }
                 environment.health.reset()
+                environment.healthSync.disconnected()   // stop watching Health; its entries are gone too
                 WidgetSnapshot.clearAndReload()
                 home.invalidate()
                 upcoming.invalidate()

@@ -25,6 +25,7 @@ import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -271,6 +272,62 @@ class HealthSyncApiTests {
         } finally {
             jdbc.update("DELETE FROM entries WHERE source = 'chat' AND kind = 'workout'");
         }
+    }
+
+    @Test
+    void statusSaysWhatIsStoredPerKind() throws Exception {
+        jdbc.update("INSERT INTO health_settings (groups) VALUES ('{activity,workouts}')");
+        try {
+            sync(batch(STEPS + "," + WORKOUT, "")).andExpect(status().isOk());
+            mvc.perform(get("/health/status").header("Authorization", "Bearer " + tokens.issue("health-sync-tests").token()))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.groups[0]").value("activity"))
+                    .andExpect(jsonPath("$.write_enabled").value(false))
+                    .andExpect(jsonPath("$.kinds[?(@.kind == 'steps')].items_total").value(1))
+                    .andExpect(jsonPath("$.kinds[?(@.kind == 'steps')].last_day").value("2026-10-14"))
+                    .andExpect(jsonPath("$.kinds[?(@.kind == 'steps')].last_sync_at").value(NOW.toString()));
+        } finally {
+            jdbc.update("DELETE FROM health_settings");
+        }
+    }
+
+    @Test
+    void disconnectRemovesWhatHealthMadeAndGivesBackYourWorkout() throws Exception {
+        jdbc.update("INSERT INTO health_settings (groups, nudges_off) VALUES ('{activity,workouts}', '{sleep}')");
+        try {
+            chatWorkout("2026-10-14T01:50:00Z", "2026-10-14", "push day", "push day, felt strong");
+            jdbc.update("""
+                    INSERT INTO entries (ts, local_day, kind, quantity, data, source)
+                    VALUES ('2026-10-14T03:00:00Z', '2026-10-14', 'steps', 2000, '{"steps":2000,"adds_to_health":true}', 'chat')
+                    """);
+            sync(batch(STEPS + "," + WORKOUT, "")).andExpect(jsonPath("$.merged").value(1));
+
+            disconnect("{\"confirm\":\"remove it\"}").andExpect(status().isBadRequest());
+            disconnect("{\"confirm\":\"DELETE HEALTH DATA\"}")
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.removed").value(2))
+                    .andExpect(jsonPath("$.restored_chat_workouts").value(1));
+
+            assertThat(jdbc.queryForObject("SELECT count(*) FROM entries WHERE source = 'health' AND deleted_at IS NULL",
+                    Long.class)).isZero();
+            assertThat(jdbc.queryForObject("SELECT count(*) FROM health_sync_log", Long.class)).isZero();
+            // Your words and your additions stay.
+            assertThat(jdbc.queryForObject("SELECT count(*) FROM entries WHERE source = 'chat' AND deleted_at IS NULL "
+                    + "AND (text = 'push day, felt strong' OR kind = 'steps')", Long.class)).isEqualTo(2);
+            assertThat(jdbc.queryForObject("SELECT array_to_string(groups, ',') FROM health_settings", String.class)).isEmpty();
+            assertThat(jdbc.queryForObject("SELECT array_to_string(nudges_off, ',') FROM health_settings", String.class))
+                    .isEqualTo("sleep");
+        } finally {
+            jdbc.update("DELETE FROM entries WHERE source = 'chat' AND kind IN ('workout', 'steps')");
+            jdbc.update("DELETE FROM health_settings");
+        }
+    }
+
+    private ResultActions disconnect(String body) throws Exception {
+        return mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete("/health/data")
+                .header("Authorization", "Bearer " + tokens.issue("health-sync-tests").token())
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(body));
     }
 
     private void chatWorkout(String ts, String day, String type, String text) {

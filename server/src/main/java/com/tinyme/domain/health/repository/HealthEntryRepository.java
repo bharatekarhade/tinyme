@@ -127,6 +127,33 @@ public class HealthEntryRepository {
                 new MapSqlParameterSource("now", Timestamp.from(now)).addValue("chatId", pair.chatId()));
     }
 
+    public record SyncLogRow(String kind, Instant lastSyncAt, LocalDate lastDay, long itemsTotal) { }
+
+    public List<SyncLogRow> syncLog() {
+        return jdbc.query("SELECT kind, last_sync_at, last_day, items_total FROM health_sync_log ORDER BY kind",
+                (rs, row) -> new SyncLogRow(rs.getString("kind"), rs.getTimestamp("last_sync_at").toInstant(),
+                        rs.getObject("last_day", LocalDate.class), rs.getLong("items_total")));
+    }
+
+    /** Undeletes the chat workouts live Health ones absorbed (data.merged_from), before those are removed. */
+    public int restoreMergedChatEntries() {
+        return jdbc.update("""
+                UPDATE entries c SET deleted_at = NULL
+                FROM entries h
+                WHERE h.source = 'health' AND h.deleted_at IS NULL AND h.data ->> 'merged_from' = c.id::text
+                  AND c.source <> 'health' AND c.deleted_at IS NOT NULL
+                """, Map.of());
+    }
+
+    public int softDeleteAll(Instant now) {
+        return jdbc.update("UPDATE entries SET deleted_at = :now WHERE source = 'health' AND deleted_at IS NULL",
+                Map.of("now", Timestamp.from(now)));
+    }
+
+    public void clearSyncLog() {
+        jdbc.update("DELETE FROM health_sync_log", Map.of());
+    }
+
     /** A Health entry counts as a use of its kind, like one logged in chat. */
     public void addUses(String kind, int count) {
         jdbc.update("UPDATE entry_kinds SET use_count = use_count + :count WHERE kind = :kind",

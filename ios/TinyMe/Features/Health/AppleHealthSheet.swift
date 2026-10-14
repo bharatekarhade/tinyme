@@ -14,6 +14,11 @@ struct AppleHealthSheet: View {
     @State private var isConnecting = false
     @State private var error: String?
     @State private var notice: String?
+    @State private var status: HealthStatusDTO?
+    @State private var confirmsDisconnect = false
+    @State private var isDisconnecting = false
+    /// Set when the screen itself resets the switches, so the line it just showed stays.
+    @State private var keepsMessage = false
 
     var body: some View {
         ScrollView {
@@ -41,6 +46,10 @@ struct AppleHealthSheet: View {
                         }
                     }
                     .background(card)
+                }
+
+                if store.isConnected {
+                    syncedSection
                 }
 
                 if !store.isConnected {
@@ -89,6 +98,23 @@ struct AppleHealthSheet: View {
                         .frame(maxWidth: .infinity)
                 }
 
+                if store.isConnected {
+                    Button(role: .destructive) { confirmsDisconnect = true } label: {
+                        HStack(spacing: 10) {
+                            if isDisconnecting { ProgressView().tint(Palette.danger) }
+                            Text(isDisconnecting ? "Disconnecting…" : "Disconnect and remove imported data")
+                                .textStyle(.label, weight: .semibold)
+                        }
+                        .foregroundStyle(Palette.danger)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 48)
+                        .overlay(Capsule().strokeBorder(Palette.danger, lineWidth: 1.5))
+                        .contentShape(Capsule())
+                    }
+                    .buttonStyle(.pressable)
+                    .disabled(isConnecting || isDisconnecting)
+                }
+
                 Text("When TinyMe answers from your Health data, those numbers are sent to Anthropic as part of that chat, like everything else you tell it. iOS keeps its permissions until you change them in Health → Sharing → Apps → TinyMe.")
                     .textStyle(.caption)
                     .foregroundStyle(Palette.inkMuted)
@@ -107,14 +133,75 @@ struct AppleHealthSheet: View {
         .onAppear {
             draft = store.saved
         }
-        .task { await store.pushIfNeeded(api: api) }
+        .task {
+            await store.pushIfNeeded(api: api)
+            await loadStatus()
+        }
+        .onChange(of: sync.lastSyncedAt) { Task { await loadStatus() } }
+        .confirmationDialog("Disconnect Apple Health?", isPresented: $confirmsDisconnect, titleVisibility: .visible) {
+            Button("Disconnect and remove data", role: .destructive, action: disconnect)
+            Button("Cancel", role: .cancel) { }
+        } message: {
+            Text("TinyMe stops reading Health and removes the entries it imported. Your notes, workouts you told it and anything you added stay. iOS keeps its permission until you change it in Health → Sharing → Apps → TinyMe.")
+        }
         .onChange(of: draft.choices) {
+            if keepsMessage { keepsMessage = false; return }
             error = nil
             notice = nil
         }
     }
 
     // MARK: - Pieces
+
+    /// "Steps · synced 5 min ago · 31 days", per kind of each switched-on group, with a hint for a group
+    /// that has sent nothing in a week (read permission is private, so this is the only sign of a denied type).
+    @ViewBuilder
+    private var syncedSection: some View {
+        let groups = HealthGroup.allCases.filter(store.saved.groups.contains)
+        if !groups.isEmpty {
+            section("Synced", note: quietGroupsHint(groups)) {
+                VStack(spacing: 0) {
+                    let metrics = HealthCatalog.metrics.filter { groups.contains($0.group) }
+                    ForEach(Array(metrics.enumerated()), id: \.element.kind) { index, metric in
+                        if index > 0 { divider }
+                        HStack(spacing: Space.s3) {
+                            Text(HealthCatalog.title(of: metric.kind)).textStyle(.label, weight: .semibold)
+                            Spacer(minLength: Space.s2)
+                            Text(syncedLine(metric.kind))
+                                .textStyle(.caption)
+                                .foregroundStyle(Palette.inkMuted)
+                                .lineLimit(1)
+                        }
+                        .padding(.horizontal, 18)
+                        .padding(.vertical, 12)
+                        .accessibilityElement(children: .combine)
+                    }
+                }
+                .background(card)
+            }
+        }
+    }
+
+    private func syncedLine(_ kind: String) -> String {
+        guard let status else { return "…" }
+        guard let row = status.kinds.first(where: { $0.kind == kind }), row.itemsTotal > 0 else { return "No data yet" }
+        let ago = row.lastSyncAt.formatted(.relative(presentation: .named, unitsStyle: .abbreviated))
+        let count = kind == "workout" ? "\(row.itemsTotal) workouts" : kind == "sleep" ? "\(row.itemsTotal) nights"
+            : row.itemsTotal == 1 ? "1 entry" : "\(row.itemsTotal) days"
+        return "synced \(ago) · \(count)"
+    }
+
+    private func quietGroupsHint(_ groups: [HealthGroup]) -> String? {
+        guard let status else { return nil }
+        let weekAgo = HealthImportPlan.adding(-7, to: .today())
+        let quiet = groups.filter { group in
+            !HealthCatalog.metrics.filter { $0.group == group }.contains { metric in
+                status.kinds.contains { $0.kind == metric.kind && ($0.lastDay ?? weekAgo) > weekAgo }
+            }
+        }
+        guard !quiet.isEmpty else { return nil }
+        return "No data yet for \(quiet.map(\.title).formatted(.list(type: .and))). If that's unexpected: Health → Sharing → Apps → TinyMe."
+    }
 
     private var header: some View {
         HStack {
@@ -230,6 +317,33 @@ struct AppleHealthSheet: View {
     }
 
     // MARK: - Actions
+
+    private func loadStatus() async {
+        guard store.isConnected else { status = nil; return }
+        status = try? await api.get(.healthStatus)
+    }
+
+    private func disconnect() {
+        isDisconnecting = true
+        error = nil
+        notice = nil
+        Task {
+            defer { isDisconnecting = false }
+            do {
+                let reply: HealthDisconnectReply = try await api.send(.deleteHealthData, body: HealthDisconnectBody())
+                store.reset()
+                sync.disconnected()
+                keepsMessage = draft.choices != store.saved.choices
+                draft = store.saved
+                status = nil
+                notice = reply.removed == 0 ? "Disconnected." : "Disconnected. \(reply.removed) imported entries removed."
+            } catch {
+                self.error = error is URLError
+                    ? "Couldn't reach your server, so nothing was removed. Try again."
+                    : "Your server couldn't remove the Health data. Please try again."
+            }
+        }
+    }
 
     private func connect() {
         guard canConnect else { return }

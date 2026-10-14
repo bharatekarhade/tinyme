@@ -18,6 +18,8 @@ struct Endpoint: Sendable {
 
     static let healthSettings = Endpoint(method: "PUT", path: "health/settings")
     static let healthSync = Endpoint(method: "POST", path: "health/sync")
+    static let healthStatus = Endpoint(method: "GET", path: "health/status")
+    static let deleteHealthData = Endpoint(method: "DELETE", path: "health/data")
 
     static let cardSuggestions = Endpoint(method: "GET", path: "cards/suggestions")
     static let cardOrder = Endpoint(method: "PUT", path: "cards/order")

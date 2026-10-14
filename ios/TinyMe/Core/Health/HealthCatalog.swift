@@ -127,6 +127,23 @@ enum HealthCatalog {
                      reading: .dailyAverage, field: "ms", unit: .secondUnit(with: .milli), decimals: 0),
     ]
 
+    /// How Settings names a kind.
+    static func title(of kind: String) -> String {
+        switch kind {
+        case "steps": "Steps"
+        case "active_energy": "Active energy"
+        case "exercise": "Exercise minutes"
+        case "walk_distance": "Distance"
+        case "workout": "Workouts"
+        case "weight": "Weight"
+        case "body_fat": "Body fat"
+        case "sleep": "Sleep"
+        case "resting_hr": "Resting heart rate"
+        case "hrv": "HRV"
+        default: kind
+        }
+    }
+
     /// The metrics read as one total or average per day.
     static func dailyMetrics(in groups: Set<HealthGroup>) -> [HealthMetric] {
         metrics.filter { groups.contains($0.group) && ($0.reading == .dailySum || $0.reading == .dailyAverage) }

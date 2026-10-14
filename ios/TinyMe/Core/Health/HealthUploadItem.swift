@@ -25,6 +25,40 @@ struct HealthSyncBatch: Encodable, Sendable {
     var deleted: [String]
 }
 
+/// `GET /health/status`: what the server has stored per kind.
+struct HealthStatusDTO: Decodable, Sendable, Equatable {
+    struct Kind: Decodable, Sendable, Equatable {
+        let kind: String
+        let lastSyncAt: Date
+        let lastDay: LocalDay?
+        let itemsTotal: Int
+
+        private enum CodingKeys: String, CodingKey {
+            case kind
+            case lastSyncAt = "last_sync_at"
+            case lastDay = "last_day"
+            case itemsTotal = "items_total"
+        }
+    }
+
+    let groups: [String]
+    let kinds: [Kind]
+}
+
+struct HealthDisconnectBody: Encodable, Sendable {
+    let confirm = "DELETE HEALTH DATA"
+}
+
+struct HealthDisconnectReply: Decodable, Sendable {
+    let removed: Int
+    let restoredChatWorkouts: Int
+
+    private enum CodingKeys: String, CodingKey {
+        case removed
+        case restoredChatWorkouts = "restored_chat_workouts"
+    }
+}
+
 struct HealthSyncReply: Decodable, Sendable, Equatable {
     let upserted: Int
     let unchanged: Int
