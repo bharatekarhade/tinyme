@@ -26,7 +26,9 @@ class ContextPrefixBuilderTests {
     private final com.tinyme.domain.health.service.HealthContext health =
             mock(com.tinyme.domain.health.service.HealthContext.class);
     private final Clock clock = Clock.fixed(Instant.parse("2026-10-05T15:30:00Z"), ZoneOffset.UTC);
-    private final ContextPrefixBuilder builder = new ContextPrefixBuilder(kinds, entries, plans, health, clock);
+    private final com.tinyme.domain.health.service.HealthNudges nudges =
+            mock(com.tinyme.domain.health.service.HealthNudges.class);
+    private final ContextPrefixBuilder builder = new ContextPrefixBuilder(kinds, entries, plans, health, nudges, clock);
 
     @Test
     void theHealthLineComesLastAndAFailureOnlyLeavesItOut() {

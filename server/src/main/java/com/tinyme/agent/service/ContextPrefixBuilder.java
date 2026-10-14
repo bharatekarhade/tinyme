@@ -4,6 +4,7 @@ import com.tinyme.domain.entries.model.aggregate.TodayTotal;
 import com.tinyme.domain.entries.repository.EntryKindRepository;
 import com.tinyme.domain.entries.repository.EntryRepository;
 import com.tinyme.domain.health.service.HealthContext;
+import com.tinyme.domain.health.service.HealthNudges;
 import com.tinyme.domain.plans.service.PlanService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -33,13 +34,15 @@ public class ContextPrefixBuilder {
     private final Clock clock;
     private final PlanService plans;
     private final HealthContext health;
+    private final HealthNudges nudges;
 
     public ContextPrefixBuilder(EntryKindRepository entryKinds, EntryRepository entries, PlanService plans,
-                                HealthContext health, Clock clock) {
+                                HealthContext health, HealthNudges nudges, Clock clock) {
         this.entryKinds = entryKinds;
         this.entries = entries;
         this.plans = plans;
         this.health = health;
+        this.nudges = nudges;
         this.clock = clock;
     }
 
@@ -86,6 +89,11 @@ public class ContextPrefixBuilder {
             if (healthLine != null) lines.add(healthLine);
         } catch (RuntimeException error) {
             LOG.warn("Unable to build Health context; omitting it", error);
+        }
+        try {
+            nudges.pick(zone, referenceTime).ifPresent(nudge -> lines.add("nudge: " + nudge.text()));
+        } catch (RuntimeException error) {
+            LOG.warn("Unable to pick a follow-up question; omitting it", error);
         }
         lines.add("[/context]");
         return String.join("\n", lines);
