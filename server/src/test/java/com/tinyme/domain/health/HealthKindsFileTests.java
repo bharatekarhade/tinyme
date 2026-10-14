@@ -20,6 +20,8 @@ class HealthKindsFileTests {
         assertThat(kinds.find("sleep")).hasValueSatisfying(sleep -> {
             assertThat(sleep.group()).isEqualTo(HealthGroup.SLEEP_HEART);
             assertThat(sleep.dataHints()).containsEntry("hours", "number");
+            assertThat(sleep.quantityField()).isEqualTo("hours");
+            assertThat(sleep.ranges().get("hours").contains(24)).isTrue();
         });
     }
 
@@ -59,7 +61,15 @@ class HealthKindsFileTests {
                 "seed/health/kinds.json: kind steps field steps has type 'integer'; use number, string or any");
     }
 
-    private static String kind(String kind, String group, String field, String type) {
+    @Test
+    void aRangeOnAFieldThatIsntANumberIsNamed() {
+        assertBroken("""
+                {"kinds":[{"kind":"workout","group":"workouts","description":"A test kind",
+                  "data_hints":{"type":"string"},"ranges":{"type":[0,1]}}]}""",
+                "seed/health/kinds.json: kind workout has a range for type, which isn't one of its number fields");
+    }
+
+        private static String kind(String kind, String group, String field, String type) {
         return """
                 {"kind":"%s","group":"%s","description":"A test kind","data_hints":{"%s":"%s"}}"""
                 .formatted(kind, group, field, type);

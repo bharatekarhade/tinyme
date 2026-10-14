@@ -13,7 +13,9 @@ import java.io.UncheckedIOException;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.LinkedHashSet;
 import java.util.Optional;
+import java.util.Set;
 
 /**
  * The kinds Apple Health fills in, read once from seed/health/kinds.json (the iOS catalog is checked against it).
@@ -74,7 +76,25 @@ public class HealthKinds {
             }
             dataHints.put(field.getKey(), field.getValue().asString());
         }
-        return new HealthKind(kind, group, text(node, "description", name), dataHints);
+        JsonNode quantity = node.path("quantity_field");
+        if (!quantity.isMissingNode() && !quantity.isNull() && !quantity.isString()) {
+            throw new IllegalArgumentException("kind " + name + " quantity_field must be a field name or null");
+        }
+        Set<String> required = new LinkedHashSet<>();
+        for (JsonNode field : node.path("required")) {
+            if (!field.isString()) throw new IllegalArgumentException("kind " + name + " required must list field names");
+            required.add(field.asString());
+        }
+        Map<String, HealthKind.Range> ranges = new LinkedHashMap<>();
+        for (var range : node.path("ranges").properties()) {
+            JsonNode limits = range.getValue();
+            if (!limits.isArray() || limits.size() != 2 || !limits.get(0).isNumber() || !limits.get(1).isNumber()) {
+                throw new IllegalArgumentException("kind " + name + " range for " + range.getKey() + " must be [min, max]");
+            }
+            ranges.put(range.getKey(), new HealthKind.Range(limits.get(0).asDouble(), limits.get(1).asDouble()));
+        }
+        return new HealthKind(kind, group, text(node, "description", name), dataHints,
+                quantity.isString() ? quantity.asString() : null, required, ranges);
     }
 
     /** A required string field: a missing or misspelled key fails here instead of turning into "". */
