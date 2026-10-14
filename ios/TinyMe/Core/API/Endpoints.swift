@@ -49,6 +49,12 @@ struct Endpoint: Sendable {
 
     static let kinds = Endpoint(method: "GET", path: "kinds")
 
+    static let people = Endpoint(method: "GET", path: "people")
+
+    static func person(_ slug: String) -> Endpoint {
+        Endpoint(method: "GET", path: "people/\(slug)")
+    }
+
     static func upcoming(from: LocalDay, to: LocalDay) -> Endpoint {
         Endpoint(method: "GET", path: "upcoming", query: [
             URLQueryItem(name: "from", value: from.description),

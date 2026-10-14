@@ -9,6 +9,7 @@ struct HomeView: View {
     @Environment(\.scenePhase) private var scenePhase
     @AppStorage("health.homeCardDismissed") private var healthCardDismissed = false
     @State private var showsHealth = false
+    @State private var showsPeople = false
     @State private var cardToRemove: CardDTO?
     @State private var isPeriodPickerPresented = false
     /// How far Home is scrolled, to tell whether the switcher is pinned.
@@ -35,7 +36,8 @@ struct HomeView: View {
             ScrollViewReader { proxy in
             ScrollView {
                 LazyVStack(spacing: 0, pinnedViews: [.sectionHeaders]) {
-                    HomeHeader(initial: profileInitial, subtitle: model.range.subtitle, streak: model.streak) {
+                    HomeHeader(initial: profileInitial, subtitle: model.range.subtitle, streak: model.streak,
+                               onPeople: { showsPeople = true }) {
                         router.showsSettings = true
                     }
                     .padding(.horizontal, Space.s4)
@@ -193,6 +195,11 @@ struct HomeView: View {
                 DrillDownView(target: target, api: api)
             }
             }
+        }
+        .sheet(isPresented: $showsPeople) {
+            PeopleView(api: api)
+                .presentationDetents([.large])
+                .presentationDragIndicator(.visible)
         }
         .overlay(alignment: .top) {
             GeometryReader { geometry in
@@ -410,6 +417,7 @@ private struct HomeHeader: View {
     var initial: String
     var subtitle: String
     var streak: JournalStreak?
+    var onPeople: () -> Void
     var onProfile: () -> Void
 
     var body: some View {
@@ -419,6 +427,15 @@ private struct HomeHeader: View {
                     .textStyle(.label)
                     .foregroundStyle(Palette.inkMuted)
                 Spacer()
+                Button(action: onPeople) {
+                    Image(systemName: "person.2")
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundStyle(Palette.ink)
+                        .frame(width: 40, height: 40)
+                        .background(Palette.surfaceSunken, in: Circle())
+                        .frame(width: 44, height: 44)
+                }
+                .accessibilityLabel("People")
                 Button(action: onProfile) {
                     Text(initial)
                         .textStyle(.label, weight: .semibold)
