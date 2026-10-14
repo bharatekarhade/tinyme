@@ -218,6 +218,68 @@ class HealthSyncApiTests {
         assertThat(jdbc.queryForObject("SELECT count(*) FROM entries WHERE source = 'health'", Long.class)).isZero();
     }
 
+    @Test
+    void aChatWorkoutAndTheWatchsBecomeOneEntryWithYourWords() throws Exception {
+        try {
+            chatWorkout("2026-10-14T01:50:00Z", "2026-10-14", "push day", "push day, felt strong");
+            chatWorkout("2026-10-13T10:00:00Z", "2026-10-13", "run", "evening run");
+
+            sync(batch(WORKOUT, "")).andExpect(status().isOk()).andExpect(jsonPath("$.merged").value(1));
+
+            assertThat(jdbc.queryForObject("SELECT text FROM entries WHERE external_id = '3F2A-WORKOUT'", String.class))
+                    .isEqualTo("push day, felt strong");
+            assertThat(jdbc.queryForObject("SELECT data ->> 'label' FROM entries WHERE external_id = '3F2A-WORKOUT'",
+                    String.class)).isEqualTo("push day");
+            assertThat(jdbc.queryForObject("SELECT data ->> 'type' FROM entries WHERE external_id = '3F2A-WORKOUT'",
+                    String.class)).isEqualTo("traditional strength training");
+            assertThat(jdbc.queryForObject("SELECT count(*) FROM entries WHERE source = 'chat' AND kind = 'workout' "
+                    + "AND deleted_at IS NULL", Long.class)).isEqualTo(1);   // the run on another day stays
+            String chatId = jdbc.queryForObject("SELECT id::text FROM entries WHERE source = 'chat' AND text = "
+                    + "'push day, felt strong'", String.class);
+            assertThat(jdbc.queryForObject("SELECT data ->> 'merged_from' FROM entries WHERE external_id = '3F2A-WORKOUT'",
+                    String.class)).isEqualTo(chatId);
+
+            // Merged once; a later sync of new numbers keeps your words.
+            sync(batch(WORKOUT.replace("\"minutes\":52", "\"minutes\":53"), ""))
+                    .andExpect(jsonPath("$.merged").value(0)).andExpect(jsonPath("$.upserted").value(1));
+            assertThat(jdbc.queryForObject("SELECT data ->> 'label' FROM entries WHERE external_id = '3F2A-WORKOUT'",
+                    String.class)).isEqualTo("push day");
+        } finally {
+            jdbc.update("DELETE FROM entries WHERE source = 'chat' AND kind = 'workout'");
+        }
+    }
+
+    @Test
+    void aWorkoutToldInChatAfterTheWatchsMergesOnTheNextSync() throws Exception {
+        try {
+            sync(batch(WORKOUT, "")).andExpect(jsonPath("$.merged").value(0));
+            chatWorkout("2026-10-14T02:30:00Z", "2026-10-14", "leg day", null);
+
+            sync(batch(STEPS, "")).andExpect(jsonPath("$.merged").value(1));
+            assertThat(jdbc.queryForObject("SELECT data ->> 'label' FROM entries WHERE external_id = '3F2A-WORKOUT'",
+                    String.class)).isEqualTo("leg day");
+        } finally {
+            jdbc.update("DELETE FROM entries WHERE source = 'chat' AND kind = 'workout'");
+        }
+    }
+
+    @Test
+    void aChatWorkoutHoursAwayIsADifferentSession() throws Exception {
+        try {
+            chatWorkout("2026-10-14T08:30:00Z", "2026-10-14", "evening run", null);   // 6 h after the Watch one ended
+            sync(batch(WORKOUT, "")).andExpect(jsonPath("$.merged").value(0));
+        } finally {
+            jdbc.update("DELETE FROM entries WHERE source = 'chat' AND kind = 'workout'");
+        }
+    }
+
+    private void chatWorkout(String ts, String day, String type, String text) {
+        jdbc.update("""
+                INSERT INTO entries (ts, local_day, kind, quantity, text, data, source)
+                VALUES (CAST(? AS timestamptz), CAST(? AS date), 'workout', 1, ?, CAST(? AS jsonb), 'chat')
+                """, ts, day, text, "{\"type\":\"" + type + "\"}");
+    }
+
     private ResultActions sync(String body) throws Exception {
         return mvc.perform(post("/health/sync")
                 .header("Authorization", "Bearer " + tokens.issue("health-sync-tests").token())

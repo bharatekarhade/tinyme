@@ -209,6 +209,7 @@ actor HealthSyncEngine {
         totals.unchanged += batch.unchanged
         totals.deleted += batch.deleted
         totals.dropped += batch.dropped
+        totals.merged += batch.merged
     }
 
     private nonisolated func loadCursors() -> [String: HealthImportCursor] {

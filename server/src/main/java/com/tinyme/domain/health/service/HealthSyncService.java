@@ -13,6 +13,7 @@ import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 
 import java.time.Instant;
+import java.time.LocalDate;
 import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -31,6 +32,8 @@ import java.util.TreeMap;
 @Service
 public class HealthSyncService {
     public static final int MAX_ITEMS = 500;
+    /** How far back a chat workout is looked for to merge with a Watch one, whichever arrived first. */
+    static final int MERGE_DAYS = 30;
     /**
      * Fields a person adds to a Health entry in TinyMe; a newer value from Health keeps them. A workout's own name
      * ("push day") is data.label, so data.type stays whatever Health sends.
@@ -87,13 +90,26 @@ public class HealthSyncService {
         List<String> deletedKinds = entries.softDelete(deleted, now);
         touchedKinds.addAll(deletedKinds);
 
+        int merged = mergeChatWorkouts(zone, now);
+
         inserted.forEach(entries::addUses);
         touchedKinds.forEach(kind -> entries.refreshSyncLog(kind, now));
         Map<String, Integer> perKind = new TreeMap<>();
         items.forEach(item -> perKind.merge(item.kind(), 1, Integer::sum));
-        log.info("Health sync: items={} upserted={} unchanged={} deleted={} per_kind={}",
-                items.size(), upserted, unchanged, deletedKinds.size(), perKind);
-        return new HealthSyncResult(upserted, unchanged, deletedKinds.size(), 0);
+        log.info("Health sync: items={} upserted={} unchanged={} deleted={} merged={} per_kind={}",
+                items.size(), upserted, unchanged, deletedKinds.size(), merged, perKind);
+        return new HealthSyncResult(upserted, unchanged, deletedKinds.size(), merged);
+    }
+
+    /**
+     * "Did push day" in chat and the Watch's strength workout are one session (guide §7.2). Runs on every sync over
+     * the last 30 days, so it works whichever arrived first, and for pairs from before this existed.
+     */
+    private int mergeChatWorkouts(ZoneId zone, Instant now) {
+        String workout = entryKinds.resolveExisting("workout").orElse("workout");
+        var pairs = entries.workoutMergePairs(workout, LocalDate.ofInstant(now, zone).minusDays(MERGE_DAYS));
+        pairs.forEach(pair -> entries.merge(pair, now));
+        return pairs.size();
     }
 
     private List<HealthItem> readItems(JsonNode raw, ZoneId zone, Instant now) {

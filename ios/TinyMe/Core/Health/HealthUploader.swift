@@ -8,7 +8,9 @@ struct HealthUploader: Sendable {
 
     struct Totals: Sendable, Equatable {
         var upserted = 0, unchanged = 0, deleted = 0, dropped = 0
-        var changedSomething: Bool { upserted > 0 || deleted > 0 }
+        /// Chat workouts the server folded into a Watch one.
+        var merged = 0
+        var changedSomething: Bool { upserted > 0 || deleted > 0 || merged > 0 }
     }
 
     func send(items: [HealthUploadItem], deleted: [String]) async throws -> Totals {
@@ -22,6 +24,7 @@ struct HealthUploader: Sendable {
             totals.upserted += reply.upserted
             totals.unchanged += reply.unchanged
             totals.deleted += reply.deleted
+            totals.merged += reply.merged
             start += Self.maxItems
             deletesLeft = Array(deletesLeft.dropFirst(Self.maxItems))
         } while start < items.count || !deletesLeft.isEmpty

@@ -340,6 +340,14 @@ public class EntryRepository {
         return Map.copyOf(result);
     }
 
+    /** Where a live entry came from: chat, job, import, app or health. */
+    @Transactional(readOnly = true)
+    public Optional<String> sourceOf(UUID id) {
+        Objects.requireNonNull(id, "id");
+        return jdbc.queryForList("SELECT source FROM entries WHERE id = :id AND deleted_at IS NULL",
+                Map.of("id", id), String.class).stream().findFirst();
+    }
+
     @Transactional(readOnly = true)
     public Optional<EntrySnapshot> findLive(UUID id) {
         Objects.requireNonNull(id, "id");

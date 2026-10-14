@@ -78,6 +78,55 @@ public class HealthEntryRepository {
                 """, new MapSqlParameterSource("ids", externalIds).addValue("now", Timestamp.from(now)), String.class);
     }
 
+    public record MergePair(UUID healthId, UUID chatId, String chatText, String chatType, String chatNote) { }
+
+    /**
+     * Chat workouts that are the same session as a Health workout: same day, logged from 3 h before it started
+     * to 3 h after it ended. Nearest first, each Health workout at most once (one already merged is skipped).
+     */
+    public List<MergePair> workoutMergePairs(String workoutKind, LocalDate since) {
+        List<MergePair> pairs = new java.util.ArrayList<>();
+        java.util.Set<UUID> usedHealth = new java.util.HashSet<>();
+        java.util.Set<UUID> usedChat = new java.util.HashSet<>();
+        jdbc.query("""
+                SELECT h.id AS health_id, c.id AS chat_id, c.text AS chat_text,
+                       c.data ->> 'type' AS chat_type, c.data ->> 'note' AS chat_note
+                FROM entries h
+                JOIN entries c ON c.kind = h.kind AND c.local_day = h.local_day
+                WHERE h.source = 'health' AND h.kind = :kind AND h.deleted_at IS NULL AND h.local_day >= :since
+                  AND h.data -> 'merged_from' IS NULL
+                  AND c.source <> 'health' AND c.deleted_at IS NULL
+                  AND c.ts BETWEEN h.ts - interval '3 hours'
+                      AND h.ts + make_interval(mins => COALESCE((h.data ->> 'minutes')::numeric, 0)::int) + interval '3 hours'
+                ORDER BY abs(extract(epoch FROM c.ts - h.ts)), h.id, c.id
+                """, new MapSqlParameterSource("kind", workoutKind).addValue("since", since), rs -> {
+            UUID health = rs.getObject("health_id", UUID.class);
+            UUID chat = rs.getObject("chat_id", UUID.class);
+            if (usedHealth.contains(health) || usedChat.contains(chat)) return;
+            usedHealth.add(health);
+            usedChat.add(chat);
+            pairs.add(new MergePair(health, chat, rs.getString("chat_text"), rs.getString("chat_type"),
+                    rs.getString("chat_note")));
+        });
+        return pairs;
+    }
+
+    /** Folds a chat workout into the Health one: its words become the text and its type the label; it's soft-deleted. */
+    public void merge(MergePair pair, Instant now) {
+        Map<String, Object> kept = new LinkedHashMap<>();
+        kept.put("merged_from", pair.chatId().toString());
+        if (pair.chatType() != null && !pair.chatType().isBlank()) kept.put("label", pair.chatType());
+        if (pair.chatNote() != null && !pair.chatNote().isBlank()) kept.put("note", pair.chatNote());
+        jdbc.update("""
+                UPDATE entries SET text = COALESCE(text, :text),
+                    data = CAST(:kept AS jsonb) || data || jsonb_build_object('merged_from', :chatId)
+                WHERE id = :healthId
+                """, new MapSqlParameterSource("text", pair.chatText()).addValue("kept", JSON.writeValueAsString(kept))
+                .addValue("chatId", pair.chatId().toString()).addValue("healthId", pair.healthId()));
+        jdbc.update("UPDATE entries SET deleted_at = :now WHERE id = :chatId AND deleted_at IS NULL",
+                new MapSqlParameterSource("now", Timestamp.from(now)).addValue("chatId", pair.chatId()));
+    }
+
     /** A Health entry counts as a use of its kind, like one logged in chat. */
     public void addUses(String kind, int count) {
         jdbc.update("UPDATE entry_kinds SET use_count = use_count + :count WHERE kind = :kind",

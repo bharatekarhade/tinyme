@@ -36,16 +36,19 @@ import java.util.Map;
 public class EntryService {
     private final EntryKindRepository entryKinds;
     private final EntryRepository entries;
+    private final HealthEntryRules healthRules;
 
-    public EntryService(EntryKindRepository entryKinds, EntryRepository entries) {
+    public EntryService(EntryKindRepository entryKinds, EntryRepository entries, HealthEntryRules healthRules) {
         this.entryKinds = Objects.requireNonNull(entryKinds, "entryKinds");
         this.entries = Objects.requireNonNull(entries, "entries");
+        this.healthRules = Objects.requireNonNull(healthRules, "healthRules");
     }
 
     @Transactional
     public AddResult add(AddCommand cmd) {
         Objects.requireNonNull(cmd, "cmd");
         String kind = entryKinds.upsertAndResolve(cmd.kind());
+        healthRules.checkAdd(cmd.kind(), kind, cmd.source());
         BigDecimal quantity = cmd.quantity() == null ? BigDecimal.ONE : cmd.quantity();
         LocalDate localDay = LocalDate.ofInstant(cmd.ts(), cmd.zone());
         UUID id = entries.insert(new NewEntry(kind, quantity, cmd.text(), cmd.data(),
@@ -161,6 +164,9 @@ public class EntryService {
         if (found.isEmpty()) return Optional.empty();
 
         var current = found.get();
+        if (entries.sourceOf(patch.id()).filter(HealthEntryRules.SOURCE::equals).isPresent()) {
+            patch = healthRules.checkUpdate(patch, current);
+        }
         String kind = patch.kind() == null
                 ? current.kind()
                 : entryKinds.upsertAndResolve(patch.kind());
@@ -183,6 +189,7 @@ public class EntryService {
     public Optional<EntryWriteResult> delete(UUID id, Instant now) {
         Objects.requireNonNull(id, "id");
         Objects.requireNonNull(now, "now");
+        if (entries.sourceOf(id).filter(HealthEntryRules.SOURCE::equals).isPresent()) healthRules.refuseDelete();
 
         Optional<EntrySnapshot> deleted = entries.softDelete(id, now);
         if (deleted.isEmpty()) return Optional.empty();

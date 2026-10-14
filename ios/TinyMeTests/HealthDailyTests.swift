@@ -130,7 +130,7 @@ struct HealthUploaderTests {
         ]
         let totals = try await uploader().send(items: [item(12), item(13), item(14)], deleted: ["steps:2026-10-11"])
 
-        #expect(totals == HealthUploader.Totals(upserted: 2, unchanged: 0, deleted: 1, dropped: 1))
+        #expect(totals == HealthUploader.Totals(upserted: 2, unchanged: 0, deleted: 1, dropped: 1, merged: 0))
         #expect(StubServer.bodies.count == 2)
         let resent = try JSONSerialization.jsonObject(with: StubServer.bodies[1]) as! [String: Any]
         let ids = (resent["items"] as! [[String: Any]]).map { $0["external_id"] as! String }
