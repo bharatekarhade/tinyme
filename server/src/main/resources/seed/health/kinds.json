@@ -1,0 +1,27 @@
+{
+  "comment": "The kinds Apple Health fills in. The server seeds them into entry_kinds; the iOS HealthCatalog is checked against this file.",
+  "kinds": [
+    { "kind": "steps",         "group": "activity",    "description": "Steps per day (filled in by Apple Health when connected)",
+      "data_hints": { "steps": "number" } },
+    { "kind": "active_energy", "group": "activity",    "description": "Active energy burned per day in kcal (filled in by Apple Health when connected)",
+      "data_hints": { "kcal": "number" } },
+    { "kind": "exercise",      "group": "activity",    "description": "Exercise minutes per day (filled in by Apple Health when connected)",
+      "data_hints": { "minutes": "number" } },
+    { "kind": "walk_distance", "group": "activity",    "description": "Walking and running distance per day in km (filled in by Apple Health when connected)",
+      "data_hints": { "km": "number" } },
+    { "kind": "workout",       "group": "workouts",    "description": "A workout (filled in by Apple Health when connected)",
+      "data_hints": { "type": "string", "minutes": "number", "kcal": "number", "km": "number",
+                      "avg_hr": "number", "source_app": "string" } },
+    { "kind": "weight",        "group": "body",        "description": "Body weight in kg (filled in by Apple Health when connected)",
+      "data_hints": { "kg": "number" } },
+    { "kind": "body_fat",      "group": "body",        "description": "Body fat percentage (filled in by Apple Health when connected)",
+      "data_hints": { "percent": "number" } },
+    { "kind": "sleep",         "group": "sleep_heart", "description": "One night of sleep, on the day you woke up (filled in by Apple Health when connected)",
+      "data_hints": { "hours": "number", "deep_h": "number", "rem_h": "number", "core_h": "number",
+                      "awake_h": "number", "bed_start": "string", "bed_end": "string", "stages": "any" } },
+    { "kind": "resting_hr",    "group": "sleep_heart", "description": "Resting heart rate per day in bpm (filled in by Apple Health when connected)",
+      "data_hints": { "bpm": "number" } },
+    { "kind": "hrv",           "group": "sleep_heart", "description": "Heart rate variability (SDNN) per day in ms (filled in by Apple Health when connected)",
+      "data_hints": { "ms": "number" } }
+  ]
+}

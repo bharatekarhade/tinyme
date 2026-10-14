@@ -87,6 +87,8 @@ class AdminDeleteAllTests {
         assertThat(count("agent_sessions")).isZero();
         assertThat(jdbc.queryForObject("SELECT count(*) FROM cards WHERE slug = 'journal' AND system", Long.class))
                 .isEqualTo(1);
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM entry_kinds WHERE kind IN ('steps', 'sleep', 'hrv')",
+                Long.class)).isEqualTo(3);
         assertThat(jdbc.queryForObject("SELECT count(*) FROM account", Long.class)).isEqualTo(1);
         assertThat(count("refresh_tokens")).isEqualTo(tokenCountBefore);
         assertThat(jdbc.queryForObject("SELECT count(*) FROM settings", Long.class)).isEqualTo(5);

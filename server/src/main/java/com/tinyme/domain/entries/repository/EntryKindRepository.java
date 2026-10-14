@@ -61,6 +61,18 @@ public class EntryKindRepository {
         kinds.insertCardKindIfMissing(kind, description, JSON.writeValueAsString(dataHints));
     }
 
+    /**
+     * Creates or refreshes a kind the code owns (the Apple Health kinds). Its hints are merged into what is
+     * there, so fields an existing chat kind already uses stay listed; usage and merges are untouched.
+     */
+    @Transactional
+    public void ensureOwnedKind(String kind, String description, Map<String, ?> dataHints) {
+        Objects.requireNonNull(kind, "kind");
+        Objects.requireNonNull(description, "description");
+        Objects.requireNonNull(dataHints, "dataHints");
+        kinds.upsertOwnedKind(kind, description, JSON.writeValueAsString(dataHints));
+    }
+
     /** Resolves a kind without creating it or changing its usage count. */
     @Transactional(readOnly = true)
     public Optional<String> resolveExisting(String kind) {

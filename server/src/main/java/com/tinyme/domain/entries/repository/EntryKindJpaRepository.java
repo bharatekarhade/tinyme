@@ -27,4 +27,18 @@ interface EntryKindJpaRepository extends JpaRepository<EntryKindEntity, String> 
             """, nativeQuery = true)
     void insertCardKindIfMissing(@Param("kind") String kind, @Param("description") String description,
                                  @Param("dataHints") String dataHints);
+
+    /** Code-owned kinds: the description is replaced and the hints are added to, leaving use_count alone. */
+    @Modifying(flushAutomatically = true)
+    @Query(value = """
+            INSERT INTO entry_kinds (kind, description, data_hints, use_count)
+            VALUES (:kind, :description, CAST(:dataHints AS jsonb), 0)
+            ON CONFLICT (kind) DO UPDATE
+              SET description = EXCLUDED.description,
+                  data_hints = entry_kinds.data_hints || EXCLUDED.data_hints
+              WHERE entry_kinds.description IS DISTINCT FROM EXCLUDED.description
+                 OR NOT entry_kinds.data_hints @> EXCLUDED.data_hints
+            """, nativeQuery = true)
+    void upsertOwnedKind(@Param("kind") String kind, @Param("description") String description,
+                         @Param("dataHints") String dataHints);
 }

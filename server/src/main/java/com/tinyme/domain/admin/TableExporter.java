@@ -44,6 +44,8 @@ public class TableExporter {
             case "photo_people" -> "photo_id, person_id";
             case "plan_people" -> "plan_id, person_id";
             case "plan_occurrences" -> "plan_id, day";
+            case "health_sync_log" -> "kind";
+            case "nudge_log" -> "nudge_key, day";
             default -> "id";
         };
         zip.putNextEntry(new java.util.zip.ZipEntry(archiveRoot + "db/" + table + ".jsonl"));

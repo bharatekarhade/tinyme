@@ -10,6 +10,7 @@ import com.tinyme.auth.service.AuthException;
 import com.tinyme.auth.service.LoginRateLimiter;
 import com.tinyme.auth.service.PasswordService;
 import com.tinyme.domain.cards.service.CardBootstrap;
+import com.tinyme.domain.health.service.HealthKindBootstrap;
 import com.tinyme.domain.admin.UserDataTables;
 import com.tinyme.maintenance.MaintenanceGate;
 import org.slf4j.Logger;
@@ -44,12 +45,14 @@ public class DeleteAllService {
     private final JdbcTemplate jdbc;
     private final TransactionTemplate transactions;
     private final CardBootstrap cardBootstrap;
+    private final HealthKindBootstrap healthKinds;
 
     public DeleteAllService(ManagedAgents agents, AgentResources resources, AgentSessionRepository sessions,
                             MemorySeedFiles memorySeeds, AccountRepository accounts, PasswordService passwords,
                             LoginRateLimiter rateLimiter, MaintenanceGate gate,
                             com.tinyme.agent.service.SessionTurnLock turnLocks, JdbcTemplate jdbc,
-                            TransactionTemplate transactions, CardBootstrap cardBootstrap) {
+                            TransactionTemplate transactions, CardBootstrap cardBootstrap,
+                            HealthKindBootstrap healthKinds) {
         this.agents = agents;
         this.resources = resources;
         this.sessions = sessions;
@@ -62,6 +65,7 @@ public class DeleteAllService {
         this.jdbc = jdbc;
         this.transactions = transactions;
         this.cardBootstrap = cardBootstrap;
+        this.healthKinds = healthKinds;
     }
 
     public DeleteAllCounts deleteAll(String confirm, String password, short ownerId, String remoteIp) {
@@ -105,6 +109,7 @@ public class DeleteAllService {
                 } catch (Exception failure) {
                     throw new IllegalStateException("Could not reseed the Journal card", failure);
                 }
+                healthKinds.seed();
             });
             var counts = new DeleteAllCounts(entries, people, cards, messages, sessionIds.size(), memoryDocuments);
             log.info("Delete-all completed: entries={}, people={}, cards={}, messages={}, sessions={}, memory_documents={}",
