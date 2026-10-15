@@ -27,10 +27,14 @@ The OAuth server flow uses offline access so later Gmail and Calendar features c
 
 ## Encryption key
 
-`TINYME_ENCRYPTION_KEY` is a base64-encoded Tink JSON AEAD keyset. Install Tinkey with `brew tap tink-crypto/tink-tinkey https://github.com/tink-crypto/tink-tinkey && brew install tinkey`, then generate the value with:
+`TINYME_ENCRYPTION_KEY` is a base64-encoded Tink JSON AEAD keyset. Install Tinkey with `brew tap tink-crypto/tink-tinkey https://github.com/tink-crypto/tink-tinkey && brew install tinkey`. Tinkey requires the output file not to exist, so generate to a temporary directory, then base64-encode it:
 
 ```sh
-tinkey create-keyset --key-template AES256_GCM --out-format json --out /dev/stdout | base64 | tr -d '\n'
+TINYME_KEYSET_TMP="$(mktemp -d)"
+tinkey create-keyset --key-template AES256_GCM --out-format json --out "$TINYME_KEYSET_TMP/keyset.json" && \
+  base64 < "$TINYME_KEYSET_TMP/keyset.json" | tr -d '\n' && printf '\n'
+rm "$TINYME_KEYSET_TMP/keyset.json"
+rmdir "$TINYME_KEYSET_TMP"
 ```
 
 Copy the output into `.env` without committing it. Back up the key separately from Postgres. Keep the same keyset after restarts; losing it makes stored Google refresh tokens unreadable and requires reconnecting Google. For rotation, add a new key to the Tink keyset and promote it to primary while retaining the old key so existing ciphertext can still be decrypted.

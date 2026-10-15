@@ -17,7 +17,7 @@ import java.time.Duration;
 import java.util.Arrays;
 import java.util.List;
 
-/** Small OAuth-only HTTP adapter. Gmail and Calendar API clients are a later build step. */
+/** HTTP adapter for Google OAuth token, identity and revocation endpoints. */
 @Component
 public class GoogleOAuthHttpProvider implements GoogleOAuthProvider {
     private static final URI TOKEN_URL = URI.create("https://oauth2.googleapis.com/token");
@@ -27,6 +27,9 @@ public class GoogleOAuthHttpProvider implements GoogleOAuthProvider {
 
     private final GoogleOAuthProperties properties;
     private final HttpClient http;
+    private final URI tokenUrl;
+    private final URI userinfoUrl;
+    private final URI revokeUrl;
 
     @Autowired
     public GoogleOAuthHttpProvider(GoogleOAuthProperties properties) {
@@ -34,8 +37,16 @@ public class GoogleOAuthHttpProvider implements GoogleOAuthProvider {
     }
 
     GoogleOAuthHttpProvider(GoogleOAuthProperties properties, HttpClient http) {
+        this(properties, http, TOKEN_URL, USERINFO_URL, REVOKE_URL);
+    }
+
+    GoogleOAuthHttpProvider(GoogleOAuthProperties properties, HttpClient http,
+                            URI tokenUrl, URI userinfoUrl, URI revokeUrl) {
         this.properties = properties;
         this.http = http;
+        this.tokenUrl = tokenUrl;
+        this.userinfoUrl = userinfoUrl;
+        this.revokeUrl = revokeUrl;
     }
 
     @Override
@@ -43,7 +54,7 @@ public class GoogleOAuthHttpProvider implements GoogleOAuthProvider {
         String form = form("code", code, "code_verifier", verifier, "client_id", properties.clientId(),
                 "client_secret", properties.clientSecret(), "redirect_uri", redirectUri,
                 "grant_type", "authorization_code");
-        JsonNode response = send(HttpRequest.newBuilder(TOKEN_URL)
+        JsonNode response = send(HttpRequest.newBuilder(tokenUrl)
                 .timeout(Duration.ofSeconds(20))
                 .header("Content-Type", "application/x-www-form-urlencoded")
                 .POST(HttpRequest.BodyPublishers.ofString(form)).build());
@@ -57,8 +68,23 @@ public class GoogleOAuthHttpProvider implements GoogleOAuthProvider {
     }
 
     @Override
+    public AccessToken refresh(String refreshToken) throws IOException, InterruptedException {
+        String form = form("refresh_token", refreshToken, "client_id", properties.clientId(),
+                "client_secret", properties.clientSecret(), "grant_type", "refresh_token");
+        JsonNode response = send(HttpRequest.newBuilder(tokenUrl)
+                .timeout(Duration.ofSeconds(20))
+                .header("Content-Type", "application/x-www-form-urlencoded")
+                .POST(HttpRequest.BodyPublishers.ofString(form)).build());
+        String accessToken = text(response, "access_token");
+        long expiresIn = response.path("expires_in").asLong(0);
+        if (accessToken == null || accessToken.isBlank() || expiresIn <= 0)
+            throw new IOException("Google returned an incomplete refreshed token response");
+        return new AccessToken(accessToken, expiresIn);
+    }
+
+    @Override
     public Identity identity(String accessToken) throws IOException, InterruptedException {
-        JsonNode response = send(HttpRequest.newBuilder(USERINFO_URL)
+        JsonNode response = send(HttpRequest.newBuilder(userinfoUrl)
                 .timeout(Duration.ofSeconds(20)).header("Authorization", "Bearer " + accessToken).GET().build());
         String email = text(response, "email");
         boolean verified = response.path("email_verified").asBoolean(false);
@@ -68,26 +94,37 @@ public class GoogleOAuthHttpProvider implements GoogleOAuthProvider {
 
     @Override
     public void revoke(String token) throws IOException, InterruptedException {
-        HttpRequest request = HttpRequest.newBuilder(REVOKE_URL)
+        HttpRequest request = HttpRequest.newBuilder(revokeUrl)
                 .timeout(Duration.ofSeconds(20))
                 .header("Content-Type", "application/x-www-form-urlencoded")
                 .POST(HttpRequest.BodyPublishers.ofString(form("token", token))).build();
         HttpResponse<String> response = http.send(request, HttpResponse.BodyHandlers.ofString());
         if (response.statusCode() < 200 || response.statusCode() >= 300) {
-            throw new IOException("Google token revocation returned HTTP " + response.statusCode());
+            throw providerException(response.statusCode(), response.body());
         }
     }
 
     private JsonNode send(HttpRequest request) throws IOException, InterruptedException {
         HttpResponse<String> response = http.send(request, HttpResponse.BodyHandlers.ofString());
         if (response.statusCode() < 200 || response.statusCode() >= 300) {
-            throw new IOException("Google OAuth request returned HTTP " + response.statusCode());
+            throw providerException(response.statusCode(), response.body());
         }
         try {
             return JSON.readTree(response.body());
         } catch (RuntimeException exception) {
             throw new IOException("Google OAuth returned invalid JSON", exception);
         }
+    }
+
+    private static GoogleOAuthProvider.ProviderException providerException(int status, String body) {
+        String errorCode = null;
+        try {
+            JsonNode error = JSON.readTree(body).get("error");
+            if (error != null && error.isString()) errorCode = error.asString();
+        } catch (RuntimeException ignored) {
+            // Do not include provider response bodies in exception messages or logs.
+        }
+        return new GoogleOAuthProvider.ProviderException(status, errorCode);
     }
 
     private static String text(JsonNode node, String key) {

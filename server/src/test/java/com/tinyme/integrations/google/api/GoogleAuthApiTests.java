@@ -4,6 +4,7 @@ import com.tinyme.agent.support.AgentDatabaseConfiguration;
 import com.tinyme.auth.service.DeviceTokenService;
 import com.tinyme.integrations.google.service.GoogleOAuthProvider;
 import com.tinyme.integrations.google.service.GoogleTokenCipher;
+import com.tinyme.integrations.google.service.GoogleTokenService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -47,6 +48,7 @@ class GoogleAuthApiTests {
     @Autowired MockMvc mvc;
     @Autowired JdbcTemplate jdbc;
     @Autowired DeviceTokenService deviceTokens;
+    @Autowired GoogleTokenService googleTokens;
     @MockitoBean GoogleOAuthProvider provider;
     @MockitoBean GoogleTokenCipher cipher;
 
@@ -145,6 +147,27 @@ class GoogleAuthApiTests {
                 .andExpect(status().isNoContent());
 
         assertThat(jdbc.queryForObject("SELECT count(*) FROM google_account", Long.class)).isZero();
+    }
+
+    @Test
+    void invalidGrantForAnOldTokenCannotMarkANewerConnectionNeedsReauth() throws Exception {
+        jdbc.update("""
+                INSERT INTO google_account (email, scopes, refresh_token_enc, status, connected_at)
+                VALUES ('owner@example.test', ARRAY['openid'], decode('0102', 'hex'), 'connected', now())
+                """);
+        doAnswer(invocation -> {
+            jdbc.update("UPDATE google_account SET refresh_token_enc = decode('0304', 'hex') WHERE id = 1");
+            throw new GoogleOAuthProvider.ProviderException(400, "invalid_grant");
+        }).when(provider).refresh(TOKEN);
+
+        org.assertj.core.api.Assertions.assertThatThrownBy(googleTokens::accessToken)
+                .isInstanceOf(com.tinyme.integrations.google.service.GoogleOAuthException.class)
+                .hasMessage("google_reauth_required");
+
+        assertThat(jdbc.queryForObject("SELECT status FROM google_account WHERE id = 1", String.class))
+                .isEqualTo("connected");
+        assertThat(jdbc.queryForObject("SELECT refresh_token_enc = decode('0304', 'hex') FROM google_account WHERE id = 1",
+                Boolean.class)).isTrue();
     }
 
     @Test

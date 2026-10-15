@@ -49,6 +49,11 @@ public class GoogleAccountRepository {
         jdbc.update("DELETE FROM google_account WHERE id = 1");
     }
 
+    public void markNeedsReauth(byte[] refreshTokenFingerprint) {
+        jdbc.update("UPDATE google_account SET status = 'needs_reauth' WHERE id = 1 AND refresh_token_enc = ?",
+                refreshTokenFingerprint);
+    }
+
     public record GoogleAccount(String email, List<String> scopes, byte[] encryptedRefreshToken,
                                 String status, Instant connectedAt) {
         public GoogleAccount {
