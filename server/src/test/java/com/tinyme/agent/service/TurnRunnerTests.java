@@ -233,7 +233,8 @@ class TurnRunnerTests {
                 "query-then-update", 2,
                 "no-tool-reply", 0,
                 "people-upsert", 1,
-                "build-calories-card", 2);
+                "build-calories-card", 2,
+                "places-search-save", 2);
         when(dispatcher.dispatch(anyString(), anyString(), any(), any())).thenAnswer(invocation ->
                 new DispatchOutcome("{\"ok\":true,\"summary\":\"fixture action\"}", false));
 

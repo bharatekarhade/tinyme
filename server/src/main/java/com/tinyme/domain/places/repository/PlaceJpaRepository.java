@@ -12,4 +12,6 @@ interface PlaceJpaRepository extends JpaRepository<PlaceEntity, UUID> {
     Optional<PlaceEntity> findByIdAndDeletedAtIsNull(UUID id);
     Optional<PlaceEntity> findByProviderPlaceIdAndDeletedAtIsNull(String providerPlaceId);
     List<PlaceEntity> findAllByDeletedAtIsNull();
+    List<PlaceEntity> findAllByDeletedAtIsNullOrderByCreatedAtDescIdDesc();
+    List<PlaceEntity> findAllByDeletedAtIsNullAndVisitedAtIsNullOrderByCreatedAtDescIdDesc();
 }

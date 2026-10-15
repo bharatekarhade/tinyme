@@ -44,9 +44,12 @@ public class PendingActionRepository {
         String status = result.succeeded() ? "succeeded" : "failed";
         return jdbc.update("""
                 UPDATE pending_actions
-                SET status = ?, result = ?::jsonb, completed_at = statement_timestamp()
+                SET status = ?, result = ?::jsonb, completed_at = statement_timestamp(),
+                    expires_at = CASE WHEN type = 'places_search' AND ?
+                                      THEN statement_timestamp() + INTERVAL '2 hours'
+                                      ELSE expires_at END
                 WHERE id = ? AND status = 'delivered' AND expires_at > statement_timestamp()
-                """, status, writeJson(resultJson(result)), id) == 1;
+                """, status, writeJson(resultJson(result)), result.succeeded(), id) == 1;
     }
 
     @Transactional

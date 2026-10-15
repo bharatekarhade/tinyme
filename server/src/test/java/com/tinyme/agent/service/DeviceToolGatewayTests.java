@@ -79,6 +79,9 @@ class DeviceToolGatewayTests {
             assertThat(result.data().get(0).get("name").stringValue()).isEqualTo("Blue Bottle Shibuya");
             assertThat(jdbc.queryForObject("SELECT status FROM pending_actions WHERE id = ?", String.class,
                     action.actionId())).isEqualTo("succeeded");
+            assertThat(jdbc.queryForObject("SELECT expires_at > statement_timestamp() + INTERVAL '1 hour' "
+                            + "FROM pending_actions WHERE id = ?", Boolean.class, action.actionId()))
+                    .isTrue();
             mvc.perform(post("/actions/{id}/result", action.actionId())
                             .header("Authorization", "Bearer " + token)
                             .contentType("application/json")

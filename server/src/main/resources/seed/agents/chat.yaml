@@ -19,14 +19,24 @@ system: |
     "this is Bharat"), save that attached photo to the person's profile with people_photo_add.
     Look up the person first; create their profile with people_upsert if they are new. Never
     identify a person by appearance alone, and never attach a photo from an earlier message.
+  - A specific place the user wants to visit → places_search, then places_save. If one result clearly
+    matches the name and area, save it; if several fit, ask which one; if none, say it wasn't found
+    and offer to search another area. Keep their reason in note using their own words. Never invent
+    addresses or coordinates.
+  - "Around here" / "nearby" / "while I'm in X" about saved places → places_near. If [context] has
+    no location, ask where they are or tell them to turn on location.
+  - "I went to …" for a saved place → places_update with visited: true; if they describe what they
+    did, also log it with entries_add. Use places_list to find saved places; places_update to edit
+    notes or visited state; places_remove only when they ask to remove one.
   - A future commitment, appointment, reminder or routine → plans_add. "Remind me to X" is a
     task. Use plans_query for the
     schedule and plans_update to mark done, skip, move, cancel or edit a plan. Past events go to entries_add.
   - Resolve plan dates from [context]. If "Friday" could mean this Friday or next Friday, or an event
     clearly needs a time that is missing, ask one short question. Use event for appointments with people/places and task for
-    something to do by a day. Never promise a notification; say it's on Upcoming.
-  - Profile photo saving works for the photo attached to the current message. Saved places
-    are not available yet; tell the user when asked and don't claim to save them.
+    something to do by a day. Use a saved place's name for a plan location. Never promise a
+    notification; say it's on Upcoming.
+  - Profile photo saving works for the photo attached to the current message. Saved places can be
+    searched, saved, listed, updated and removed with the places tools.
 
   Cards and trackers:
   - For "card / tracker / stats for X", call cards_list first. If a matching card exists,
@@ -473,7 +483,91 @@ tools:
       properties:
         id: { type: string, format: uuid }
 
-  # Deferred until handlers exist and place search is decided.
+  - type: custom
+    name: places_search
+    description: >
+      Search for a real place the user wants to visit. The phone searches MapKit and returns up to
+      5 candidates with opaque candidate_id values. Pass near as "here" (default when [context]
+      includes a location) or an area name. Use only these results; never invent coordinates,
+      addresses or candidate ids. Save a clear match with places_save. If several are plausible,
+      ask which one; if none, say it wasn't found and offer another area. Requires the user's phone
+      to be online with TinyMe open.
+    input_schema:
+      type: object
+      additionalProperties: false
+      required: [query]
+      properties:
+        query: { type: string, minLength: 1, maxLength: 120 }
+        near:  { type: string, minLength: 1, maxLength: 120, description: "'here' or an area such as Kyoto; defaults to here when location is available" }
+
+  - type: custom
+    name: places_save
+    description: >
+      Save a place from a recent places_search result. Use its exact candidate_id; coordinates and
+      provider data come from the phone, never from the model. note is the user's reason in their
+      words. Saving a duplicate returns the existing place and adds a new note when provided.
+    input_schema:
+      type: object
+      additionalProperties: false
+      required: [candidate_id]
+      properties:
+        candidate_id: { type: string, minLength: 1, maxLength: 64 }
+        note:         { type: string, maxLength: 300 }
+
+  - type: custom
+    name: places_list
+    description: >
+      Find places the user saved to visit. Use q to search name, address, note or category; use
+      include_visited only when the user asks about places they have already visited. Returns up
+      to 30 places, newest first.
+    input_schema:
+      type: object
+      additionalProperties: false
+      properties:
+        q: { type: string, maxLength: 120 }
+        include_visited: { type: boolean, default: false }
+
+  - type: custom
+    name: places_near
+    description: >
+      Find the nearest saved places to where the user is now. Use the location in [context]; never
+      ask the model to provide coordinates. If no location is available, return no_location and ask
+      the user to turn on location for TinyMe or tell you where they are. Returns up to 10 places,
+      nearest first, within radius_m (default 1000).
+    input_schema:
+      type: object
+      additionalProperties: false
+      properties:
+        radius_m: { type: integer, minimum: 50, maximum: 20000, default: 1000 }
+
+  - type: custom
+    name: places_update
+    description: >
+      Update a saved place's note or visited status. Use visited: true for "I went to …" and false
+      when the user says they have not visited it. A blank or null note clears the note. Find the id
+      with places_list first. If they describe what they did there, also log that with entries_add.
+    input_schema:
+      type: object
+      additionalProperties: false
+      required: [id]
+      properties:
+        id:      { type: string, format: uuid }
+        note:    { type: [string, "null"], maxLength: 300 }
+        visited: { type: boolean }
+
+  - type: custom
+    name: places_remove
+    description: >
+      Remove a saved place from the user's list. Find its id with places_list first. This is a
+      soft-delete; a repeated removal returns not_found.
+    input_schema:
+      type: object
+      additionalProperties: false
+      required: [id]
+      properties:
+        id: { type: string, format: uuid }
+
+  # Deferred photo browsing/upload tools; current-message profile photos use people_photo_add.
   #   # ── Photos ─────────────────────────────────────────────────────────────
   #   - type: custom
   #     name: photos_attach

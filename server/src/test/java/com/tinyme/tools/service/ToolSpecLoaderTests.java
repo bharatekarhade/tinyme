@@ -18,7 +18,8 @@ class ToolSpecLoaderTests {
         assertThat(specs.keySet()).containsExactlyInAnyOrder(
                 "entries_add", "entries_query", "entries_aggregate", "entries_update",
                 "entries_delete", "people_get", "people_upsert", "people_photo_add", "plans_add", "plans_query", "plans_update",
-                "cards_list", "cards_save", "cards_delete");
+                "cards_list", "cards_save", "cards_delete", "places_search", "places_save", "places_list",
+                "places_near", "places_update", "places_remove");
         assertThat(specs.values()).allSatisfy(spec ->
                 assertThat(spec.inputSchema().get("type").stringValue()).isEqualTo("object"));
         assertThat(strings(specs.get("entries_add").inputSchema().get("required")))
@@ -45,6 +46,11 @@ class ToolSpecLoaderTests {
         assertThat(specs.get("plans_query").inputSchema().get("required").toString()).contains("from", "to");
         assertThat(specs.get("plans_update").inputSchema().get("properties").get("action").toString())
                 .contains("undo_done", "move", "cancel");
+        assertThat(specs.get("places_search").inputSchema().get("properties").get("query").get("maxLength").intValue())
+                .isEqualTo(120);
+        assertThat(specs.get("places_save").inputSchema().get("required").toString()).contains("candidate_id");
+        assertThat(specs.get("places_near").inputSchema().get("properties").has("lat")).isFalse();
+        assertThat(specs.get("places_update").inputSchema().get("properties").has("visited")).isTrue();
     }
 
     @Test

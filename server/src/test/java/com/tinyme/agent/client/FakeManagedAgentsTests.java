@@ -15,7 +15,8 @@ class FakeManagedAgentsTests {
 
     @Test
     void loadsAllNamedScenarioFixturesAsRawEvents() throws Exception {
-        for (String name : List.of("two-tools-one-message", "query-then-update", "no-tool-reply", "people-upsert")) {
+        for (String name : List.of("two-tools-one-message", "query-then-update", "no-tool-reply", "people-upsert",
+                "places-search-save")) {
             var fake = FakeManagedAgents.fromResource(getClass(), "/streams/" + name + ".json").build();
             try (var stream = fake.openStream("sesn_test")) {
                 assertThat(stream.next().path("type").asString()).isEqualTo("user.message");

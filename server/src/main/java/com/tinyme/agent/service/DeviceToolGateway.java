@@ -29,6 +29,12 @@ public class DeviceToolGateway {
 
     public DeviceToolResult call(ToolContext turn, String tool, Map<String, Object> input, Duration timeout)
             throws InterruptedException {
+        return callWithActionId(turn, tool, input, timeout).result();
+    }
+
+    /** Same device round-trip as {@link #call}, also exposing its id for tools that retain the result. */
+    public CompletedDeviceAction callWithActionId(ToolContext turn, String tool, Map<String, Object> input,
+                                                   Duration timeout) throws InterruptedException {
         Objects.requireNonNull(turn, "turn");
         Objects.requireNonNull(tool, "tool");
         Objects.requireNonNull(input, "input");
@@ -41,11 +47,11 @@ public class DeviceToolGateway {
         waiting.put(actionId, pending);
         try {
             turn.turnListener().on(new TurnEvent.ClientAction(actionId, tool, input));
-            return pending.result().get(timeout.toMillis(), TimeUnit.MILLISECONDS);
+            return new CompletedDeviceAction(actionId, pending.result().get(timeout.toMillis(), TimeUnit.MILLISECONDS));
         } catch (TimeoutException timeoutFailure) {
             if (actions.expire(actionId)) throw new DeviceUnavailableException();
             // The phone may have completed the row just as this thread timed out.
-            return getCompleted(pending);
+            return new CompletedDeviceAction(actionId, getCompleted(pending));
         } catch (InterruptedException interrupted) {
             actions.expire(actionId);
             throw interrupted;
@@ -58,6 +64,8 @@ public class DeviceToolGateway {
             waiting.remove(actionId, pending);
         }
     }
+
+    public record CompletedDeviceAction(UUID actionId, DeviceToolResult result) { }
 
     /** Accepts one result from the phone. Only an action currently awaited by this server can be completed. */
     public void submitResult(UUID actionId, DeviceToolResult result) {

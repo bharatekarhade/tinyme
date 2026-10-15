@@ -40,6 +40,24 @@ public class PlaceRepository {
     }
 
     @Transactional(readOnly = true)
+    public Optional<PlaceEntity> findSameNameWithin(String name, double lat, double lng, int distanceM) {
+        Objects.requireNonNull(name, "name");
+        UUID id = jdbc.query("""
+                SELECT p.id FROM places p
+                WHERE p.deleted_at IS NULL AND lower(p.name) = lower(?)
+                  AND earth_distance(ll_to_earth(?, ?), ll_to_earth(p.lat, p.lng)) <= ?
+                ORDER BY p.id LIMIT 1
+                """, rs -> rs.next() ? rs.getObject(1, UUID.class) : null, name, lat, lng, distanceM);
+        return id == null ? Optional.empty() : findLive(id);
+    }
+
+    @Transactional(readOnly = true)
+    public List<PlaceEntity> listLive(boolean includeVisited) {
+        return includeVisited ? places.findAllByDeletedAtIsNullOrderByCreatedAtDescIdDesc()
+                : places.findAllByDeletedAtIsNullAndVisitedAtIsNullOrderByCreatedAtDescIdDesc();
+    }
+
+    @Transactional(readOnly = true)
     public List<NearbyPlace> near(double lat, double lng, int radiusM, int limit) {
         validatePoint(lat, lng);
         if (radiusM < 1 || radiusM > 20_000) throw new IllegalArgumentException("radiusM must be between 1 and 20000");
