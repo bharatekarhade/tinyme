@@ -26,6 +26,7 @@ public class SecurityConfig {
                 .authorizeHttpRequests(auth -> auth
                         .dispatcherTypeMatchers(DispatcherType.ERROR).permitAll()
                         .requestMatchers(HttpMethod.POST, "/auth/login").permitAll()
+                        .requestMatchers(HttpMethod.GET, "/integrations/google/callback").permitAll()
                         .requestMatchers("/actuator/health").permitAll()
                         .anyRequest().authenticated())
                 .exceptionHandling(errors -> errors

@@ -1,6 +1,6 @@
-# Google integration setup (G1)
+# Google integration setup (G2)
 
-This is the server-side foundation only. OAuth endpoints and the iPhone Connect screen are G2. Do not add Google credentials to the iOS app or commit them to Git.
+Google OAuth connection and the iPhone Connect screen are implemented in G2. Gmail and Calendar API operations and sync are later work. Do not add Google credentials to the iOS app or commit them to Git.
 
 ## Google Cloud project
 
@@ -23,7 +23,7 @@ This is the server-side foundation only. OAuth endpoints and the iPhone Connect 
    GOOGLE_REDIRECT_URI=https://<public-hostname>/integrations/google/callback
    ```
 
-The OAuth server flow uses offline access so TinyMe can refresh access tokens for scheduled sync after the user leaves the browser. The later OAuth step requests only the scopes listed in the architecture guide and stores only the scopes Google actually grants.
+The OAuth server flow uses offline access so later Gmail and Calendar features can refresh access tokens after the user leaves the browser. G2 requests the scopes listed in the architecture guide and stores only the scopes Google actually grants.
 
 ## Encryption key
 
@@ -39,8 +39,10 @@ For local development, add the value to the ignored root `.env`. For deployment,
 
 The server uses the AEAD associated data `google_account:1` when encrypting and decrypting the refresh token. The ciphertext is stored in `google_account.refresh_token_enc`. Both `google_account` and short-lived `oauth_states` are cleared by Delete all and excluded from data exports.
 
-## Current database change
+After configuring the client and encryption key, sign in to TinyMe on the iPhone, open **Settings → Google → Connect Google**, and complete Google's sign-in in the secure browser sheet. TinyMe returns to the app and shows the email and the Gmail/Calendar scopes actually granted. Disconnect asks for the TinyMe password, revokes the Google grant when Google is reachable, and removes the server's saved connection.
 
-Flyway migration `V1.13__google_oauth_storage.sql` creates the single-owner `google_account` row and temporary OAuth state table. It does not initiate OAuth or make Google API calls.
+## G2 OAuth connection
+
+Flyway migration `V1.13__google_oauth_storage.sql` creates the single-owner `google_account` row and temporary OAuth state table. G2 adds authenticated status, connect-start, and disconnect endpoints plus the public OAuth callback. The iPhone completes sign-in through Apple's secure browser session, then returns to TinyMe using the `tinyme://google-connected` URL scheme. Disconnect re-checks the TinyMe password, attempts to revoke the Google grant, and removes the local encrypted token even when Google is unavailable. Gmail and Calendar API calls, token refresh, and data sync are not implemented yet.
 
 Official setup references: [Google OAuth web-server flow](https://developers.google.com/identity/protocols/oauth2/web-server), [Google Workspace API setup](https://developers.google.com/workspace/guides/enable-apis), and [Tink AEAD encryption](https://developers.google.com/tink/encrypt-data).

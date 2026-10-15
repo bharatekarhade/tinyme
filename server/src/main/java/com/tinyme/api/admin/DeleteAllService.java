@@ -35,7 +35,7 @@ import java.util.Set;
 public class DeleteAllService {
     private static final Logger log = LoggerFactory.getLogger(DeleteAllService.class);
     private static final String CONFIRMATION = "DELETE EVERYTHING";
-    private static final String INVALID_CREDENTIALS = "Invalid email or password";
+    private static final String WRONG_PASSWORD = "Wrong password";
 
     private final ManagedAgents agents;
     private final AgentResources resources;
@@ -89,7 +89,7 @@ public class DeleteAllService {
         }
         var account = accounts.findById(ownerId).orElse(null);
         if (account == null || !passwords.verify(password, account.getPasswordHash())) {
-            throw new AuthException(HttpStatus.UNAUTHORIZED, INVALID_CREDENTIALS);
+            throw new AuthException(HttpStatus.FORBIDDEN, WRONG_PASSWORD);
         }
         if (!gate.beginMaintenance(turnLocks.hasActiveTurn())) {
             throw new org.springframework.web.server.ResponseStatusException(HttpStatus.CONFLICT,

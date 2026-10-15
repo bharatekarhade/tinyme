@@ -35,6 +35,11 @@ tinyme:
 
   encryption-key: ${TINYME_ENCRYPTION_KEY:}
 
+  google:
+    client-id: ${GOOGLE_CLIENT_ID:}
+    client-secret: ${GOOGLE_CLIENT_SECRET:}
+    redirect-uri: ${GOOGLE_REDIRECT_URI:}
+
 # Only enable behind a reverse proxy you control; forwarded headers affect login IP limiting.
 # server.forward-headers-strategy: native
 

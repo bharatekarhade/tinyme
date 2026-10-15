@@ -128,7 +128,8 @@ class AdminDeleteAllTests {
     void wrongPasswordAndConfirmationLeaveEverythingUntouched() throws Exception {
         seedRows();
         mvc.perform(deleteRequest("DELETE EVERYTHING", "wrong-password"))
-                .andExpect(status().isUnauthorized());
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.detail").value("Wrong password"));
         mvc.perform(deleteRequest("delete everything", "test-only-owner-password"))
                 .andExpect(status().isBadRequest());
         mvc.perform(post("/admin/delete-all").with(request -> {

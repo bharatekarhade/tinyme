@@ -62,6 +62,8 @@ private struct SettingsPanel: View {
     @State private var exportFile: DownloadedArchive?
     @State private var showsDeleteAll = false
     @State private var showsHealth = false
+    @State private var showsGoogleDisconnect = false
+    @State private var google = GoogleIntegrationModel()
     @Environment(AppEnvironment.self) private var environment
     @State private var status: ServerStatus = .checking
 
@@ -104,7 +106,10 @@ private struct SettingsPanel: View {
         }
         .animation(.snappy(duration: 0.25), value: isConfirming)
         .accessibilityAddTraits(.isModal)
-        .task { await checkServer() }
+        .task {
+            await checkServer()
+            if let api = session.api { await google.refresh(api: api) }
+        }
         .sheet(item: $exportFile, onDismiss: removeExportFile) { file in
             ActivityShareSheet(items: [file.url])
                 .presentationDetents([.medium, .large])
@@ -114,6 +119,15 @@ private struct SettingsPanel: View {
             if let api = session.api, let account {
                 AppleHealthSheet(api: api, server: account.server, store: environment.health, sync: environment.healthSync)
             }
+        }
+        .sheet(isPresented: $showsGoogleDisconnect) {
+            GoogleDisconnectPrompt(isWorking: google.isWorking, onCancel: { showsGoogleDisconnect = false }) { password in
+                showsGoogleDisconnect = false
+                guard let api = session.api else { return }
+                Task { await google.disconnect(api: api, password: password) }
+            }
+            .presentationDetents([.height(330)])
+            .presentationDragIndicator(.visible)
         }
         .sheet(isPresented: $showsDeleteAll) {
             if let api = session.api {
@@ -201,6 +215,7 @@ private struct SettingsPanel: View {
                 serverSection(server: account.server)
                 appearanceSection
                 voiceSection
+                googleSection
                 if HealthAccess.isAvailable { healthSection }
                 dataSection
             }
@@ -328,6 +343,111 @@ private struct SettingsPanel: View {
             .buttonStyle(.pressable)
             .background(card)
         }
+    }
+
+    private var googleSection: some View {
+        VStack(alignment: .leading, spacing: Space.s2) {
+            Text("Google")
+                .textStyle(.label, weight: .semibold)
+                .foregroundStyle(Palette.inkMuted)
+                .padding(.horizontal, 4)
+            VStack(alignment: .leading, spacing: Space.s3) {
+                HStack(spacing: Space.s3) {
+                    Image(systemName: "g.circle.fill")
+                        .font(.system(size: 28, weight: .medium))
+                        .foregroundStyle(Palette.brandStrong)
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(google.status?.email ?? "Google account")
+                            .textStyle(.label, weight: .semibold)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                        Text(googleStatusLine)
+                            .textStyle(.caption)
+                            .foregroundStyle(Palette.inkMuted)
+                    }
+                    Spacer(minLength: 0)
+                }
+
+                if let status = google.status, status.isConnected {
+                    let gmailEnabled = status.scopes.contains("https://www.googleapis.com/auth/gmail.readonly")
+                        && status.scopes.contains("https://www.googleapis.com/auth/gmail.compose")
+                    let calendarEnabled = status.scopes.contains("https://www.googleapis.com/auth/calendar.events")
+                    HStack(spacing: Space.s2) {
+                        scopePill("Gmail", enabled: gmailEnabled)
+                        scopePill("Calendar", enabled: calendarEnabled)
+                    }
+                    let missingScopes = [gmailEnabled ? nil : "Gmail", calendarEnabled ? nil : "Calendar"]
+                        .compactMap { $0 }
+                    if !missingScopes.isEmpty {
+                        Label("Reconnect to allow \(missingScopes.joined(separator: " and ")).", systemImage: "arrow.clockwise")
+                            .textStyle(.caption)
+                            .foregroundStyle(Palette.inkMuted)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+
+                if let error = google.errorMessage {
+                    Text(error)
+                        .textStyle(.caption)
+                        .foregroundStyle(Palette.danger)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+
+                Text("If you ask TinyMe to work with email, relevant message text is sent to Anthropic to answer. TinyMe never sends or replies to email without your confirmation.")
+                    .textStyle(.caption)
+                    .foregroundStyle(Palette.inkMuted)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                HStack(spacing: Space.s3) {
+                    Button {
+                        guard let api = session.api else { return }
+                        Task { await google.connect(api: api) }
+                    } label: {
+                        HStack(spacing: Space.s2) {
+                            if google.isWorking { ProgressView().tint(Palette.onBrand) }
+                            Text(google.status?.isConnected == true || google.status?.needsReauth == true
+                                 ? "Reconnect Google" : "Connect Google")
+                                .textStyle(.label, weight: .semibold)
+                        }
+                        .foregroundStyle(Palette.onBrand)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 46)
+                        .background(Palette.brand, in: Capsule())
+                    }
+                    .buttonStyle(.pressable)
+                    .disabled(google.isWorking)
+
+                    if google.status?.isConnected == true || google.status?.needsReauth == true {
+                        Button { showsGoogleDisconnect = true } label: {
+                            Image(systemName: "link.badge.minus")
+                                .font(.system(size: 16, weight: .semibold))
+                                .foregroundStyle(Palette.danger)
+                                .frame(width: 46, height: 46)
+                                .background(Palette.surfaceSunken, in: Circle())
+                        }
+                        .buttonStyle(.pressable)
+                        .accessibilityLabel("Disconnect Google")
+                    }
+                }
+            }
+            .padding(Space.s4)
+            .background(card)
+        }
+    }
+
+    private var googleStatusLine: String {
+        guard let status = google.status else { return "Checking connection…" }
+        if status.needsReauth { return "Reconnect to restore access" }
+        return status.isConnected ? "Connected to TinyMe" : "Not connected"
+    }
+
+    private func scopePill(_ title: String, enabled: Bool) -> some View {
+        Label(title, systemImage: enabled ? "checkmark.circle.fill" : "minus.circle")
+            .font(.custom(Fonts.family, size: 12).weight(.medium))
+            .foregroundStyle(enabled ? Palette.brandStrong : Palette.inkMuted)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+            .background(enabled ? Palette.brandSoft : Palette.surfaceSunken, in: Capsule())
     }
 
     private var healthSummary: String {
@@ -562,5 +682,56 @@ private struct SettingsPanel: View {
         let version = info?["CFBundleShortVersionString"] as? String ?? "–"
         let build = info?["CFBundleVersion"] as? String ?? "–"
         return "TinyMe \(version) (\(build))"
+    }
+}
+
+private struct GoogleDisconnectPrompt: View {
+    let isWorking: Bool
+    let onCancel: () -> Void
+    let onConfirm: (String) -> Void
+    @State private var password = ""
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: Space.s4) {
+            Capsule()
+                .fill(Palette.inkMuted.opacity(0.3))
+                .frame(width: 40, height: 5)
+                .frame(maxWidth: .infinity)
+                .padding(.top, 10)
+            Text("Disconnect Google?")
+                .textStyle(.title, weight: .semibold)
+            Text("TinyMe will revoke its Google access and remove the saved connection.")
+                .textStyle(.body)
+                .foregroundStyle(Palette.inkMuted)
+            SecureField("TinyMe password", text: $password)
+                .textContentType(.password)
+                .padding(.horizontal, 16)
+                .frame(height: 52)
+                .background(Palette.surfaceSunken, in: RoundedRectangle(cornerRadius: Radius.md))
+            HStack(spacing: Space.s3) {
+                Button("Cancel", action: onCancel)
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 50)
+                    .background(Palette.surfaceSunken, in: Capsule())
+                Button {
+                    onConfirm(password)
+                } label: {
+                    HStack(spacing: Space.s2) {
+                        if isWorking { ProgressView().tint(Palette.onBrand) }
+                        Text("Disconnect")
+                    }
+                    .foregroundStyle(Palette.onBrand)
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 50)
+                    .background(Palette.danger, in: Capsule())
+                }
+                .disabled(password.isEmpty || isWorking)
+            }
+            .buttonStyle(.pressable)
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, Space.s4)
+        .padding(.bottom, Space.s4)
+        .background(Palette.surface.ignoresSafeArea())
     }
 }
