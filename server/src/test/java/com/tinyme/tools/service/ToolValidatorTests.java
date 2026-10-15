@@ -82,6 +82,17 @@ class ToolValidatorTests {
     }
 
     @Test
+    void validatesPeoplePhotoAddSlugAndRejectsUnknownFields() throws Exception {
+        ToolValidator validator = new ToolValidator(new ToolSpecLoader());
+
+        assertThat(validator.validate("people_photo_add", YAML.readTree("{slug: bharat}"))).isEmpty();
+        assertThat(validator.validate("people_photo_add", YAML.readTree("{slug: Bharat}")))
+                .anySatisfy(message -> assertThat(message).contains("pattern"));
+        assertThat(validator.validate("people_photo_add", YAML.readTree("{slug: bharat, photo_id: abc}")))
+                .anySatisfy(message -> assertThat(message).contains("photo_id"));
+    }
+
+    @Test
     void acceptsValidInputAndDoesNotApplySchemaDefaults() throws Exception {
         JsonNode schema = YAML.readTree("""
                 type: object

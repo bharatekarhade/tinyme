@@ -36,7 +36,11 @@ final class HealthBackground {
                 // HealthKit's handler may be called from any thread; it just isn't marked Sendable.
                 nonisolated(unsafe) let handler = completion
                 let done: Completion = { handler() }
-                guard error == nil else { done(); return }
+                if let error {
+                    HealthBackgroundLog.add("observer \(metric.kind) failed: \(error.localizedDescription)")
+                    done()
+                    return
+                }
                 Task { @MainActor in
                     guard let self else { done(); return }
                     self.onUpdate(metric, done)
@@ -44,7 +48,10 @@ final class HealthBackground {
             }
             store.execute(query)
             queries[metric.kind] = query
-            store.enableBackgroundDelivery(for: type, frequency: Self.frequency(metric)) { _, _ in }
+            let kind = metric.kind
+            store.enableBackgroundDelivery(for: type, frequency: Self.frequency(metric)) { ok, error in
+                HealthBackgroundLog.add(ok ? "enable \(kind) ok" : "enable \(kind) failed: \(error?.localizedDescription ?? "unknown")")
+            }
         }
     }
 

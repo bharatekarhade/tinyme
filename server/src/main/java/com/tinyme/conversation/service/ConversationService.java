@@ -11,6 +11,7 @@ import com.tinyme.agent.service.TurnRunner;
 import com.tinyme.settings.UserZone;
 import com.tinyme.maintenance.MaintenanceGate;
 import com.tinyme.conversation.model.ConversationMessageRequest;
+import com.tinyme.conversation.model.ConversationImage;
 import com.tinyme.conversation.model.ConversationHistory;
 import com.tinyme.conversation.model.ConversationHistoryMessage;
 import org.springframework.transaction.annotation.Transactional;
@@ -37,11 +38,12 @@ public class ConversationService implements ConversationOperations {
     private final AgentSessionRepository agentSessions;
     private final Clock clock;
     private final MaintenanceGate maintenance;
+    private final ConversationImageService images;
 
     public ConversationService(SessionManager sessions, MessageRepository messages,
                                TurnRunner turns,
                                AgentSessionRepository agentSessions, Clock clock, UserZone userZone,
-                               MaintenanceGate maintenance) {
+                               MaintenanceGate maintenance, ConversationImageService images) {
         this.sessions = Objects.requireNonNull(sessions, "sessions");
         this.messages = Objects.requireNonNull(messages, "messages");
         this.userZone = Objects.requireNonNull(userZone, "userZone");
@@ -49,6 +51,7 @@ public class ConversationService implements ConversationOperations {
         this.agentSessions = Objects.requireNonNull(agentSessions, "agentSessions");
         this.clock = Objects.requireNonNull(clock, "clock");
         this.maintenance = Objects.requireNonNull(maintenance, "maintenance");
+        this.images = Objects.requireNonNull(images, "images");
     }
 
     @Override
@@ -60,7 +63,7 @@ public class ConversationService implements ConversationOperations {
         var rows = messages.findForSessions(sessionIds);
         return new ConversationHistory(rows.stream()
                 .map(row -> new ConversationHistoryMessage(row.id(), row.role().name(), row.content(),
-                        row.actions(), row.createdAt()))
+                        row.actions(), row.attachments(), row.createdAt()))
                 .toList());
     }
 
@@ -76,8 +79,25 @@ public class ConversationService implements ConversationOperations {
                 throw new InvalidClientTimestampException("sent_at cannot be more than one day in the future");
             }
             SessionRef session = sessions.todaySession(zone);
-            UUID userMessageId = messages.insertUser(session.sessionRowId(), request.clientMessageId(), request.text());
-            return new Accepted(session, userMessageId, request.text(), zone, sentAt, permit);
+            var existing = messages.findIdByClientMessageId(request.clientMessageId());
+            if (existing.isPresent()) {
+                permit.close();
+                return new Duplicate(existing.get());
+            }
+            var storedImages = new java.util.ArrayList<ConversationImageService.StoredImage>();
+            try {
+                for (ConversationImage image : request.attachments()) storedImages.add(images.store(image));
+                var historyAttachments = storedImages.stream().map(ConversationImageService.StoredImage::history).toList();
+                var imageBlocks = storedImages.stream().map(ConversationImageService.StoredImage::model).toList();
+                UUID userMessageId = messages.insertUser(session.sessionRowId(), request.clientMessageId(),
+                        request.text(), historyAttachments);
+                UUID attachedPhotoId = storedImages.isEmpty() ? null : storedImages.getFirst().photoId();
+                return new Accepted(session, userMessageId, request.text(), zone, sentAt, imageBlocks,
+                        attachedPhotoId, permit);
+            } catch (RuntimeException | IOException | Error failure) {
+                for (var image : storedImages) images.deleteStored(image);
+                throw failure;
+            }
         } catch (MessageRepository.DuplicateMessage duplicate) {
             permit.close();
             return new Duplicate(duplicate.existingId());
@@ -96,7 +116,8 @@ public class ConversationService implements ConversationOperations {
           Thread.ofVirtual().name("tinyme-conversation-turn").start(() -> {
             try {
                 future.complete(turns.run(new TurnRequest(accepted.session(), accepted.userMessageId(),
-                        accepted.text(), accepted.zone(), accepted.sentAt()), listener));
+                        accepted.text(), accepted.zone(), accepted.sentAt(), accepted.imageBlocks(),
+                        accepted.attachedPhotoId()), listener));
             } catch (InterruptedException interrupted) {
                 Thread.currentThread().interrupt();
                 future.completeExceptionally(interrupted);
@@ -129,19 +150,29 @@ public class ConversationService implements ConversationOperations {
     }
 
     public record Accepted(SessionRef session, UUID userMessageId, String text, ZoneId zone, Instant sentAt,
+                           java.util.List<java.util.Map<String, Object>> imageBlocks,
+                           UUID attachedPhotoId,
                            MaintenanceGate.TurnPermit permit)
             implements Acceptance {
         public Accepted(SessionRef session, UUID userMessageId, String text, ZoneId zone) {
-            this(session, userMessageId, text, zone, Instant.now(), MaintenanceGate.detachedPermit());
+            this(session, userMessageId, text, zone, Instant.now(), java.util.List.of(), null,
+                    MaintenanceGate.detachedPermit());
         }
 
         public Accepted(SessionRef session, UUID userMessageId, String text, ZoneId zone,
                         MaintenanceGate.TurnPermit permit) {
-            this(session, userMessageId, text, zone, Instant.now(), permit);
+            this(session, userMessageId, text, zone, Instant.now(), java.util.List.of(), null, permit);
+        }
+
+        public Accepted(SessionRef session, UUID userMessageId, String text, ZoneId zone, Instant sentAt,
+                        java.util.List<java.util.Map<String, Object>> imageBlocks,
+                        MaintenanceGate.TurnPermit permit) {
+            this(session, userMessageId, text, zone, sentAt, imageBlocks, null, permit);
         }
 
         public Accepted {
             Objects.requireNonNull(permit, "permit");
+            imageBlocks = java.util.List.copyOf(Objects.requireNonNull(imageBlocks, "imageBlocks"));
         }
     }
 

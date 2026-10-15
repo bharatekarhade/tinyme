@@ -12,6 +12,7 @@ struct ChatView: View {
     @FocusState private var composerFocused: Bool
 
     private let serverName: String
+    private let api: APIClient
     private let onOpenPlan: ((String) -> Void)?
     private let bottomID = "chat-bottom"
 
@@ -27,6 +28,7 @@ struct ChatView: View {
         onDataChanged: @escaping @MainActor () -> Void = {}
     ) {
         _model = State(initialValue: ChatModel(api: api, outbox: outbox, draft: draft, onDataChanged: onDataChanged))
+        self.api = api
         self.serverName = serverName
         self.onOpenPlan = onOpenPlan
     }
@@ -49,6 +51,7 @@ struct ChatView: View {
                         }
                         MessageBubble(
                             item: item,
+                            api: api,
                             onRetry: { model.retry(item.id) },
                             onDelete: { model.delete(item.id) },
                             inlineCard: model.inlineCard(for:),
@@ -108,6 +111,7 @@ struct ChatView: View {
                 }
                 Composer(
                     text: $model.composer,
+                    photoData: $model.pendingPhotoData,
                     canSend: model.canSend,
                     isListening: speech.isListening,
                     isFocused: $composerFocused,

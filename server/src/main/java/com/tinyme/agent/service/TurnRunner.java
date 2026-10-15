@@ -163,16 +163,19 @@ public class TurnRunner {
         var turnStartedAt = clock.instant();
         var referenceTime = request.sentAt() == null ? turnStartedAt : request.sentAt();
         var context = new ToolContext(session.sessionRowId(), null, zone,
-                LocalDate.ofInstant(referenceTime, zone), referenceTime);
+                LocalDate.ofInstant(referenceTime, zone), referenceTime, request.attachedPhotoId());
         String prefix = contextPrefix.build(zone, referenceTime);
         state.checkCancelled();
         try (var source = new ResilientEventSource(api, session.anthropicSessionId(), reconnectSleeper, rawEventObserver)) {
             state.source = source;
             source.beginTurn(turnStartedAt);
             state.checkCancelled();
+            var userContent = new ArrayList<Map<String, Object>>();
+            userContent.add(new java.util.LinkedHashMap<>(textBlock(prefix)));
+            userContent.add(new java.util.LinkedHashMap<>(textBlock(text)));
+            userContent.addAll(request.imageBlocks());
             api.sendEvents(session.anthropicSessionId(), List.of(Map.of(
-                    "type", "user.message",
-                    "content", List.of(textBlock(prefix), textBlock(text)))));
+                    "type", "user.message", "content", userContent)));
 
             var reply = new StringBuilder();
             var actions = new ArrayList<Map<String, Object>>();
@@ -242,8 +245,7 @@ public class TurnRunner {
                             }
                             throw new TurnFailure("unexpected_stop", reason, true);
                         }
-                        case "session.error" -> throw new TurnFailure(
-                                "agent_error", "Managed Agents session reported an error", true);
+                        case "session.error" -> throw sessionError(event);
                         default -> { }
                     }
                 }
@@ -288,6 +290,14 @@ public class TurnRunner {
         } catch (RuntimeException malformedResult) {
             return "Tool completed";
         }
+    }
+
+    private static TurnFailure sessionError(JsonNode event) {
+        JsonNode type = event.path("error").path("type");
+        if (type.isString() && type.stringValue().matches("[A-Za-z0-9_-]{1,80}")) {
+            return new TurnFailure("agent_error", "Managed Agents rejected the request (" + type.stringValue() + ")", true);
+        }
+        return new TurnFailure("agent_error", "Managed Agents session reported an error", true);
     }
 
     private static void notifyFailure(TurnListener listener, Throwable failure, TurnResult partialResult) {

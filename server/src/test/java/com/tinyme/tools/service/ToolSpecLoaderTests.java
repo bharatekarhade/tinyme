@@ -17,7 +17,7 @@ class ToolSpecLoaderTests {
 
         assertThat(specs.keySet()).containsExactlyInAnyOrder(
                 "entries_add", "entries_query", "entries_aggregate", "entries_update",
-                "entries_delete", "people_get", "people_upsert", "plans_add", "plans_query", "plans_update",
+                "entries_delete", "people_get", "people_upsert", "people_photo_add", "plans_add", "plans_query", "plans_update",
                 "cards_list", "cards_save", "cards_delete");
         assertThat(specs.values()).allSatisfy(spec ->
                 assertThat(spec.inputSchema().get("type").stringValue()).isEqualTo("object"));
@@ -39,6 +39,8 @@ class ToolSpecLoaderTests {
                 .isEqualTo(40);
         assertThat(upsert.get("properties").get("relationship").get("maxLength").intValue()).isEqualTo(80);
         assertThat(upsert.get("properties").has("birthday")).isTrue();
+        assertThat(specs.get("people_photo_add").inputSchema().get("additionalProperties").booleanValue()).isFalse();
+        assertThat(strings(specs.get("people_photo_add").inputSchema().get("required"))).containsExactly("slug");
         assertThat(specs.get("plans_add").inputSchema().get("required").toString()).contains("kind", "title", "day");
         assertThat(specs.get("plans_query").inputSchema().get("required").toString()).contains("from", "to");
         assertThat(specs.get("plans_update").inputSchema().get("properties").get("action").toString())

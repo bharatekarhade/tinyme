@@ -3,10 +3,16 @@ import Foundation
 /// Body of `POST /conversations/today/messages`.
 struct OutgoingMessage: Encodable, Sendable {
     struct Attachment: Encodable, Sendable {
-        let uploadId: String
+        let mediaType: String
+        let data: String
 
         private enum CodingKeys: String, CodingKey {
-            case uploadId = "upload_id"
+            case mediaType = "media_type", data
+        }
+
+        init(mediaType: String, imageData: Data) {
+            self.mediaType = mediaType
+            self.data = imageData.base64EncodedString()
         }
     }
 

@@ -4,6 +4,7 @@ import com.tinyme.agent.model.SessionRef;
 import com.tinyme.agent.model.TurnEvent;
 import com.tinyme.agent.model.TurnResult;
 import com.tinyme.agent.service.TurnListener;
+import com.tinyme.auth.controller.AuthProblemHandler;
 import com.tinyme.conversation.model.ConversationMessageRequest;
 import com.tinyme.conversation.model.ConversationHistory;
 import com.tinyme.conversation.model.ConversationHistoryMessage;
@@ -46,7 +47,8 @@ class ConversationControllerTests {
     @BeforeEach
     void setUp() {
         service.reset();
-        mvc = standaloneSetup(new ConversationController(service)).setValidator(VALIDATOR).build();
+        mvc = standaloneSetup(new ConversationController(service)).setValidator(VALIDATOR)
+                .setControllerAdvice(new AuthProblemHandler()).build();
     }
 
     @AfterAll
@@ -67,7 +69,15 @@ class ConversationControllerTests {
         mvc.perform(post("/conversations/today/messages").contentType("application/json").content("""
                 {"client_msg_id":"%s","text":"","client_context":{"tz":"Asia/Tokyo"}}
                 """.formatted(UUID.randomUUID())))
-                .andExpect(status().isBadRequest());
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.detail").value(org.hamcrest.Matchers.containsString("text")));
+
+        mvc.perform(post("/conversations/today/messages").contentType("application/json").content("""
+                {"client_msg_id":"%s","text":"look at this","attachments":[{"media_type":"image/jpeg","data":""}]}
+                """.formatted(UUID.randomUUID())))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.detail").value(org.hamcrest.Matchers.containsString("attachments[0].data")))
+                .andExpect(jsonPath("$.detail").value(org.hamcrest.Matchers.containsString("between 1 and 1500000")));
 
         mvc.perform(post("/conversations/today/messages").contentType("application/json").content("""
                 {"client_msg_id":"%s","text":"hi","client_context":{"tz":"Not/A_Zone"}}

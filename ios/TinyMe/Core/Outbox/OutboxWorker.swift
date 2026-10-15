@@ -55,18 +55,19 @@ actor OutboxWorker {
 
     // MARK: - Queue
 
-    func enqueue(id: UUID = UUID(), text: String, at date: Date = .now) {
+    func enqueue(id: UUID = UUID(), text: String, photoData: Data? = nil, at date: Date = .now) {
         prepare()
-        modelContext.insert(OutboxItem(clientMsgId: id, text: text, createdAt: date))
+        modelContext.insert(OutboxItem(clientMsgId: id, text: text, createdAt: date, photoData: photoData))
         save()
         broadcastQueue()
         wake()
     }
 
     /// Puts a refused message back in the queue.
-    func retry(_ id: UUID) {
+    func retry(_ id: UUID, photoData replacementPhotoData: Data? = nil) {
         prepare()
         guard let item = item(id), item.status == OutboxStatus.failed.rawValue else { return }
+        if let replacementPhotoData { item.photoData = replacementPhotoData }
         item.status = OutboxStatus.queued.rawValue
         item.nextAttemptAt = nil
         item.lastError = nil
@@ -187,7 +188,8 @@ actor OutboxWorker {
         var changedData = false
         do {
             for try await event in client.send(OutgoingMessage(
-                clientMsgId: id, text: entry.text, sentAt: entry.createdAt)) {
+                clientMsgId: id, text: entry.text, sentAt: entry.createdAt,
+                attachments: entry.photoData.map { [OutgoingMessage.Attachment(mediaType: "image/jpeg", imageData: $0)] } ?? [])) {
                 switch event {
                 case .turnStarted(_, let userMessageId):
                     // The server has it now: from here on it is never sent again.
@@ -321,6 +323,7 @@ actor OutboxWorker {
         OutboxEntry(
             id: item.clientMsgId,
             text: item.text,
+            photoData: item.photoData,
             createdAt: item.createdAt,
             status: OutboxStatus(rawValue: item.status) ?? .queued,
             attempts: item.attempts,

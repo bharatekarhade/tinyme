@@ -6,6 +6,7 @@ import SwiftData
 final class OutboxItem {
     @Attribute(.unique) var clientMsgId: UUID
     var text: String
+    var photoData: Data?
     var createdAt: Date
     /// An `OutboxStatus` raw value.
     var status: String
@@ -13,10 +14,11 @@ final class OutboxItem {
     var nextAttemptAt: Date?
     var lastError: String?
 
-    init(clientMsgId: UUID, text: String, createdAt: Date) {
+    init(clientMsgId: UUID, text: String, createdAt: Date, photoData: Data? = nil) {
         self.clientMsgId = clientMsgId
         self.text = text
         self.createdAt = createdAt
+        self.photoData = photoData
         self.status = OutboxStatus.queued.rawValue
         self.attempts = 0
     }
@@ -38,6 +40,7 @@ struct OutboxEntry: Sendable, Equatable, Identifiable {
     /// The `client_msg_id`. Every retry reuses it, so the server never logs a message twice.
     let id: UUID
     let text: String
+    let photoData: Data?
     let createdAt: Date
     var status: OutboxStatus
     var attempts: Int

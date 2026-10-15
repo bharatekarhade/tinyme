@@ -32,12 +32,17 @@ public class MessageRepository {
     }
 
     public UUID insertUser(UUID sessionId, UUID clientMessageId, String content) {
+        return insertUser(sessionId, clientMessageId, content, List.of());
+    }
+
+    public UUID insertUser(UUID sessionId, UUID clientMessageId, String content, List<?> attachments) {
         Objects.requireNonNull(sessionId, "sessionId");
         Objects.requireNonNull(clientMessageId, "clientMessageId");
+        Objects.requireNonNull(attachments, "attachments");
         try {
             return Objects.requireNonNull(transactions.execute(status -> {
                 MessageEntity message = MessageEntity.create(sessions.getReferenceById(sessionId), MessageRole.USER,
-                        content, List.of(), clientMessageId);
+                        content, List.of(), clientMessageId, attachments);
                 return messages.saveAndFlush(message).getId();
             }));
         } catch (DataIntegrityViolationException insertFailure) {
@@ -72,11 +77,12 @@ public class MessageRepository {
         if (sessionIds.isEmpty()) return List.of();
         return messages.findBySession_IdInOrderByCreatedAtAscIdAsc(sessionIds).stream()
                 .map(message -> new MessageRecord(message.getId(), message.getRole(), message.getContent(),
-                        message.getActions(), message.getCreatedAt()))
+                        message.getActions(), message.getAttachments(), message.getCreatedAt()))
                 .toList();
     }
 
     public record MessageRecord(UUID id, MessageRole role, String content, List<Object> actions,
+                                List<Object> attachments,
                                 java.time.Instant createdAt) {
     }
 

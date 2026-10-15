@@ -1,5 +1,8 @@
 import Foundation
 import Observation
+#if canImport(UIKit)
+import UIKit
+#endif
 
 /// Starts Health syncs and holds what the screens show: progress of the first import, the last sync, an error.
 @MainActor
@@ -82,9 +85,22 @@ final class HealthSync {
         changes += 1
     }
 
+    private func isInBackground() -> Bool {
+        #if canImport(UIKit)
+        UIApplication.shared.applicationState != .active
+        #else
+        false
+        #endif
+    }
+
     /// iOS woke TinyMe because this metric has new data. Return its completion promptly; sync after any active run.
     private func wake(for metric: HealthMetric, done: @escaping HealthBackground.Completion) {
-        guard settings.readGroups.contains(metric.group), api() != nil else { done(); return }
+        HealthBackgroundLog.add("woke \(metric.kind) \(isInBackground() ? "background" : "foreground")")
+        guard settings.readGroups.contains(metric.group), api() != nil else {
+            HealthBackgroundLog.add("skipped \(metric.kind): \(api() == nil ? "signed out" : "switched off")")
+            done()
+            return
+        }
         waiting[metric.kind] = metric
         done()
         guard !isSyncing else { return }
@@ -100,9 +116,12 @@ final class HealthSync {
         while let (kind, metric) = waiting.first {
             waiting[kind] = nil
             if let api = api(), settings.readGroups.contains(metric.group) {
-                if let totals = try? await engine.syncOne(metric, depth: settings.saved.importDepth, api: api),
-                   totals.changedSomething {
-                    changes += 1
+                do {
+                    let totals = try await engine.syncOne(metric, depth: settings.saved.importDepth, api: api)
+                    if totals.changedSomething { changes += 1 }
+                    HealthBackgroundLog.add("synced \(kind) upserted=\(totals.upserted) deleted=\(totals.deleted)")
+                } catch {
+                    HealthBackgroundLog.add("sync \(kind) failed: \(error.localizedDescription)")
                 }
                 lastSyncedAt = .now
             }

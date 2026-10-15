@@ -9,7 +9,7 @@ enum ChatItem: Identifiable, Equatable {
         case sending
         case sent
         /// The server refused it. Retrying resends it with the same `client_msg_id`.
-        case failed
+        case failed(message: String?)
     }
 
     enum AssistantStatus: Equatable {
@@ -18,18 +18,18 @@ enum ChatItem: Identifiable, Equatable {
         case failed(message: String, retryable: Bool)
     }
 
-    case user(id: String, text: String, status: UserStatus, createdAt: Date)
+    case user(id: String, text: String, photoData: Data?, photo: ChatPhotoDTO?, status: UserStatus, createdAt: Date)
     case assistant(id: String, text: String, actions: [ActionDTO], status: AssistantStatus, createdAt: Date)
 
     var id: String {
         switch self {
-        case .user(let id, _, _, _), .assistant(let id, _, _, _, _): id
+        case .user(let id, _, _, _, _, _), .assistant(let id, _, _, _, _): id
         }
     }
 
     var createdAt: Date {
         switch self {
-        case .user(_, _, _, let date), .assistant(_, _, _, _, let date): date
+        case .user(_, _, _, _, _, let date), .assistant(_, _, _, _, let date): date
         }
     }
 }
@@ -40,6 +40,7 @@ enum ChatItem: Identifiable, Equatable {
 @Observable
 final class ChatModel {
     var composer: String
+    var pendingPhotoData: Data?
 
     private(set) var isLoadingHistory = false
     private(set) var historyError: String?
@@ -98,7 +99,8 @@ final class ChatModel {
             result.append(live.item)
         }
         for entry in waiting {
-            result.append(.user(id: Self.bubbleId(entry.id), text: entry.text, status: status(of: entry), createdAt: entry.createdAt))
+            result.append(.user(id: Self.bubbleId(entry.id), text: entry.text, photoData: entry.photoData,
+                                photo: nil, status: status(of: entry), createdAt: entry.createdAt))
             if let live, live.messageId == entry.id {
                 result.append(live.item)
             }
@@ -112,7 +114,7 @@ final class ChatModel {
 
     /// Always possible, online or not: a new message queues behind the others.
     var canSend: Bool {
-        !composer.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        !composer.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || pendingPhotoData != nil
     }
 
     // MARK: - Inline cards
@@ -156,7 +158,8 @@ final class ChatModel {
     private static func item(from message: MessageDTO) -> ChatItem? {
         switch message.role {
         case "user":
-            .user(id: message.id, text: message.content, status: .sent, createdAt: message.createdAt)
+            .user(id: message.id, text: message.content, photoData: nil,
+                  photo: message.attachments.first, status: .sent, createdAt: message.createdAt)
         case "assistant":
             .assistant(id: message.id, text: message.content, actions: message.actions, status: .done, createdAt: message.createdAt)
         default:
@@ -175,15 +178,19 @@ final class ChatModel {
     func send() {
         guard canSend else { return }
         let text = composer.trimmingCharacters(in: .whitespacesAndNewlines)
+        let photo = pendingPhotoData
+        let message = text.isEmpty && photo != nil ? "What is in this photo?" : text
         composer = ""
-        enqueue(text)
+        pendingPhotoData = nil
+        enqueue(message, photoData: photo)
     }
 
     /// Retries a failed bubble: a message the server refused goes again as itself;
     /// a reply that failed on the server is asked for again as a new message.
     func retry(_ itemId: String) {
         if let entry = entry(for: itemId) {
-            Task { await outbox.retry(entry.id) }
+            let photoData = entry.photoData.flatMap(ChatPhotoCompressor.optimizedJPEG) ?? entry.photoData
+            Task { await outbox.retry(entry.id, photoData: photoData) }
             return
         }
         let items = items
@@ -199,11 +206,11 @@ final class ChatModel {
         Task { await outbox.delete(entry.id) }
     }
 
-    private func enqueue(_ text: String) {
+    private func enqueue(_ text: String, photoData: Data? = nil) {
         // Stamped here, so two quick messages keep their order.
         let id = UUID()
         let date = Date.now
-        Task { await outbox.enqueue(id: id, text: text, at: date) }
+        Task { await outbox.enqueue(id: id, text: text, photoData: photoData, at: date) }
     }
 
     private func entry(for itemId: String) -> OutboxEntry? {
@@ -211,7 +218,7 @@ final class ChatModel {
     }
 
     private static func userText(_ item: ChatItem) -> String? {
-        if case .user(_, let text, _, _) = item { text } else { nil }
+        if case .user(_, let text, _, _, _, _) = item { text } else { nil }
     }
 
     nonisolated fileprivate static func bubbleId(_ id: UUID) -> String {
@@ -220,7 +227,7 @@ final class ChatModel {
 
     private func status(of entry: OutboxEntry) -> ChatItem.UserStatus {
         switch entry.status {
-        case .failed: .failed
+        case .failed: .failed(message: entry.lastError)
         case .sent: .sent
         case .queued where !queue.isOnline: .waiting
         // A try has already failed: it is waiting, whether or not another try is under way.
@@ -284,7 +291,8 @@ final class ChatModel {
             live = nil
         }
         if !isInHistory(entry) {
-            history.append(.user(id: Self.bubbleId(entry.id), text: entry.text, status: .sent, createdAt: entry.createdAt))
+            history.append(.user(id: Self.bubbleId(entry.id), text: entry.text, photoData: entry.photoData,
+                                 photo: nil, status: .sent, createdAt: entry.createdAt))
         }
         queue = snapshot
         historyVersion += 1

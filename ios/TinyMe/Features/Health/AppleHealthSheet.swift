@@ -159,7 +159,7 @@ struct AppleHealthSheet: View {
     private var syncedSection: some View {
         let groups = HealthGroup.allCases.filter(store.saved.groups.contains)
         if !groups.isEmpty {
-            section("Synced", note: quietGroupsHint(groups)) {
+            section("Synced", note: [quietGroupsHint(groups), backgroundLine].compactMap { $0 }.joined(separator: "\n\n")) {
                 VStack(spacing: 0) {
                     let metrics = HealthCatalog.metrics.filter { groups.contains($0.group) }
                     ForEach(Array(metrics.enumerated()), id: \.element.kind) { index, metric in
@@ -180,6 +180,15 @@ struct AppleHealthSheet: View {
                 .background(card)
             }
         }
+    }
+
+    /// Whether iOS is waking TinyMe in the background: the last wake-up, or why iOS refused.
+    private var backgroundLine: String {
+        if let refusal = HealthBackgroundLog.lastRefusal() { return "Background updates: iOS refused (\(refusal))" }
+        guard let (date, kind) = HealthBackgroundLog.lastWake() else {
+            return "Background updates: iOS hasn't woken TinyMe yet. Leave it in the background; don't swipe it away."
+        }
+        return "Background updates: last \(date.formatted(.relative(presentation: .named))) (\(HealthCatalog.title(of: kind)))"
     }
 
     private func syncedLine(_ kind: String) -> String {

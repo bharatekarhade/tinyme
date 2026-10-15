@@ -10,6 +10,7 @@ struct MessageDTO: Decodable, Sendable, Identifiable {
     let role: String   // "user" | "assistant"
     let content: String
     let actions: [ActionDTO]
+    let attachments: [ChatPhotoDTO]
     let createdAt: Date
 
     init(from decoder: Decoder) throws {
@@ -18,12 +19,32 @@ struct MessageDTO: Decodable, Sendable, Identifiable {
         role = try container.decode(String.self, forKey: .role)
         content = try container.decodeIfPresent(String.self, forKey: .content) ?? ""
         actions = try container.decodeIfPresent([ActionDTO].self, forKey: .actions) ?? []
+        attachments = try container.decodeIfPresent([ChatPhotoDTO].self, forKey: .attachments) ?? []
         createdAt = try container.decode(Date.self, forKey: .createdAt)
     }
 
     private enum CodingKeys: String, CodingKey {
-        case id, role, content, actions
+        case id, role, content, actions, attachments
         case createdAt = "created_at"
+    }
+}
+
+struct ChatPhotoDTO: Decodable, Sendable, Hashable, Identifiable {
+    let id: String
+    let contentURL: String
+    let contentType: String
+
+    private enum CodingKeys: String, CodingKey {
+        case contentURL = "content_url"
+        case contentType = "content_type"
+        case photoId = "photo_id"
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(String.self, forKey: .photoId)
+        contentURL = try container.decode(String.self, forKey: .contentURL)
+        contentType = try container.decode(String.self, forKey: .contentType)
     }
 }
 

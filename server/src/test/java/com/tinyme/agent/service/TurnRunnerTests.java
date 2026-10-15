@@ -108,6 +108,41 @@ class TurnRunnerTests {
         verify(body).close();
     }
 
+    @Test
+    void includesAnAttachedImageInTheManagedAgentsUserMessage() throws Exception {
+        var runner = runner(Duration.ofSeconds(5));
+        var body = events(END);
+        when(api.openStream("sesn_test")).thenReturn(new EventStream(body));
+        Map<String, Object> image = Map.of("type", "image", "source", Map.of(
+                "type", "base64", "media_type", "image/jpeg", "data", "aGVsbG8="));
+        var request = new TurnRequest(session, USER_MESSAGE_ID, "What is in this photo?", ZONE, NOW, List.of(image));
+
+        runner.run(request, TurnListener.NONE);
+
+        verify(api).sendEvents("sesn_test", List.of(Map.of("type", "user.message", "content", List.of(
+                Map.of("type", "text", "text", "[context]\ntz: Asia/Tokyo\n[/context]"),
+                Map.of("type", "text", "text", "What is in this photo?"), image))));
+    }
+
+    @Test
+    void passesCurrentPhotoIdToPeoplePhotoToolContext() throws Exception {
+        var runner = runner(Duration.ofSeconds(5));
+        var body = events(
+                "{\"type\":\"agent.custom_tool_use\",\"id\":\"profile-photo-call\",\"name\":\"people_photo_add\",\"input\":{\"slug\":\"bharat\"}}",
+                END);
+        when(api.openStream("sesn_test")).thenReturn(new EventStream(body));
+        when(dispatcher.dispatch(eq("profile-photo-call"), eq("people_photo_add"), any(), any()))
+                .thenReturn(new DispatchOutcome("{\"ok\":true,\"summary\":\"Added photo\"}", false));
+        UUID photoId = UUID.randomUUID();
+
+        runner.run(new TurnRequest(session, USER_MESSAGE_ID, "This is Bharat", ZONE, NOW, List.of(), photoId),
+                TurnListener.NONE);
+
+        var context = org.mockito.ArgumentCaptor.forClass(ToolContext.class);
+        verify(dispatcher).dispatch(eq("profile-photo-call"), eq("people_photo_add"), any(), context.capture());
+        assertThat(context.getValue().attachedPhotoId()).isEqualTo(photoId);
+    }
+
     @ParameterizedTest
     @ValueSource(booleans = {false, true})
     void dispatchesOnceAndSendsResultBeforeContinuingPastRequiresAction(boolean isError) throws Exception {
@@ -346,7 +381,7 @@ class TurnRunnerTests {
     void sessionErrorEmitsRetryableAgentErrorWithoutText() throws Exception {
         var runner = runner(Duration.ofSeconds(5));
         var body = events(
-                "{\"type\":\"session.error\",\"id\":\"error\",\"error\":{\"message\":\"private content\"}}");
+                "{\"type\":\"session.error\",\"id\":\"error\",\"error\":{\"type\":\"invalid_request_error\",\"message\":\"private content\"}}");
         when(api.openStream("sesn_test")).thenReturn(new EventStream(body));
         var observed = new ArrayList<TurnEvent>();
 
@@ -354,7 +389,7 @@ class TurnRunnerTests {
                 .hasMessageNotContaining("private content");
 
         assertThat(observed).containsExactly(new TurnEvent.Failed(
-                "agent_error", "Managed Agents session reported an error", true));
+                "agent_error", "Managed Agents rejected the request (invalid_request_error)", true));
         verify(body).close();
     }
 
@@ -364,7 +399,7 @@ class TurnRunnerTests {
         var body = events(
                 "{\"type\":\"agent.custom_tool_use\",\"id\":\"tool-partial\",\"name\":\"entries_add\",\"input\":{\"kind\":\"drink\"}}",
                 "{\"type\":\"agent.message\",\"id\":\"partial\",\"content\":[{\"type\":\"text\",\"text\":\"Coffee logged.\"}]}",
-                "{\"type\":\"session.error\",\"id\":\"error\",\"error\":{\"message\":\"private content\"}}");
+                "{\"type\":\"session.error\",\"id\":\"error\",\"error\":{\"type\":\"invalid_request_error\",\"message\":\"private content\"}}");
         when(api.openStream("sesn_test")).thenReturn(new EventStream(body));
         when(dispatcher.dispatch(eq("tool-partial"), eq("entries_add"), any(), any()))
                 .thenReturn(new DispatchOutcome("{\"ok\":true,\"summary\":\"Logged drink\"}", false));
@@ -376,7 +411,7 @@ class TurnRunnerTests {
         assertThat(observed).containsExactly(
                 new TurnEvent.ActionDone("entries_add", "Logged drink", false),
                 new TurnEvent.Text("Coffee logged."),
-                new TurnEvent.Failed("agent_error", "Managed Agents session reported an error", true));
+                new TurnEvent.Failed("agent_error", "Managed Agents rejected the request (invalid_request_error)", true));
         verify(messages).insert(session.sessionRowId(), MessageRole.ASSISTANT, "Coffee logged.",
                 List.of(Map.of("tool", "entries_add", "summary", "Logged drink", "is_error", false)));
         verify(body).close();

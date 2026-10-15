@@ -1,8 +1,10 @@
 import SwiftUI
+import UIKit
 
 /// One chat row: your message on the right in mint, TinyMe's on the left in white beside its face.
 struct MessageBubble: View {
     let item: ChatItem
+    var api: APIClient? = nil
     var onRetry: () -> Void = {}
     var onDelete: () -> Void = {}
     /// Gives the model for a card a reply refers to. Nil: cards aren't shown inline.
@@ -12,8 +14,8 @@ struct MessageBubble: View {
 
     var body: some View {
         switch item {
-        case .user(_, let text, let status, _):
-            userRow(text: text, status: status)
+        case .user(_, let text, let photoData, let photo, let status, _):
+            userRow(text: text, photoData: photoData, photo: photo, status: status)
         case .assistant(_, let text, let actions, let status, _):
             assistantRow(text: text, actions: actions, status: status)
         }
@@ -21,19 +23,37 @@ struct MessageBubble: View {
 
     // MARK: - You
 
-    private func userRow(text: String, status: ChatItem.UserStatus) -> some View {
-        let isFailed = status == .failed
+    private func userRow(text: String, photoData: Data?, photo: ChatPhotoDTO?, status: ChatItem.UserStatus) -> some View {
+        let isFailed: Bool
+        let failureMessage: String?
+        switch status {
+        case .failed(let message):
+            isFailed = true
+            failureMessage = message
+        default:
+            isFailed = false
+            failureMessage = nil
+        }
         return HStack {
             Spacer(minLength: 56)
             VStack(alignment: .trailing, spacing: 4) {
-                Text(text)
-                    .textStyle(.body)
-                    .foregroundStyle(isFailed ? Palette.onAccentSoft : Palette.onBrand)
-                    .padding(.horizontal, Space.s4)
-                    .padding(.vertical, Space.s3)
-                    .background(isFailed ? Palette.accentSoft : Palette.brand, in: Self.shape(tail: .trailing))
-                    .opacity(status == .sending || status == .waiting ? 0.6 : 1)
-                    .accessibilityLabel(Self.userLabel(text, status))
+                VStack(alignment: .trailing, spacing: Space.s2) {
+                    if let photoData {
+                        ChatPhotoPreview(data: photoData)
+                    } else if let photo, let api {
+                        ChatPhotoPreview(api: api, photo: photo)
+                    }
+                    if !text.isEmpty {
+                        Text(text)
+                            .textStyle(.body)
+                            .foregroundStyle(isFailed ? Palette.onAccentSoft : Palette.onBrand)
+                            .accessibilityLabel(Self.userLabel(text, status))
+                    }
+                }
+                .padding(.horizontal, Space.s4)
+                .padding(.vertical, Space.s3)
+                .background(isFailed ? Palette.accentSoft : Palette.brand, in: Self.shape(tail: .trailing))
+                .opacity(status == .sending || status == .waiting ? 0.6 : 1)
                 if status == .waiting {
                     Label("Waiting for connection", systemImage: "clock")
                         .textStyle(.caption)
@@ -47,6 +67,13 @@ struct MessageBubble: View {
                             .accessibilityHidden(true)
                         failedAction("Retry", action: onRetry)
                         failedAction("Delete", action: onDelete)
+                    }
+                    if let failureMessage, !failureMessage.isEmpty {
+                        Text(failureMessage)
+                            .textStyle(.caption)
+                            .foregroundStyle(Palette.danger)
+                            .multilineTextAlignment(.trailing)
+                            .frame(maxWidth: 280, alignment: .trailing)
                     }
                 }
             }
@@ -69,7 +96,7 @@ struct MessageBubble: View {
     private static func userLabel(_ text: String, _ status: ChatItem.UserStatus) -> String {
         switch status {
         case .waiting: "You, waiting for connection: \(text)"
-        case .failed: "You, not sent: \(text)"
+        case .failed(let message): "You, not sent: \(text). \(message ?? "")"
         case .sending, .sent: "You: \(text)"
         }
     }
@@ -171,6 +198,43 @@ struct MessageBubble: View {
     private static func formatted(_ text: String) -> AttributedString {
         let options = AttributedString.MarkdownParsingOptions(interpretedSyntax: .inlineOnlyPreservingWhitespace)
         return (try? AttributedString(markdown: text, options: options)) ?? AttributedString(text)
+    }
+}
+
+private struct ChatPhotoPreview: View {
+    var data: Data?
+    var api: APIClient?
+    var photo: ChatPhotoDTO?
+    @State private var loadedData: Data?
+
+    init(data: Data) {
+        self.data = data
+    }
+
+    init(api: APIClient, photo: ChatPhotoDTO) {
+        self.api = api
+        self.photo = photo
+    }
+
+    var body: some View {
+        Group {
+            if let imageData = data ?? loadedData, let image = UIImage(data: imageData) {
+                Image(uiImage: image)
+                    .resizable()
+                    .scaledToFit()
+            } else {
+                Rectangle()
+                    .fill(Palette.surfaceSunken)
+                    .overlay { ProgressView().tint(Palette.inkMuted) }
+            }
+        }
+        .frame(maxWidth: 240, maxHeight: 260)
+        .clipShape(RoundedRectangle(cornerRadius: Radius.md, style: .continuous))
+        .task(id: photo?.id) {
+            guard data == nil, loadedData == nil, let api, let photo else { return }
+            loadedData = try? await api.getData(.chatPhotoContent(photo.id))
+        }
+        .accessibilityLabel("Photo attachment")
     }
 }
 

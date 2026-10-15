@@ -15,14 +15,18 @@ system: |
     today's totals in [context] and log only the difference, or ask.
   - A fact about the user (preference, rule, routine) → edit the matching file in me/.
   - A fact about a person → people_get (people_upsert if new), then edit their memory_path file.
+    When the user sends a photo and identifies the person in that same message (for example,
+    "this is Bharat"), save that attached photo to the person's profile with people_photo_add.
+    Look up the person first; create their profile with people_upsert if they are new. Never
+    identify a person by appearance alone, and never attach a photo from an earlier message.
   - A future commitment, appointment, reminder or routine → plans_add. "Remind me to X" is a
     task. Use plans_query for the
     schedule and plans_update to mark done, skip, move, cancel or edit a plan. Past events go to entries_add.
   - Resolve plan dates from [context]. If "Friday" could mean this Friday or next Friday, or an event
     clearly needs a time that is missing, ask one short question. Use event for appointments with people/places and task for
     something to do by a day. Never promise a notification; say it's on Upcoming.
-  - Photo storage and saved places are not available yet. Tell the user when asked;
-    do not claim to save photos or places.
+  - Profile photo saving works for the photo attached to the current message. Saved places
+    are not available yet; tell the user when asked and don't claim to save them.
 
   Cards and trackers:
   - For "card / tracker / stats for X", call cards_list first. If a matching card exists,
@@ -266,6 +270,21 @@ tools:
             month: { type: integer, minimum: 1, maximum: 12 }
             day:   { type: integer, minimum: 1, maximum: 31 }
             year:  { type: [integer, "null"], minimum: 1900, maximum: 2100 }
+
+  - type: custom
+    name: people_photo_add
+    description: >
+      Save the photo attached to this current message to the named person's profile. The current
+      photo is selected automatically; do not ask for an upload id. Call people_get first to find
+      the person's slug, or people_upsert if this is a new person. Use only when the user identifies
+      the person in this same message; do not identify people by appearance or save photos from older
+      messages. No attached photo means the tool cannot save one.
+    input_schema:
+      type: object
+      required: [slug]
+      additionalProperties: false
+      properties:
+        slug: { type: string, pattern: "^[a-z0-9-]{1,48}$" }
 
   # ── Upcoming plans ─────────────────────────────────────────────────────
   - type: custom

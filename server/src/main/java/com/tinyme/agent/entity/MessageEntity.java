@@ -72,12 +72,18 @@ public class MessageEntity {
 
     public static MessageEntity create(AgentSessionEntity session, MessageRole role, String content,
                                        List<?> actions, UUID clientMessageId) {
+        return create(session, role, content, actions, clientMessageId, List.of());
+    }
+
+    public static MessageEntity create(AgentSessionEntity session, MessageRole role, String content,
+                                       List<?> actions, UUID clientMessageId, List<?> attachments) {
         var message = new MessageEntity();
         message.session = Objects.requireNonNull(session, "session");
         message.clientMessageId = clientMessageId;
         message.role = Objects.requireNonNull(role, "role");
         message.content = Objects.requireNonNull(content, "content");
         message.actions = new ArrayList<>(Objects.requireNonNull(actions, "actions"));
+        message.attachments = new ArrayList<>(Objects.requireNonNull(attachments, "attachments"));
         return message;
     }
 

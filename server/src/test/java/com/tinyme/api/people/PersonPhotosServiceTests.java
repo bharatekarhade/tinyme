@@ -1,6 +1,7 @@
 package com.tinyme.api.people;
 
 import com.tinyme.domain.people.model.PersonSnapshot;
+import com.tinyme.domain.people.service.PersonPhotoLinkService;
 import com.tinyme.domain.people.service.PersonService;
 import com.tinyme.storage.LocalBlobStore;
 import org.flywaydb.core.Flyway;
@@ -23,6 +24,10 @@ import java.io.ByteArrayOutputStream;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Optional;
+import java.time.Instant;
+import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
+import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -91,6 +96,25 @@ class PersonPhotosServiceTests {
                 .isInstanceOf(ResponseStatusException.class)
                 .hasFieldOrPropertyWithValue("statusCode", org.springframework.http.HttpStatus.UNSUPPORTED_MEDIA_TYPE);
         assertThat(jdbc.queryForObject("SELECT count(*) FROM photos", Integer.class)).isZero();
+    }
+
+    @Test
+    void linksTheCurrentChatPhotoIntoThePersonPhotoGallery() {
+        UUID blobId = UUID.randomUUID();
+        UUID photoId = UUID.randomUUID();
+        OffsetDateTime now = OffsetDateTime.ofInstant(Instant.parse("2026-10-15T01:00:00Z"), ZoneOffset.UTC);
+        jdbc.update("""
+                INSERT INTO blobs (id, key, type, content_type, size_bytes, sha256, status, completed_at)
+                VALUES (?, ?, 'photo', 'image/jpeg', 12, ?, 'ready', ?)
+                """, blobId, "photos/2026/10/" + blobId + ".jpg", "0".repeat(64), now);
+        jdbc.update("INSERT INTO photos (id, blob_id) VALUES (?, ?)", photoId, blobId);
+
+        String displayName = new PersonPhotoLinkService(jdbc).addToProfile("kenji", photoId);
+        var gallery = new PersonPhotosService(people, new LocalBlobStore(directory.toString()), jdbc).list("kenji");
+
+        assertThat(displayName).isEqualTo("Kenji");
+        assertThat(gallery).extracting(PhotoResponse::id).containsExactly(photoId);
+        assertThat(gallery.getFirst().contentUrl()).isEqualTo("/people/kenji/photos/" + photoId + "/content");
     }
 
     private static byte[] jpeg() throws Exception {
