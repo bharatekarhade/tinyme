@@ -17,10 +17,21 @@ struct OutgoingMessage: Encodable, Sendable {
     }
 
     struct ClientContext: Encodable, Sendable {
+        struct Location: Encodable, Sendable {
+            let lat: Double
+            let lng: Double
+            let accuracyM: Double
+            let at: String
+            let area: String
+
+            private enum CodingKeys: String, CodingKey {
+                case lat, lng, area, at
+                case accuracyM = "accuracy_m"
+            }
+        }
+
         var tz: String = TimeZone.current.identifier
-        var lat: Double?
-        var lng: Double?
-        var place: String?
+        var location: Location?
     }
 
     /// From the app outbox; the server uses it to reject duplicates.

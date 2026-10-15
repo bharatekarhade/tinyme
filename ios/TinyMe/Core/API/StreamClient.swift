@@ -7,17 +7,23 @@ actor StreamClient {
 
     private let api: APIClient
     private let session: URLSession
+    private let locationProvider: LocationProvider?
+    private let deviceTools: DeviceToolRegistry?
 
-    init(api: APIClient, session: URLSession = .shared) {
+    init(api: APIClient, session: URLSession = .shared, locationProvider: LocationProvider? = nil,
+         deviceTools: [any DeviceTool] = []) {
         self.api = api
         self.session = session
+        self.locationProvider = locationProvider
+        self.deviceTools = deviceTools.isEmpty ? nil : DeviceToolRegistry(api: api, tools: deviceTools)
     }
 
     nonisolated func send(_ message: OutgoingMessage) -> AsyncThrowingStream<StreamEvent, Error> {
         AsyncThrowingStream { continuation in
             let task = Task {
                 do {
-                    var request = try await api.authorizedRequest(.postMessage, body: message)
+                    let enrichedMessage = await self.messageWithLocation(message)
+                    var request = try await api.authorizedRequest(.postMessage, body: enrichedMessage)
                     request.setValue("text/event-stream", forHTTPHeaderField: "Accept")
                     request.timeoutInterval = 180
                     let (bytes, response) = try await session.bytes(for: request)
@@ -39,6 +45,9 @@ actor StreamClient {
                         switch event {
                         case .unknown(let type):
                             Self.log.debug("Skipping unknown stream event type \(type, privacy: .public)")
+                        case .clientAction(let actionId, let tool, let input):
+                            await self.executeDeviceAction(actionId: actionId, tool: tool, input: input)
+                            continuation.yield(event)
                         case .done:
                             sawDone = true
                             continuation.yield(event)
@@ -57,6 +66,21 @@ actor StreamClient {
             }
             continuation.onTermination = { _ in task.cancel() }
         }
+    }
+
+    private func messageWithLocation(_ message: OutgoingMessage) async -> OutgoingMessage {
+        guard let locationProvider, var context = message.clientContext, context.location == nil else {
+            return message
+        }
+        context.location = await locationProvider.locationForChatContext()
+        var result = message
+        result.clientContext = context
+        return result
+    }
+
+    private func executeDeviceAction(actionId: String, tool: String, input: JSONValue) async {
+        guard let deviceTools else { return }
+        await deviceTools.execute(actionId: actionId, tool: tool, input: input)
     }
 
     /// Throws for a non-2xx reply, reading its (small) error body first.

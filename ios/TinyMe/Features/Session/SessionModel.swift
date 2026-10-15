@@ -22,13 +22,15 @@ final class SessionModel {
     private let outbox: OutboxWorker?
     private let health: HealthSettingsStore?
     private let urlSession: URLSession
+    private let locationProvider: LocationProvider
 
     init(authStore: AuthStore, outbox: OutboxWorker? = nil, health: HealthSettingsStore? = nil,
-         urlSession: URLSession = .shared) {
+         urlSession: URLSession = .shared, locationProvider: LocationProvider = LocationProvider()) {
         self.health = health
         self.authStore = authStore
         self.outbox = outbox
         self.urlSession = urlSession
+        self.locationProvider = locationProvider
         // A stored token means signed in, with no network call; the first 401 signs out.
         if let saved = authStore.savedSession {
             connect(to: saved.server)
@@ -115,7 +117,9 @@ final class SessionModel {
             token: { [authStore] in await authStore.token() },
             onUnauthorized: { [weak self] in await self?.handleUnauthorized() }
         )
-        let stream = StreamClient(api: client, session: urlSession)
+        let placesSearch = PlacesSearchTool(locationProvider: locationProvider)
+        let stream = StreamClient(api: client, session: urlSession, locationProvider: locationProvider,
+                                  deviceTools: [placesSearch])
         api = client
         Task { [outbox] in await outbox?.connect(stream) }
     }
