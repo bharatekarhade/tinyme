@@ -8,18 +8,23 @@ import java.util.List;
 import java.util.Map;
 
 public record TurnRequest(SessionRef session, UUID userMessageId, String text, ZoneId zone, Instant sentAt,
-                          List<Map<String, Object>> imageBlocks, UUID attachedPhotoId) {
+                          List<Map<String, Object>> imageBlocks, UUID attachedPhotoId, TurnLocation location) {
     public TurnRequest(SessionRef session, UUID userMessageId, String text, ZoneId zone) {
-        this(session, userMessageId, text, zone, null, List.of(), null);
+        this(session, userMessageId, text, zone, null, List.of(), null, null);
     }
 
     public TurnRequest(SessionRef session, UUID userMessageId, String text, ZoneId zone, Instant sentAt) {
-        this(session, userMessageId, text, zone, sentAt, List.of(), null);
+        this(session, userMessageId, text, zone, sentAt, List.of(), null, null);
     }
 
     public TurnRequest(SessionRef session, UUID userMessageId, String text, ZoneId zone, Instant sentAt,
                        List<Map<String, Object>> imageBlocks) {
-        this(session, userMessageId, text, zone, sentAt, imageBlocks, null);
+        this(session, userMessageId, text, zone, sentAt, imageBlocks, null, null);
+    }
+
+    public TurnRequest(SessionRef session, UUID userMessageId, String text, ZoneId zone, Instant sentAt,
+                       List<Map<String, Object>> imageBlocks, UUID attachedPhotoId) {
+        this(session, userMessageId, text, zone, sentAt, imageBlocks, attachedPhotoId, null);
     }
 
     public TurnRequest {

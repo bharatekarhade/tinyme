@@ -6,6 +6,7 @@ import com.tinyme.agent.client.FakeManagedAgents;
 import com.tinyme.agent.model.SessionRef;
 import com.tinyme.agent.model.TurnEvent;
 import com.tinyme.agent.model.TurnRequest;
+import com.tinyme.agent.model.TurnLocation;
 import com.tinyme.agent.model.TurnResult;
 import com.tinyme.agent.model.MessageRole;
 import com.tinyme.agent.repository.MessageRepository;
@@ -134,13 +135,17 @@ class TurnRunnerTests {
         when(dispatcher.dispatch(eq("profile-photo-call"), eq("people_photo_add"), any(), any()))
                 .thenReturn(new DispatchOutcome("{\"ok\":true,\"summary\":\"Added photo\"}", false));
         UUID photoId = UUID.randomUUID();
+        var location = new TurnLocation(35.6595, 139.7005, 35, NOW.minusSeconds(120), "Shibuya, Tokyo");
+        when(prefix.build(ZONE, NOW, location)).thenReturn("[context]\nlocation: Shibuya, Tokyo (2 min ago)\n[/context]");
 
-        runner.run(new TurnRequest(session, USER_MESSAGE_ID, "This is Bharat", ZONE, NOW, List.of(), photoId),
+        runner.run(new TurnRequest(session, USER_MESSAGE_ID, "This is Bharat", ZONE, NOW, List.of(), photoId, location),
                 TurnListener.NONE);
 
         var context = org.mockito.ArgumentCaptor.forClass(ToolContext.class);
         verify(dispatcher).dispatch(eq("profile-photo-call"), eq("people_photo_add"), any(), context.capture());
         assertThat(context.getValue().attachedPhotoId()).isEqualTo(photoId);
+        assertThat(context.getValue().location()).isEqualTo(location);
+        verify(prefix).build(ZONE, NOW, location);
     }
 
     @ParameterizedTest

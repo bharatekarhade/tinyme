@@ -19,6 +19,7 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 import java.io.IOException;
 import java.time.Duration;
 import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
 import java.time.ZoneId;
@@ -110,6 +111,42 @@ class ConversationDisconnectTests {
                 LocalDate.class);
         assertThat(storedAt.toInstant()).isEqualTo(queuedAt);
         assertThat(storedDay).isEqualTo(LocalDate.ofInstant(queuedAt, ZoneId.of("Asia/Tokyo")));
+    }
+
+    @Test
+    void acceptsOnlyRecentAccurateLocationAndDropsInvalidFixesWithoutRejectingMessage() throws Exception {
+        Instant now = Instant.now().truncatedTo(ChronoUnit.SECONDS);
+        var validRequest = new ConversationMessageRequest(UUID.randomUUID(), "anything nearby?",
+                new ConversationMessageRequest.ClientContext("Asia/Tokyo",
+                        new ConversationMessageRequest.ClientLocation(35.6595, 139.7005, 35.0,
+                                now.minusSeconds(120), "Shibuya, Tokyo")), null, java.util.List.of());
+        var valid = (ConversationService.Accepted) conversations.accept(validRequest);
+        assertThat(valid.location()).isEqualTo(new com.tinyme.agent.model.TurnLocation(
+                35.6595, 139.7005, 35.0, now.minusSeconds(120), "Shibuya, Tokyo"));
+        valid.permit().close();
+
+        var stale = acceptLocation(now.minus(Duration.ofMinutes(11)), 35.0, 35.6595, 139.7005);
+        var inaccurate = acceptLocation(now, 500.0, 35.6595, 139.7005);
+        var future = acceptLocation(now.plusSeconds(1), 35.0, 35.6595, 139.7005);
+        var outOfRange = acceptLocation(now, 35.0, 91.0, 139.7005);
+
+        assertThat(stale.location()).isNull();
+        assertThat(inaccurate.location()).isNull();
+        assertThat(future.location()).isNull();
+        assertThat(outOfRange.location()).isNull();
+        stale.permit().close();
+        inaccurate.permit().close();
+        future.permit().close();
+        outOfRange.permit().close();
+    }
+
+    private ConversationService.Accepted acceptLocation(Instant at, double accuracy,
+                                                       double lat, double lng) throws Exception {
+        var request = new ConversationMessageRequest(UUID.randomUUID(), "where am I?",
+                new ConversationMessageRequest.ClientContext("Asia/Tokyo",
+                        new ConversationMessageRequest.ClientLocation(lat, lng, accuracy, at, "Tokyo")),
+                null, java.util.List.of());
+        return (ConversationService.Accepted) conversations.accept(request);
     }
 
     private void setting(String key, String json) {

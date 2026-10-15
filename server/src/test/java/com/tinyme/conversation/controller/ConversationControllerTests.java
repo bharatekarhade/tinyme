@@ -93,7 +93,9 @@ class ConversationControllerTests {
         UUID assistantMessageId = UUID.randomUUID();
         service.result = new TurnResult("Logged coffee.", 1, assistantMessageId);
         MvcResult response = mvc.perform(post("/conversations/today/messages").contentType("application/json").content("""
-                {"client_msg_id":"%s","text":"had a coffee","client_context":{"tz":"Asia/Tokyo"}}
+                {"client_msg_id":"%s","text":"had a coffee","client_context":{"tz":"Asia/Tokyo",
+                  "location":{"lat":35.6595,"lng":139.7005,"accuracy_m":35,"at":"2026-10-15T02:31:10Z",
+                    "area":"Shibuya, Tokyo"}}}
                 """.formatted(clientMessageId)))
                 .andExpect(status().isOk())
                 .andExpect(request().asyncStarted())
@@ -117,6 +119,8 @@ class ConversationControllerTests {
         assertThat(service.request.clientMessageId()).isEqualTo(clientMessageId);
         assertThat(service.request.text()).isEqualTo("had a coffee");
         assertThat(service.request.clientContext().tz()).isEqualTo("Asia/Tokyo");
+        assertThat(service.request.clientContext().location().accuracyM()).isEqualTo(35.0);
+        assertThat(service.request.clientContext().location().area()).isEqualTo("Shibuya, Tokyo");
     }
 
     @Test

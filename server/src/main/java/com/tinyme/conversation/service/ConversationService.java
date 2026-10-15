@@ -2,6 +2,7 @@ package com.tinyme.conversation.service;
 
 import com.tinyme.agent.model.SessionRef;
 import com.tinyme.agent.model.TurnRequest;
+import com.tinyme.agent.model.TurnLocation;
 import com.tinyme.agent.model.TurnResult;
 import com.tinyme.agent.repository.AgentSessionRepository;
 import com.tinyme.agent.repository.MessageRepository;
@@ -78,6 +79,7 @@ public class ConversationService implements ConversationOperations {
             if (sentAt.isAfter(receivedAt.plus(Duration.ofDays(1)))) {
                 throw new InvalidClientTimestampException("sent_at cannot be more than one day in the future");
             }
+            TurnLocation location = validatedLocation(request.clientContext(), receivedAt);
             SessionRef session = sessions.todaySession(zone);
             var existing = messages.findIdByClientMessageId(request.clientMessageId());
             if (existing.isPresent()) {
@@ -93,7 +95,7 @@ public class ConversationService implements ConversationOperations {
                         request.text(), historyAttachments);
                 UUID attachedPhotoId = storedImages.isEmpty() ? null : storedImages.getFirst().photoId();
                 return new Accepted(session, userMessageId, request.text(), zone, sentAt, imageBlocks,
-                        attachedPhotoId, permit);
+                        attachedPhotoId, location, permit);
             } catch (RuntimeException | IOException | Error failure) {
                 for (var image : storedImages) images.deleteStored(image);
                 throw failure;
@@ -117,7 +119,7 @@ public class ConversationService implements ConversationOperations {
             try {
                 future.complete(turns.run(new TurnRequest(accepted.session(), accepted.userMessageId(),
                         accepted.text(), accepted.zone(), accepted.sentAt(), accepted.imageBlocks(),
-                        accepted.attachedPhotoId()), listener));
+                        accepted.attachedPhotoId(), accepted.location()), listener));
             } catch (InterruptedException interrupted) {
                 Thread.currentThread().interrupt();
                 future.completeExceptionally(interrupted);
@@ -146,28 +148,52 @@ public class ConversationService implements ConversationOperations {
         return userZone.current();
     }
 
+    private static TurnLocation validatedLocation(ConversationMessageRequest.ClientContext clientContext,
+                                                  Instant receivedAt) {
+        if (clientContext == null || clientContext.location() == null) return null;
+        var location = clientContext.location();
+        if (location.lat() == null || location.lng() == null || location.accuracyM() == null || location.at() == null) {
+            return null;
+        }
+        if (!Double.isFinite(location.lat()) || location.lat() < -90 || location.lat() > 90
+                || !Double.isFinite(location.lng()) || location.lng() < -180 || location.lng() > 180
+                || !Double.isFinite(location.accuracyM()) || location.accuracyM() < 0 || location.accuracyM() >= 500
+                || location.at().isAfter(receivedAt)
+                || location.at().isBefore(receivedAt.minus(Duration.ofMinutes(10)))) {
+            return null;
+        }
+        return new TurnLocation(location.lat(), location.lng(), location.accuracyM(), location.at(), location.area());
+    }
+
     public sealed interface Acceptance permits Accepted, Duplicate {
     }
 
     public record Accepted(SessionRef session, UUID userMessageId, String text, ZoneId zone, Instant sentAt,
                            java.util.List<java.util.Map<String, Object>> imageBlocks,
                            UUID attachedPhotoId,
+                           TurnLocation location,
                            MaintenanceGate.TurnPermit permit)
             implements Acceptance {
         public Accepted(SessionRef session, UUID userMessageId, String text, ZoneId zone) {
-            this(session, userMessageId, text, zone, Instant.now(), java.util.List.of(), null,
+            this(session, userMessageId, text, zone, Instant.now(), java.util.List.of(), null, null,
                     MaintenanceGate.detachedPermit());
         }
 
         public Accepted(SessionRef session, UUID userMessageId, String text, ZoneId zone,
                         MaintenanceGate.TurnPermit permit) {
-            this(session, userMessageId, text, zone, Instant.now(), java.util.List.of(), null, permit);
+            this(session, userMessageId, text, zone, Instant.now(), java.util.List.of(), null, null, permit);
         }
 
         public Accepted(SessionRef session, UUID userMessageId, String text, ZoneId zone, Instant sentAt,
                         java.util.List<java.util.Map<String, Object>> imageBlocks,
                         MaintenanceGate.TurnPermit permit) {
-            this(session, userMessageId, text, zone, sentAt, imageBlocks, null, permit);
+            this(session, userMessageId, text, zone, sentAt, imageBlocks, null, null, permit);
+        }
+
+        public Accepted(SessionRef session, UUID userMessageId, String text, ZoneId zone, Instant sentAt,
+                        java.util.List<java.util.Map<String, Object>> imageBlocks, UUID attachedPhotoId,
+                        MaintenanceGate.TurnPermit permit) {
+            this(session, userMessageId, text, zone, sentAt, imageBlocks, attachedPhotoId, null, permit);
         }
 
         public Accepted {

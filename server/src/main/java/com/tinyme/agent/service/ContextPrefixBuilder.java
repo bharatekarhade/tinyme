@@ -6,12 +6,14 @@ import com.tinyme.domain.entries.repository.EntryRepository;
 import com.tinyme.domain.health.service.HealthContext;
 import com.tinyme.domain.health.service.HealthNudges;
 import com.tinyme.domain.plans.service.PlanService;
+import com.tinyme.agent.model.TurnLocation;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
 import java.math.BigDecimal;
 import java.time.Clock;
+import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneId;
@@ -62,12 +64,21 @@ public class ContextPrefixBuilder {
 
     /** Builds the context as of when the user sent the message, which may predate delivery while offline. */
     public String build(ZoneId zone, Instant referenceTime) {
+        return build(zone, referenceTime, null);
+    }
+
+    public String build(ZoneId zone, Instant referenceTime, TurnLocation location) {
         Objects.requireNonNull(zone, "zone");
         Objects.requireNonNull(referenceTime, "referenceTime");
         var lines = new ArrayList<String>();
         lines.add("[context]");
         lines.add("now: " + ZonedDateTime.ofInstant(referenceTime, zone).format(LOCAL_TIME));
         lines.add("tz: " + zone.getId());
+        if (location != null && location.area() != null) {
+            long minutesAgo = Math.max(0, Duration.between(location.at(), referenceTime).toMinutes());
+            String age = minutesAgo < 1 ? "just now" : minutesAgo + " min ago";
+            lines.add("location: " + location.area() + " (" + age + ")");
+        }
         var kinds = entryKinds.topKinds(KIND_LIMIT);
         if (!kinds.isEmpty()) {
             lines.add("known_kinds: " + String.join(", ", kinds));

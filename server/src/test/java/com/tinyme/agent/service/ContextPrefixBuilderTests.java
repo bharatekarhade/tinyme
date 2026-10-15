@@ -4,6 +4,7 @@ import com.tinyme.domain.entries.model.aggregate.TodayTotal;
 import com.tinyme.domain.entries.repository.EntryKindRepository;
 import com.tinyme.domain.entries.repository.EntryRepository;
 import com.tinyme.domain.plans.service.PlanService;
+import com.tinyme.agent.model.TurnLocation;
 import org.junit.jupiter.api.Test;
 
 import java.math.BigDecimal;
@@ -95,6 +96,19 @@ class ContextPrefixBuilderTests {
                 today: drink (coffee)=1
                 [/context]""");
         verify(entries).todayTotals(LocalDate.of(2026, 10, 5));
+    }
+
+    @Test
+    void includesOnlyTheAreaNameAndAgeForLocation() {
+        when(kinds.topKinds(30)).thenReturn(List.of());
+        when(entries.todayTotals(LocalDate.of(2026, 10, 6))).thenReturn(List.of());
+        var location = new TurnLocation(35.6595, 139.7005, 35,
+                clock.instant().minus(java.time.Duration.ofMinutes(2)), "  Shibuya,\nTokyo  ");
+
+        String context = builder.build(ZoneId.of("Asia/Tokyo"), clock.instant(), location);
+
+        assertThat(context).contains("location: Shibuya, Tokyo (2 min ago)")
+                .doesNotContain("35.6595", "139.7005", "accuracy");
     }
 
     @Test

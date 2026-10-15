@@ -9,6 +9,7 @@ import jakarta.validation.Valid;
 import java.util.UUID;
 import java.time.Instant;
 import java.util.List;
+import com.fasterxml.jackson.annotation.JsonProperty;
 
 public record ConversationMessageRequest(
         @JsonProperty("client_msg_id") @NotNull UUID clientMessageId,
@@ -29,6 +30,14 @@ public record ConversationMessageRequest(
         attachments = attachments == null ? List.of() : List.copyOf(attachments);
     }
 
-    public record ClientContext(String tz) {
+    public record ClientContext(String tz, @JsonProperty("location") ClientLocation location) {
+        public ClientContext(String tz) {
+            this(tz, null);
+        }
+    }
+
+    public record ClientLocation(Double lat, Double lng,
+                                 @JsonProperty("accuracy_m") Double accuracyM,
+                                 Instant at, String area) {
     }
 }
