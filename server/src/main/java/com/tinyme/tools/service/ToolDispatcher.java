@@ -142,20 +142,24 @@ public class ToolDispatcher {
                 ? Map.of("error_code", "no_location") : Map.of();
         if (!isError && result instanceof ToolResult.Ok success) ref = success.ref();
         String resultJson;
+        String storedResultJson;
         try {
             resultJson = envelopeJson(result);
+            storedResultJson = result instanceof ToolResult.Ok success && success.stored() != null
+                    ? successEnvelopeJson(success) : resultJson;
         } catch (RuntimeException serializationFailure) {
             isError = true;
             code = "internal_error";
             ref = Map.of();
             result = new ToolResult.Err(code, "Tool result could not be serialized");
             resultJson = errorJson(code, ((ToolResult.Err) result).message());
+            storedResultJson = resultJson;
         }
 
         String status = isError && "internal_error".equals(code) ? "failed" : "done";
         try {
             // The stored row keeps ref for replays; the model only ever gets resultJson.
-            ObjectNode stored = (ObjectNode) JSON.readTree(resultJson);
+            ObjectNode stored = (ObjectNode) JSON.readTree(storedResultJson);
             if (!ref.isEmpty()) stored.set("ref", JSON.valueToTree(ref));
             calls.finish(id, stored, isError, status);
         } catch (RuntimeException persistenceFailure) {
@@ -186,6 +190,14 @@ public class ToolDispatcher {
             detail.put("message", error.message());
             envelope.put("error", detail);
         }
+        return JSON.writeValueAsString(envelope);
+    }
+
+    private static String successEnvelopeJson(ToolResult.Ok success) {
+        Map<String, Object> envelope = new LinkedHashMap<>();
+        envelope.put("ok", true);
+        envelope.put("data", success.stored());
+        envelope.put("summary", success.summary());
         return JSON.writeValueAsString(envelope);
     }
 

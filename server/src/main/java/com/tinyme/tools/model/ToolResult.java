@@ -5,9 +5,13 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 
 public sealed interface ToolResult permits ToolResult.Ok, ToolResult.Err {
-    record Ok(Object data, String summary, Map<String, Object> ref) implements ToolResult {
+    record Ok(Object data, String summary, Map<String, Object> ref, Object stored) implements ToolResult {
         public Ok(Object data, String summary) {
-            this(data, summary, Map.of());
+            this(data, summary, Map.of(), null);
+        }
+
+        public Ok(Object data, String summary, Map<String, Object> ref) {
+            this(data, summary, ref, null);
         }
 
         public Ok {

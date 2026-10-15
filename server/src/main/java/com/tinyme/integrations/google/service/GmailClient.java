@@ -14,6 +14,7 @@ import java.util.Map;
 public class GmailClient {
     private static final String BASE = "https://gmail.googleapis.com/gmail/v1";
     private static final String READ_SCOPE = "https://www.googleapis.com/auth/gmail.readonly";
+    private static final java.util.List<String> SEARCH_METADATA_HEADERS = java.util.List.of("From", "To", "Subject", "Date");
     private final GoogleApiHttpClient http;
 
     public GmailClient(GoogleApiHttpClient http) { this.http = http; }
@@ -30,14 +31,19 @@ public class GmailClient {
 
     public JsonNode getMessage(String id, GoogleMessageFormat format) throws IOException, InterruptedException {
         http.requireScope(READ_SCOPE);
-        return http.get(GoogleApiHttpClient.uri(BASE, "/users/me/messages/" + segment(id),
-                Map.of("format", format.apiValue())));
+        return http.get(messageUri("/users/me/messages/" + segment(id), format));
     }
 
     public JsonNode getThread(String id, GoogleMessageFormat format) throws IOException, InterruptedException {
         http.requireScope(READ_SCOPE);
-        return http.get(GoogleApiHttpClient.uri(BASE, "/users/me/threads/" + segment(id),
-                Map.of("format", format.apiValue())));
+        return http.get(messageUri("/users/me/threads/" + segment(id), format));
+    }
+
+    private static java.net.URI messageUri(String path, GoogleMessageFormat format) {
+        Map<String, String> params = Map.of("format", format.apiValue());
+        Map<String, java.util.List<String>> headers = format == GoogleMessageFormat.METADATA
+                ? Map.of("metadataHeaders", SEARCH_METADATA_HEADERS) : Map.of();
+        return GoogleApiHttpClient.uri(BASE, path, params, headers);
     }
 
     private static String segment(String value) {

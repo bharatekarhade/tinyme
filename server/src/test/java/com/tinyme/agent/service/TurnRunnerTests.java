@@ -235,6 +235,37 @@ class TurnRunnerTests {
     }
 
     @Test
+    void routesRecordedGmailThreadByProvisionedAgentId() throws Exception {
+        JsonNode recording;
+        try (var resource = getClass().getResourceAsStream("/streams/gmail-subagent-search.json")) {
+            recording = JSON.readTree(resource);
+        }
+        var frames = new ArrayList<String>();
+        for (JsonNode event : recording) frames.add(JSON.writeValueAsString(event));
+        var fake = new FakeManagedAgents(frames);
+        when(prefix.build(eq(ZONE), any(Instant.class))).thenReturn("[context]");
+        when(dispatcher.dispatch(eq("gmail-search"), eq("gmail_search"), any(), any()))
+                .thenReturn(new DispatchOutcome("{\"ok\":true,\"summary\":\"1 email found\"}", false));
+        when(messages.insert(eq(session.sessionRowId()), eq(MessageRole.ASSISTANT), anyString(), anyList()))
+                .thenReturn(UUID.randomUUID());
+        var runner = new TurnRunner(prefix, fake, dispatcher, sessionTurnLock, messages,
+                Clock.fixed(NOW, ZoneOffset.UTC), Duration.ofSeconds(5), Thread::sleep,
+                "tinyme-chat", "agent_gmail_provisioned");
+
+        TurnResult result = runner.run(request("what did they email me about?"), ignored -> { });
+
+        assertThat(result.replyText()).isEqualTo("Here are the recent emails.");
+        var context = org.mockito.ArgumentCaptor.forClass(ToolContext.class);
+        verify(dispatcher).dispatch(eq("gmail-search"), eq("gmail_search"), any(), context.capture());
+        assertThat(context.getValue().agent()).isEqualTo("tinyme-gmail");
+        assertThat(context.getValue().threadId()).isEqualTo("sthr_gmail_test");
+        assertThat(fake.sentEvents()).anySatisfy(batch -> assertThat(batch).anySatisfy(event -> {
+            assertThat(event.get("type")).isEqualTo("user.custom_tool_result");
+            assertThat(event.get("session_thread_id")).isEqualTo("sthr_gmail_test");
+        }));
+    }
+
+    @Test
     void consumesTheRecordedCoffeeSession() throws Exception {
         JsonNode recording;
         try (var resource = getClass().getResourceAsStream("/streams/had-a-coffee.json")) {

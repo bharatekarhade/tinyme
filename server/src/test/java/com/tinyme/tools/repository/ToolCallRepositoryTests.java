@@ -77,6 +77,31 @@ class ToolCallRepositoryTests {
         }
     }
 
+    @Test
+    void gmailReadStoredResultContainsIdsAndSummaryButNoMessageBody() {
+        UUID sessionId = jdbc.queryForObject("""
+                INSERT INTO agent_sessions (anthropic_session_id, agent, agent_version, kind)
+                VALUES (?, 'chat', 1, 'job') RETURNING id
+                """, UUID.class, "gmail-test-session-" + UUID.randomUUID());
+        String eventId = "gmail-read-" + UUID.randomUUID();
+        var json = JsonMapper.builder().build();
+        try {
+            UUID callId = toolCalls.insertRunning(sessionId, eventId, "gmail_read",
+                    json.readTree("{\"message_id\":\"msg-test\"}"), "tinyme-gmail", "thread-test");
+            var redacted = json.readTree("""
+                    {"ok":true,"data":{"message_id":"msg-test","thread_id":"thread-test",
+                     "attachment_count":0},"summary":"Read email: Dinner plans"}
+                    """);
+            toolCalls.finish(callId, redacted, false, "done");
+
+            StoredCall stored = toolCalls.findByEventId(eventId).orElseThrow();
+            assertThat(stored.result().toString()).contains("msg-test", "attachment_count", "Dinner plans")
+                    .doesNotContain("body", "private email text");
+        } finally {
+            jdbc.update("DELETE FROM agent_sessions WHERE id = ?", sessionId);
+        }
+    }
+
     @TestConfiguration(proxyBeanMethods = false)
     static class DatabaseConfiguration {
         @Bean

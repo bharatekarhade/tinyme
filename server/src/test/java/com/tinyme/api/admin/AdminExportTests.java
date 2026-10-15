@@ -131,7 +131,7 @@ class AdminExportTests {
 
         JsonNode manifest = JSON.readTree(files.get(root + "manifest.json"));
         assertThat(manifest.path("format").asString()).isEqualTo("tinyme-export");
-        assertThat(manifest.path("schema_version").asString()).isEqualTo("1.13");
+        assertThat(manifest.path("schema_version").asString()).isEqualTo("1.14");
         assertThat(manifest.path("user_zone").asString()).isEqualTo("Asia/Tokyo");
         assertThat(manifest.path("counts").path("entries").asLong()).isEqualTo(2);
         assertThat(manifest.path("counts").path("people").asLong()).isEqualTo(1);

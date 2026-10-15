@@ -67,6 +67,10 @@ tinyme:
         - places_near
         - places_update
         - places_remove
+      tinyme-gmail:
+        - gmail_search
+        - gmail_read
+        - gmail_thread
     setup-enabled: ${TINYME_AGENT_SETUP_ENABLED:true}
     api-key: ${ANTHROPIC_API_KEY:}
     environment-id: ${ANTHROPIC_ENVIRONMENT_ID:}

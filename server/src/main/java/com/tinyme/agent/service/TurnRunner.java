@@ -8,6 +8,7 @@ import com.tinyme.agent.model.TurnEvent;
 import com.tinyme.agent.model.TurnRequest;
 import com.tinyme.agent.model.TurnResult;
 import com.tinyme.agent.repository.MessageRepository;
+import com.tinyme.agent.repository.AgentSettingsRepository;
 import com.tinyme.tools.model.DispatchOutcome;
 import com.tinyme.tools.model.ToolContext;
 import com.tinyme.tools.service.ToolDispatcher;
@@ -28,6 +29,7 @@ import java.util.Map;
 import java.util.ArrayList;
 import java.util.Objects;
 import java.util.UUID;
+import java.util.function.Supplier;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
 
@@ -49,14 +51,18 @@ public class TurnRunner {
     private final Duration timeout;
     private final ResilientEventSource.Sleeper reconnectSleeper;
     private final String coordinatorAgent;
+    private final Supplier<String> coordinatorAgentId;
+    private final Supplier<String> gmailAgentId;
 
     @Autowired
     TurnRunner(ContextPrefixBuilder contextPrefix, ManagedAgents api,
                ToolDispatcher dispatcher, SessionTurnLock sessionTurnLock, MessageRepository messages, Clock clock,
                @Value("${tinyme.agent.turn-timeout:120s}") Duration timeout,
-               @Value("${tinyme.agent.name:tinyme-chat}") String coordinatorAgent) {
+               @Value("${tinyme.agent.name:tinyme-chat}") String coordinatorAgent,
+               AgentSettingsRepository settings) {
         this(contextPrefix, api, dispatcher, sessionTurnLock, messages, clock, timeout, Thread::sleep,
-                coordinatorAgent);
+                coordinatorAgent, () -> settings.chatAgentId().orElse(null),
+                () -> settings.gmailAgentId().orElse(null));
     }
 
     TurnRunner(ContextPrefixBuilder contextPrefix, ManagedAgents api,
@@ -75,6 +81,22 @@ public class TurnRunner {
     TurnRunner(ContextPrefixBuilder contextPrefix, ManagedAgents api,
                ToolDispatcher dispatcher, SessionTurnLock sessionTurnLock, MessageRepository messages, Clock clock,
                Duration timeout, ResilientEventSource.Sleeper reconnectSleeper, String coordinatorAgent) {
+        this(contextPrefix, api, dispatcher, sessionTurnLock, messages, clock, timeout, reconnectSleeper,
+                coordinatorAgent, () -> null, () -> null);
+    }
+
+    TurnRunner(ContextPrefixBuilder contextPrefix, ManagedAgents api,
+               ToolDispatcher dispatcher, SessionTurnLock sessionTurnLock, MessageRepository messages, Clock clock,
+               Duration timeout, ResilientEventSource.Sleeper reconnectSleeper, String coordinatorAgent,
+               String gmailAgentId) {
+        this(contextPrefix, api, dispatcher, sessionTurnLock, messages, clock, timeout, reconnectSleeper,
+                coordinatorAgent, () -> null, () -> gmailAgentId);
+    }
+
+    private TurnRunner(ContextPrefixBuilder contextPrefix, ManagedAgents api,
+               ToolDispatcher dispatcher, SessionTurnLock sessionTurnLock, MessageRepository messages, Clock clock,
+               Duration timeout, ResilientEventSource.Sleeper reconnectSleeper, String coordinatorAgent,
+               Supplier<String> coordinatorAgentId, Supplier<String> gmailAgentId) {
         this.contextPrefix = contextPrefix;
         this.api = api;
         this.dispatcher = dispatcher;
@@ -83,6 +105,8 @@ public class TurnRunner {
         this.clock = clock;
         this.reconnectSleeper = Objects.requireNonNull(reconnectSleeper, "reconnectSleeper");
         this.coordinatorAgent = Objects.requireNonNull(coordinatorAgent, "coordinatorAgent");
+        this.coordinatorAgentId = Objects.requireNonNull(coordinatorAgentId, "coordinatorAgentId");
+        this.gmailAgentId = Objects.requireNonNull(gmailAgentId, "gmailAgentId");
         if (timeout.isZero() || timeout.isNegative()) {
             throw new IllegalArgumentException("Turn timeout must be positive");
         }
@@ -182,7 +206,7 @@ public class TurnRunner {
         var context = new ToolContext(session.sessionRowId(), null, zone,
                 LocalDate.ofInstant(referenceTime, zone), referenceTime, request.attachedPhotoId(), request.location(),
                 listener);
-        var threads = new ThreadRegistry(coordinatorAgent);
+        var threads = new ThreadRegistry(coordinatorAgent, coordinatorAgentId.get(), gmailAgentId.get());
         String prefix = request.location() == null
                 ? contextPrefix.build(zone, referenceTime)
                 : contextPrefix.build(zone, referenceTime, request.location());
@@ -209,8 +233,8 @@ public class TurnRunner {
                     state.checkCancelled();
                     if (event == null) throw new IOException("Managed Agents stream ended before end_turn");
                     String type = requiredText(event, "type");
+                    threads.observe(event);
                     if (type.startsWith("session.thread_")) {
-                        threads.observe(event);
                         continue;
                     }
                     // Ignore built-in tool activity, usage, thread status and any preview events.

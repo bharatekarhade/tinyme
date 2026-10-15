@@ -35,6 +35,19 @@ class GoogleApiClientsTests {
     }
 
     @Test
+    void gmailMetadataRequestsOnlyTheHeadersUsedBySearch() throws Exception {
+        GoogleApiHttpClient http = mock(GoogleApiHttpClient.class);
+        GmailClient gmail = new GmailClient(http);
+
+        gmail.getMessage("m1", GoogleMessageFormat.METADATA);
+
+        URI expected = GoogleApiHttpClient.uri("https://gmail.googleapis.com/gmail/v1", "/users/me/messages/m1",
+                Map.of("format", "metadata"),
+                Map.of("metadataHeaders", List.of("From", "To", "Subject", "Date")));
+        org.mockito.Mockito.verify(http).get(expected);
+    }
+
+    @Test
     void calendarEventsRequestUsesExpandedRangeAndPageToken() throws Exception {
         GoogleApiHttpClient http = mock(GoogleApiHttpClient.class);
         CalendarClient calendar = new CalendarClient(http);

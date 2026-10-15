@@ -45,6 +45,8 @@ final class AgentProvisioner {
         if (!connection.getAutoCommit()) {
             throw new IllegalStateException("Provisioning requires an autocommit connection");
         }
+        boolean googleIsConnected = googleConnected(connection);
+        if (googleIsConnected) setGoogleAgentsStatus(connection, "pending");
         try (var statement = connection.prepareStatement("SELECT pg_try_advisory_lock(?)")) {
             statement.setLong(1, LOCK_ID);
             try (var result = statement.executeQuery()) {
@@ -64,6 +66,14 @@ final class AgentProvisioner {
             var ids = new LinkedHashMap<String, String>();
             ids.put("ANTHROPIC_ENVIRONMENT_ID", ensure(connection, "env.default", "ANTHROPIC_ENVIRONMENT_ID",
                     "/v1/environments", environment, false, configured));
+            if (googleIsConnected) {
+                Map<?, ?> gmail = yaml("seed/agents/gmail.yaml");
+                ids.put("ANTHROPIC_GMAIL_AGENT_ID", ensure(connection, "agent.gmail", "ANTHROPIC_GMAIL_AGENT_ID",
+                        "/v1/agents", gmail, false, configured));
+                Map<?, ?> googlePrompt = yaml("seed/agents/chat-google.yaml");
+                agent = coordinatorWithGmail(agent, ids.get("ANTHROPIC_GMAIL_AGENT_ID"),
+                        requiredString(googlePrompt, "system_append", "Google chat prompt"));
+            }
             ids.put("ANTHROPIC_AGENT_ID", ensure(connection, "agent.chat", "ANTHROPIC_AGENT_ID",
                     "/v1/agents", agent, false, configured));
             String store = ensure(connection, "memory.main", "ANTHROPIC_MEMORY_STORE_ID", "/v1/memory_stores",
@@ -78,12 +88,54 @@ final class AgentProvisioner {
                     // Never overwrite existing user memory on startup.
                 }
             }
+            if (googleIsConnected) setGoogleAgentsStatus(connection, "ready");
             return ids;
         } finally {
             try (var statement = connection.prepareStatement("SELECT pg_advisory_unlock(?)")) {
                 statement.setLong(1, LOCK_ID);
                 statement.execute();
             }
+        }
+    }
+
+    private static boolean googleConnected(Connection connection) throws SQLException {
+        try (var statement = connection.prepareStatement(
+                "SELECT EXISTS (SELECT 1 FROM google_account WHERE id = 1 AND status = 'connected')")) {
+            try (var result = statement.executeQuery()) {
+                result.next();
+                return result.getBoolean(1);
+            }
+        }
+    }
+
+    private static Map<?, ?> coordinatorWithGmail(Map<?, ?> seed, String gmailId, String googlePrompt) {
+        var coordinator = new LinkedHashMap<Object, Object>(seed);
+        Object system = coordinator.get("system");
+        if (!(system instanceof String prompt)) throw new IllegalStateException("Chat seed is missing its system prompt");
+        coordinator.put("system", prompt + "\n\n" + googlePrompt.strip());
+        coordinator.put("multiagent", Map.of(
+                "type", "multiagent_20261001",
+                "subagents", Map.of("type", "enabled", "predefined_agents",
+                        java.util.List.of(Map.of("type", "agent", "id", gmailId)),
+                        "inline_agents", Map.of("type", "disabled")),
+                "workflows", Map.of("type", "disabled")));
+        return coordinator;
+    }
+
+    private static String requiredString(Map<?, ?> map, String key, String description) {
+        Object value = map.get(key);
+        if (!(value instanceof String text) || text.isBlank()) {
+            throw new IllegalStateException(description + " is missing " + key);
+        }
+        return text;
+    }
+
+    private static void setGoogleAgentsStatus(Connection connection, String status) throws SQLException {
+        try (var statement = connection.prepareStatement(
+                "INSERT INTO settings (key, value) VALUES ('google.agents', ?::jsonb) "
+                        + "ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value")) {
+            statement.setString(1, "{\"status\":\"" + status + "\"}");
+            statement.executeUpdate();
         }
     }
 
@@ -131,13 +183,13 @@ final class AgentProvisioner {
             id = resourceId(remote);
         } else if (!memory && (saved == null || !hash.equals(saved.get("seedHash")))) {
             var update = new LinkedHashMap<Object, Object>(payload);
-            if (setting.equals("agent.chat")) update.put("version", agentVersion(remote));
+            if (setting.startsWith("agent.")) update.put("version", agentVersion(remote));
             remote = api.request("POST", endpoint + "/" + id, update, false);
         }
         var record = new LinkedHashMap<String, Object>();
         record.put("id", id);
         if (!memory) record.put("seedHash", hash);
-        if (setting.equals("agent.chat")) record.put("version", agentVersion(remote));
+        if (setting.startsWith("agent.")) record.put("version", agentVersion(remote));
         try (var statement = connection.prepareStatement(
                 "INSERT INTO settings (key, value) VALUES (?, ?::jsonb) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value")) {
             statement.setString(1, setting);

@@ -1,9 +1,12 @@
 package com.tinyme.integrations.google.service;
 
 import com.tinyme.integrations.google.config.GoogleOAuthProperties;
+import com.tinyme.agent.bootstrap.GoogleAgentProvisioner;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
+import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.annotation.Autowired;
 
 import java.io.IOException;
 import java.net.URI;
@@ -36,16 +39,20 @@ public class GoogleOAuthService implements GoogleConnection {
     private final GoogleOAuthProvider provider;
     private final GoogleTokenCipher cipher;
     private final Clock clock;
+    private final ObjectProvider<GoogleAgentProvisioner> agentProvisioner;
 
+    @Autowired
     public GoogleOAuthService(GoogleOAuthProperties properties, GoogleOAuthStateRepository states,
                               GoogleAccountRepository accounts, GoogleOAuthProvider provider,
-                              GoogleTokenCipher cipher, Clock clock) {
+                              GoogleTokenCipher cipher, Clock clock,
+                              ObjectProvider<GoogleAgentProvisioner> agentProvisioner) {
         this.properties = properties;
         this.states = states;
         this.accounts = accounts;
         this.provider = provider;
         this.cipher = cipher;
         this.clock = clock;
+        this.agentProvisioner = agentProvisioner;
     }
 
     public String start() {
@@ -82,11 +89,26 @@ public class GoogleOAuthService implements GoogleConnection {
         byte[] encrypted = cipher.encrypt(tokens.refreshToken().getBytes(StandardCharsets.UTF_8));
         accounts.save(identity.email(), tokens.scopes(), encrypted, clock.instant());
         revokePreviousAccountIfDifferent(previous, identity.email());
+        try {
+            GoogleAgentProvisioner provisioner = agentProvisioner.getIfAvailable();
+            if (provisioner != null) provisioner.sync();
+        } catch (InterruptedException failure) {
+            Thread.currentThread().interrupt();
+        } catch (Exception failure) {
+            log.warn("Google connected; Gmail agent publication is pending and will be retried ({})",
+                    failure.getClass().getSimpleName());
+        }
     }
 
     public GoogleConnectionStatus status() {
-        return accounts.find().map(account -> new GoogleConnectionStatus(account.status(), account.email(), account.scopes()))
-                .orElseGet(GoogleConnectionStatus::disconnected);
+        return accounts.find().map(account -> {
+            String agentStatus = "ready";
+            if ("connected".equals(account.status())) {
+                GoogleAgentProvisioner provisioner = agentProvisioner.getIfAvailable();
+                agentStatus = provisioner == null ? "pending" : provisioner.retryIfPending();
+            }
+            return new GoogleConnectionStatus(account.status(), account.email(), account.scopes(), agentStatus);
+        }).orElseGet(GoogleConnectionStatus::disconnected);
     }
 
     public void discardState(String state) {
@@ -108,6 +130,18 @@ public class GoogleOAuthService implements GoogleConnection {
                     failure.getClass().getSimpleName());
         } finally {
             accounts.delete();
+        }
+        GoogleAgentProvisioner provisioner = agentProvisioner.getIfAvailable();
+        if (provisioner != null) {
+            try {
+                provisioner.sync();
+            } catch (InterruptedException failure) {
+                Thread.currentThread().interrupt();
+                log.warn("Could not publish chat without the Gmail specialist after disconnect");
+            } catch (Exception failure) {
+                log.warn("Could not publish chat without the Gmail specialist after disconnect ({})",
+                        failure.getClass().getSimpleName());
+            }
         }
     }
 

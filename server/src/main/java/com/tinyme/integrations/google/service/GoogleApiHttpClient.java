@@ -152,10 +152,17 @@ public class GoogleApiHttpClient {
     }
 
     public static URI uri(String base, String path, Map<String, String> query) {
+        return uri(base, path, query, Map.of());
+    }
+
+    public static URI uri(String base, String path, Map<String, String> query,
+                          Map<String, ? extends java.util.List<String>> repeatedQuery) {
         StringBuilder value = new StringBuilder(base).append(path);
-        if (query != null && !query.isEmpty()) {
+        if ((query != null && !query.isEmpty()) || (repeatedQuery != null && !repeatedQuery.isEmpty())) {
             StringJoiner parameters = new StringJoiner("&");
-            query.forEach((key, item) -> parameters.add(encode(key) + "=" + encode(item)));
+            if (query != null) query.forEach((key, item) -> parameters.add(encode(key) + "=" + encode(item)));
+            if (repeatedQuery != null) repeatedQuery.forEach((key, items) -> items.forEach(
+                    item -> parameters.add(encode(key) + "=" + encode(item))));
             value.append('?').append(parameters);
         }
         return URI.create(value.toString());

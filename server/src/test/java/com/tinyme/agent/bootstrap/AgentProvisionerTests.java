@@ -31,7 +31,8 @@ class AgentProvisionerTests {
 
     @BeforeEach
     void clearSettings() {
-        jdbc.update("DELETE FROM settings WHERE key IN ('env.default', 'agent.chat', 'memory.main')");
+        jdbc.update("DELETE FROM settings WHERE key IN ('env.default', 'agent.chat', 'agent.gmail', 'memory.main', 'google.agents')");
+        jdbc.update("DELETE FROM google_account");
     }
 
     @Test
@@ -67,6 +68,54 @@ class AgentProvisionerTests {
     }
 
     @Test
+    void connectedGoogleCreatesGmailAgentAndPublishesCoordinatorHandoffThenRemovesItOnDisconnect() throws Exception {
+        jdbc.update("""
+                INSERT INTO google_account (id, email, scopes, refresh_token_enc, status, connected_at)
+                VALUES (1, 'owner@example.test', ARRAY['https://www.googleapis.com/auth/gmail.readonly'],
+                        decode('01', 'hex'), 'connected', now())
+                """);
+        var api = mock(ManagedAgentApi.class);
+        when(api.request(anyString(), anyString(), any(), anyBoolean())).thenAnswer(call -> {
+            String method = call.getArgument(0);
+            String path = call.getArgument(1);
+            Object payloadValue = call.getArgument(2);
+            if (path.endsWith("/memories")) throw new ManagedAgentApi.ApiException(409, "memory_path_conflict_error");
+            if (method.equals("POST") && path.equals("/v1/agents")) {
+                Map<?, ?> payload = (Map<?, ?>) payloadValue;
+                return Map.of("id", "tinyme-gmail".equals(payload.get("name")) ? "agent_gmail" : "agent_chat", "version", 1);
+            }
+            if (method.equals("POST")) {
+                return Map.of("id", switch (path) {
+                    case "/v1/environments" -> "env_saved";
+                    case "/v1/memory_stores" -> "memstore_saved";
+                    default -> path.substring(path.lastIndexOf('/') + 1);
+                }, "version", 1);
+            }
+            return Map.of("id", path.substring(path.lastIndexOf('/') + 1), "version", 1);
+        });
+
+        run(api, false, Map.of());
+        // Read the persisted ID and verify the actual coordinator update payload.
+        assertThat(jdbc.queryForObject("SELECT value ->> 'id' FROM settings WHERE key='agent.gmail'", String.class))
+                .isEqualTo("agent_gmail");
+        assertThat(jdbc.queryForObject("SELECT value ->> 'status' FROM settings WHERE key='google.agents'", String.class))
+                .isEqualTo("ready");
+        org.mockito.ArgumentCaptor<Map> chatPayload = org.mockito.ArgumentCaptor.forClass(Map.class);
+        verify(api, times(2)).request(eq("POST"), eq("/v1/agents"), chatPayload.capture(), eq(false));
+        Map<?, ?> postedChat = chatPayload.getAllValues().stream()
+                .filter(payload -> "tinyme-chat".equals(payload.get("name"))).findFirst().orElseThrow();
+        assertThat(postedChat.get("system").toString()).contains("Google Gmail");
+        assertThat(postedChat.get("multiagent").toString()).contains("agent_gmail");
+
+        jdbc.update("DELETE FROM google_account");
+        clearInvocations(api);
+        run(api, false, Map.of());
+        org.mockito.ArgumentCaptor<Map> disconnectedPayload = org.mockito.ArgumentCaptor.forClass(Map.class);
+        verify(api).request(eq("POST"), eq("/v1/agents/agent_chat"), disconnectedPayload.capture(), eq(false));
+        assertThat(disconnectedPayload.getValue()).doesNotContainKey("multiagent");
+    }
+
+    @Test
     void partialFailureKeepsCreatedIdForRecovery() throws Exception {
         var api = mock(ManagedAgentApi.class);
         when(api.request(eq("POST"), eq("/v1/environments"), any(), eq(false)))
@@ -86,6 +135,28 @@ class AgentProvisionerTests {
             assertThat(result.getBoolean(1)).isTrue();
             statement.execute("SELECT pg_advisory_unlock(724198032)");
         }
+    }
+
+    @Test
+    void connectedGoogleLeavesAgentStatusPendingWhenProvisioningFails() throws Exception {
+        jdbc.update("""
+                INSERT INTO google_account (id, email, scopes, refresh_token_enc, status, connected_at)
+                VALUES (1, 'owner@example.test', ARRAY['https://www.googleapis.com/auth/gmail.readonly'],
+                        decode('01', 'hex'), 'connected', now())
+                """);
+        var api = mock(ManagedAgentApi.class);
+        when(api.request(eq("POST"), eq("/v1/environments"), any(), eq(false)))
+                .thenAnswer(ignored -> Map.of("id", "env_saved"));
+        when(api.request(eq("POST"), eq("/v1/agents"), any(), eq(false)))
+                .thenThrow(new IOException("simulated Google subagent provisioning failure"));
+
+        try (var connection = datasource.getConnection()) {
+            assertThatThrownBy(() -> new AgentProvisioner(api).provision(connection, Map.of()))
+                    .isInstanceOf(IOException.class);
+        }
+
+        assertThat(jdbc.queryForObject("SELECT value ->> 'status' FROM settings WHERE key='google.agents'", String.class))
+                .isEqualTo("pending");
     }
 
     private ManagedAgentApi api() throws Exception {
@@ -190,7 +261,7 @@ class AgentProvisionerTests {
     void legacyStringIdsAreAdoptedWithoutDuplicateCreation() throws Exception {
         var api = api();
         run(api, false, Map.of());
-        jdbc.update("UPDATE settings SET value = to_jsonb(value ->> 'id')");
+        jdbc.update("UPDATE settings SET value = to_jsonb(value ->> 'id') WHERE key IN ('env.default', 'agent.chat', 'memory.main')");
         clearInvocations(api);
         run(api, false, Map.of());
         verify(api, never()).request(eq("POST"), eq("/v1/agents"), any(), anyBoolean());

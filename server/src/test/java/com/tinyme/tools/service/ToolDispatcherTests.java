@@ -97,6 +97,87 @@ class ToolDispatcherTests {
     }
 
     @Test
+    void gmailReadKeepsTheFullResultForTheAgentButStoresOnlyRedactedMetadata() {
+        Fixture fixture = new Fixture();
+        fixture.startNewCall("gmail_read");
+        when(fixture.handler.name()).thenReturn("gmail_read");
+        JsonNode fullInput = JSON.readTree("{\"message_id\":\"msg-7\"}");
+        when(fixture.calls.insertRunning(fixture.base.sessionRowId(), fixture.eventId,
+                "gmail_read", fullInput, "tinyme-chat", null)).thenReturn(fixture.callId);
+        var registration = new RegisteredTool(
+                new ToolSpec("gmail_read", JSON.readTree("{\"type\":\"object\"}")), fixture.handler);
+        when(fixture.registry.find("gmail_read")).thenReturn(Optional.of(registration));
+        when(fixture.validator.validate("gmail_read", fullInput)).thenReturn(List.of());
+        when(fixture.handler.handle(eq(fullInput), any(ToolContext.class))).thenReturn(new ToolResult.Ok(
+                Map.of("message_id", "msg-7", "body", "private email body"), "Read email: Dinner",
+                Map.of(), Map.of("message_id", "msg-7", "attachment_count", 0)));
+
+        DispatchOutcome outcome = fixture.dispatcher().dispatch(fixture.eventId, "gmail_read", fullInput, fixture.base);
+
+        assertThat(outcome.resultJson()).contains("private email body");
+        var stored = org.mockito.ArgumentCaptor.forClass(JsonNode.class);
+        verify(fixture.calls).finish(eq(fixture.callId), stored.capture(), eq(false), eq("done"));
+        JsonNode storedResult = stored.getValue();
+        assertThat(storedResult.toString()).contains("msg-7", "attachment_count", "Read email: Dinner")
+                .doesNotContain("body", "private email body");
+    }
+
+    @Test
+    void coordinatorGmailCallIsRejectedAndStillLogged() {
+        Fixture fixture = new Fixture();
+        fixture.startNewCall("gmail_search");
+        when(fixture.handler.name()).thenReturn("gmail_search");
+        JsonNode input = JSON.readTree("{\"query\":\"from:aiko\"}");
+        when(fixture.calls.insertRunning(fixture.base.sessionRowId(), fixture.eventId,
+                "gmail_search", input, "tinyme-chat", null)).thenReturn(fixture.callId);
+        var allowLists = new com.tinyme.agent.config.AgentToolAllowLists();
+        allowLists.setToolAllowLists(Map.of("tinyme-chat", List.of("entries_add"),
+                "tinyme-gmail", List.of("gmail_search")));
+        var dispatcher = new ToolDispatcher(fixture.registry, fixture.validator, fixture.calls, allowLists);
+        var registration = new RegisteredTool(
+                new ToolSpec("gmail_search", JSON.readTree("{\"type\":\"object\"}")), fixture.handler);
+        when(fixture.registry.find("gmail_search")).thenReturn(Optional.of(registration));
+
+        DispatchOutcome outcome = dispatcher.dispatch(fixture.eventId, "gmail_search", input, fixture.base);
+
+        assertError(outcome, "tool_not_allowed");
+        verify(fixture.calls).insertRunning(fixture.base.sessionRowId(), fixture.eventId,
+                "gmail_search", input, "tinyme-chat", null);
+        verify(fixture.calls).finish(eq(fixture.callId), any(JsonNode.class), eq(true), eq("done"));
+        verifyNoInteractions(fixture.validator);
+        verify(fixture.handler, never()).handle(any(), any());
+    }
+
+    @Test
+    void gmailSubagentCanCallGmailSearchAndCallIsLoggedWithItsAgentName() {
+        Fixture fixture = new Fixture();
+        fixture.startNewCall("gmail_search");
+        when(fixture.handler.name()).thenReturn("gmail_search");
+        JsonNode input = JSON.readTree("{\"query\":\"newer_than:1d\"}");
+        var context = fixture.base.withAgent("tinyme-gmail", "thread-gmail");
+        when(fixture.calls.insertRunning(fixture.base.sessionRowId(), fixture.eventId,
+                "gmail_search", input, "tinyme-gmail", "thread-gmail")).thenReturn(fixture.callId);
+        var allowLists = new com.tinyme.agent.config.AgentToolAllowLists();
+        allowLists.setToolAllowLists(Map.of("tinyme-chat", List.of("entries_add"),
+                "tinyme-gmail", List.of("gmail_search")));
+        var dispatcher = new ToolDispatcher(fixture.registry, fixture.validator, fixture.calls, allowLists);
+        var registration = new RegisteredTool(
+                new ToolSpec("gmail_search", JSON.readTree("{\"type\":\"object\"}")), fixture.handler);
+        when(fixture.registry.find("gmail_search")).thenReturn(Optional.of(registration));
+        when(fixture.validator.validate("gmail_search", input)).thenReturn(List.of());
+        when(fixture.handler.handle(eq(input), any(ToolContext.class)))
+                .thenReturn(new ToolResult.Ok(Map.of("count", 0), "0 emails found"));
+
+        DispatchOutcome outcome = dispatcher.dispatch(fixture.eventId, "gmail_search", input, context);
+
+        assertThat(outcome.isError()).isFalse();
+        verify(fixture.calls).insertRunning(fixture.base.sessionRowId(), fixture.eventId,
+                "gmail_search", input, "tinyme-gmail", "thread-gmail");
+        verify(fixture.calls).finish(eq(fixture.callId), any(JsonNode.class), eq(false), eq("done"));
+        verify(fixture.handler).handle(eq(input), any(ToolContext.class));
+    }
+
+    @Test
     void noLocationNearbyErrorCarriesPromptMarkerAndPersistsItForReplay() {
         Fixture fixture = new Fixture();
         fixture.startNewCall("places_near");

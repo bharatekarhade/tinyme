@@ -101,7 +101,8 @@ class GoogleAuthApiTests {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("connected"))
                 .andExpect(jsonPath("$.email").value("owner@example.test"))
-                .andExpect(jsonPath("$.scopes").isArray());
+                .andExpect(jsonPath("$.scopes").isArray())
+                .andExpect(jsonPath("$.agents").value("pending"));
 
         mvc.perform(get("/integrations/google/callback").param("code", "auth-code").param("state", state))
                 .andExpect(status().isFound())
