@@ -19,6 +19,7 @@ __pycache__/
 /server/src/main/resources/seed/.gitkeep
 /server/.gitkeep
 /blobs
+deploy/oracle
 # Agent skills (installed locally, not part of the project)
 /.agents/
 /.claude/

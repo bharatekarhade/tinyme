@@ -1,0 +1,18 @@
+# Server overrides, used with docker-compose.yml:
+#   docker compose --env-file .env -f deploy/docker-compose.yml -f deploy/docker-compose.server.yml up -d
+# The API listens only on localhost; Tailscale serves it over HTTPS to your own devices.
+services:
+  postgres:
+    logging: &logs
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
+
+  api:
+    ports: !override
+      - "127.0.0.1:8080:8080"
+    environment:
+      TINYME_BLOBS_PATH: /app/blobs
+      JAVA_TOOL_OPTIONS: -XX:MaxRAMPercentage=40
+    volumes: !override
+      - blobs:/app/blobs
+    logging: *logs
