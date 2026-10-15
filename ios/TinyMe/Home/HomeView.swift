@@ -203,7 +203,8 @@ struct HomeView: View {
                 .presentationDragIndicator(.visible)
         }
         .sheet(isPresented: $showsPlaces) {
-            PlacesView(api: api, currentCoordinate: { await environment.session.placeCoordinateIfAvailable() })
+            PlacesView(api: api, nearbyAlerts: environment.nearbyPlaceAlerts,
+                       currentCoordinate: { await environment.session.placeCoordinateIfAvailable() })
                 .presentationDetents([.large])
                 .presentationDragIndicator(.visible)
         }

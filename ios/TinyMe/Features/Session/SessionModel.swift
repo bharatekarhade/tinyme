@@ -48,8 +48,15 @@ final class SessionModel {
         await locationProvider.currentLocation(requestPermission: false)?.coordinate
     }
 
+    /// Readies a location for chat, so sending a message never waits on GPS. No prompt.
+    func warmUpLocation() {
+        locationProvider.warmUp()
+    }
+
     func requestLocationPermission() async -> Bool {
-        await locationProvider.requestAuthorization()
+        let granted = await locationProvider.requestAuthorization()
+        if granted { locationProvider.warmUp() }
+        return granted
     }
 
     func signIn(server: String, email: String, password: String) async {

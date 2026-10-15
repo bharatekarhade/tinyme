@@ -28,6 +28,11 @@ public class PlaceRepository {
         return places.save(Objects.requireNonNull(place, "place"));
     }
 
+    @Transactional
+    public PlaceEntity saveAndFlush(PlaceEntity place) {
+        return places.saveAndFlush(Objects.requireNonNull(place, "place"));
+    }
+
     @Transactional(readOnly = true)
     public Optional<PlaceEntity> findLive(UUID id) {
         return places.findByIdAndDeletedAtIsNull(Objects.requireNonNull(id, "id"));

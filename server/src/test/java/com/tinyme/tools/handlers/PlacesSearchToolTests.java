@@ -51,6 +51,23 @@ class PlacesSearchToolTests {
     }
 
     @Test
+    void hitsWithoutAPointAreLeftOutSincePlacesSaveWouldRefuseThem() throws Exception {
+        DeviceToolGateway gateway = mock(DeviceToolGateway.class);
+        UUID actionId = UUID.randomUUID();
+        when(gateway.callWithActionId(any(), eq("places_search"), any(), any()))
+                .thenReturn(new DeviceToolGateway.CompletedDeviceAction(actionId,
+                        DeviceToolResult.success(JSON.readTree("""
+                                [{"name":"No Point Cafe","address":"Somewhere"},
+                                 {"name":"Blue Bottle","area":"Jingumae, Shibuya","lat":35.6,"lng":139.7}]
+                                """))));
+        ToolResult.Ok ok = (ToolResult.Ok) new PlacesSearchTool(gateway)
+                .handle(JSON.readTree("{\"query\":\"cafe\",\"near\":\"Shibuya\"}"), context(false));
+
+        assertThat(ok.data().toString()).doesNotContain("No Point Cafe").contains(actionId + ":1", "Jingumae, Shibuya");
+        assertThat(ok.summary()).isEqualTo("Found 1 place");
+    }
+
+    @Test
     void deviceUnavailableIsAUsefulToolError() throws Exception {
         DeviceToolGateway gateway = mock(DeviceToolGateway.class);
         when(gateway.callWithActionId(any(), eq("places_search"), any(), any()))
@@ -59,7 +76,7 @@ class PlacesSearchToolTests {
                 JSON.readTree("{\"query\":\"Blue Bottle\",\"near\":\"Shibuya\"}"), context(false));
 
         assertThat(result).isEqualTo(new ToolResult.Err("device_unavailable",
-                "Place search needs TinyMe open on your iPhone"));
+                "Place search couldn't reach TinyMe on your iPhone. Keep TinyMe open and try again."));
     }
 
     @Test

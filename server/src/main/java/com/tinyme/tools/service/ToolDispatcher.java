@@ -14,6 +14,7 @@ import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Component;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
+import tools.jackson.databind.node.ObjectNode;
 import tools.jackson.core.type.TypeReference;
 
 import java.util.LinkedHashMap;
@@ -99,7 +100,7 @@ public class ToolDispatcher {
                 if (stored.isError()) {
                     logError(toolName, eventId, storedErrorCode(stored));
                 }
-                return new DispatchOutcome(JSON.writeValueAsString(stored.result()), stored.isError(),
+                return new DispatchOutcome(modelJson(stored.result()), stored.isError(),
                         storedRef(stored.result()));
             }
             logError(toolName, eventId, "internal_error");
@@ -124,19 +125,24 @@ public class ToolDispatcher {
         Map<String, Object> ref = isError && List.of("places_near", "places_search").contains(toolName)
                 && "no_location".equals(code)
                 ? Map.of("error_code", "no_location") : Map.of();
+        if (!isError && result instanceof ToolResult.Ok success) ref = success.ref();
         String resultJson;
         try {
-            resultJson = envelopeJson(result, ref);
+            resultJson = envelopeJson(result);
         } catch (RuntimeException serializationFailure) {
             isError = true;
             code = "internal_error";
+            ref = Map.of();
             result = new ToolResult.Err(code, "Tool result could not be serialized");
             resultJson = errorJson(code, ((ToolResult.Err) result).message());
         }
 
         String status = isError && "internal_error".equals(code) ? "failed" : "done";
         try {
-            calls.finish(id, JSON.readTree(resultJson), isError, status);
+            // The stored row keeps ref for replays; the model only ever gets resultJson.
+            ObjectNode stored = (ObjectNode) JSON.readTree(resultJson);
+            if (!ref.isEmpty()) stored.set("ref", JSON.valueToTree(ref));
+            calls.finish(id, stored, isError, status);
         } catch (RuntimeException persistenceFailure) {
             logError(toolName, eventId, "internal_error");
             throw persistenceFailure;
@@ -144,21 +150,19 @@ public class ToolDispatcher {
         if (isError) {
             logError(toolName, eventId, code);
         }
-        return new DispatchOutcome(resultJson, isError,
-                !isError && result instanceof ToolResult.Ok success ? success.ref() : ref);
+        return new DispatchOutcome(resultJson, isError, ref);
     }
 
+    /**
+     * What the model sees: ok, data and summary, or the error. Never ref: it is for the phone (chips, place
+     * cards) and may hold coordinates. Everything the model needs, ids included, is in data.
+     */
     private static String envelopeJson(ToolResult result) {
-        return envelopeJson(result, Map.of());
-    }
-
-    private static String envelopeJson(ToolResult result, Map<String, Object> ref) {
         Map<String, Object> envelope = new LinkedHashMap<>();
         if (result instanceof ToolResult.Ok success) {
             envelope.put("ok", true);
             envelope.put("data", success.data());
             envelope.put("summary", success.summary());
-            if (!success.ref().isEmpty()) envelope.put("ref", success.ref());
         } else {
             ToolResult.Err error = (ToolResult.Err) result;
             envelope.put("ok", false);
@@ -166,7 +170,6 @@ public class ToolDispatcher {
             detail.put("code", error.code());
             detail.put("message", error.message());
             envelope.put("error", detail);
-            if (!ref.isEmpty()) envelope.put("ref", ref);
         }
         return JSON.writeValueAsString(envelope);
     }
@@ -179,6 +182,14 @@ public class ToolDispatcher {
         var error = stored.result().get("error");
         var code = error == null ? null : error.get("code");
         return code != null && code.isString() ? code.stringValue() : "tool_error";
+    }
+
+    /** A stored result without its ref, as the model first got it. */
+    private static String modelJson(JsonNode stored) {
+        if (!stored.isObject() || stored.get("ref") == null) return JSON.writeValueAsString(stored);
+        ObjectNode copy = ((ObjectNode) stored).deepCopy();
+        copy.remove("ref");
+        return JSON.writeValueAsString(copy);
     }
 
     private static Map<String, Object> storedRef(JsonNode result) {

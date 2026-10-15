@@ -229,8 +229,11 @@ struct MessageBubble: View {
         return actions.compactMap(\.cardId).filter { seen.insert($0).inserted }
     }
 
+    /// Search results to pick from, except a search the reply already saved from: its chip says what was saved.
     private static func placeCandidateGroups(in actions: [ActionDTO]) -> [PlaceCandidateGroup] {
-        actions.compactMap { action in
+        actions.enumerated().compactMap { index, action in
+            let savedLater = actions[(index + 1)...].contains { $0.tool == "places_save" && !$0.isError }
+            guard !savedLater else { return nil }
             let candidates = action.placeCandidates
             guard !candidates.isEmpty else { return nil }
             return PlaceCandidateGroup(id: candidates[0].id, label: candidates[0].searchArea, candidates: candidates)

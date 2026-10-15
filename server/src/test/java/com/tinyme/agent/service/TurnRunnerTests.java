@@ -11,6 +11,13 @@ import com.tinyme.agent.model.TurnResult;
 import com.tinyme.agent.model.MessageRole;
 import com.tinyme.agent.repository.MessageRepository;
 import com.tinyme.tools.model.DispatchOutcome;
+import com.tinyme.agent.model.DeviceToolResult;
+import com.tinyme.tools.handlers.PlacesSearchTool;
+import com.tinyme.tools.model.RegisteredTool;
+import com.tinyme.tools.model.ToolSpec;
+import com.tinyme.tools.repository.ToolCallRepository;
+import com.tinyme.tools.service.ToolRegistry;
+import com.tinyme.tools.service.ToolValidator;
 import com.tinyme.tools.model.ToolContext;
 import com.tinyme.tools.service.ToolDispatcher;
 import org.junit.jupiter.api.Test;
@@ -224,6 +231,43 @@ class TurnRunnerTests {
                         "is_error", false, "ref", ref)));
         assertThat(fake.sentEvents()).anySatisfy(batch -> assertThat(batch.getFirst())
                 .doesNotContainKey("client_msg_id"));
+    }
+
+    @Test
+    void placeSearchCoordinatesReachThePhoneButNeverTheModel() throws Exception {
+        var gateway = mock(DeviceToolGateway.class);
+        when(gateway.callWithActionId(any(), eq("places_search"), any(), any()))
+                .thenReturn(new DeviceToolGateway.CompletedDeviceAction(UUID.randomUUID(),
+                        DeviceToolResult.success(JSON.readTree("""
+                                [{"name":"Blue Bottle","address":"Shibuya","area":"Jingumae, Shibuya",
+                                  "lat":35.6595,"lng":139.7005,"url":"https://example.test","distance_m":250}]
+                                """))));
+        var registry = mock(ToolRegistry.class);
+        when(registry.find("places_search")).thenReturn(java.util.Optional.of(new RegisteredTool(
+                new ToolSpec("places_search", JSON.readTree("{\"type\":\"object\"}")), new PlacesSearchTool(gateway))));
+        var validator = mock(ToolValidator.class);
+        when(validator.validate(anyString(), any())).thenReturn(List.of());
+        var calls = mock(ToolCallRepository.class);
+        when(calls.insertRunning(any(), anyString(), anyString(), any())).thenReturn(UUID.randomUUID());
+        var fake = new FakeManagedAgents(List.of("""
+                {"type":"agent.custom_tool_use","id":"search","name":"places_search","input":{"query":"Blue Bottle"}}
+                """, """
+                {"type":"agent.message","id":"reply","content":[{"type":"text","text":"Found one."}]}
+                """, END));
+        when(prefix.build(eq(ZONE), any(Instant.class))).thenReturn("[context]\ntz: Asia/Tokyo\n[/context]");
+        var runner = new TurnRunner(prefix, fake, new ToolDispatcher(registry, validator, calls), sessionTurnLock,
+                messages, Clock.fixed(NOW, ZoneOffset.UTC), Duration.ofSeconds(5));
+
+        var observed = new ArrayList<TurnEvent>();
+        runner.run(request("find Blue Bottle"), observed::add);
+
+        var toolResults = fake.sentEvents().stream().flatMap(List::stream)
+                .filter(event -> "user.custom_tool_result".equals(event.get("type"))).toList();
+        assertThat(toolResults).hasSize(1);
+        assertThat(JSON.writeValueAsString(toolResults.getFirst())).contains("Blue Bottle", "Jingumae, Shibuya")
+                .doesNotContain("lat", "35.6595", "139.7005", "example.test");
+        assertThat(observed).filteredOn(TurnEvent.ActionDone.class::isInstance).singleElement()
+                .satisfies(done -> assertThat(((TurnEvent.ActionDone) done).ref().toString()).contains("35.6595"));
     }
 
     @Test

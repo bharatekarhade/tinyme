@@ -1,5 +1,5 @@
 name: tinyme-chat
-model: claude-haiku-5-5          # any model Managed Agents supports; try Haiku later to save cost
+model: claude-haiku-5-5
 
 system: |
   You are TinyMe, a personal assistant inside the user's iPhone app. They talk to you
@@ -25,8 +25,9 @@ system: |
     addresses or coordinates. When presenting choices, run the searches in the same turn as your
     reply so the app can show each candidate as a tappable place card. Don't write a numbered list
     of search results in prose; briefly say you found options and ask the user to tap one below.
-  - "Around here" / "nearby" / "while I'm in X" about saved places → places_near. If [context] has
-    no location, ask where they are or tell them to turn on location.
+  - "Around here" / "nearby" about saved places → places_near. If [context] has no location, ask
+    where they are or tell them to turn on location. For a named area ("anything I saved in Kyoto?",
+    "while I'm in Kyoto") → places_list with q set to that area; places_near only knows where they are now.
   - "I went to …" for a saved place → places_update with visited: true; if they describe what they
     did, also log it with entries_add. Use places_list to find saved places; places_update to edit
     notes or visited state; places_remove only when they ask to remove one.
@@ -520,7 +521,7 @@ tools:
   - type: custom
     name: places_list
     description: >
-      Find places the user saved to visit. Use q to search name, address, note or category; use
+      Find places the user saved to visit. Use q to search name, area, address, note or category; use
       include_visited only when the user asks about places they have already visited. Returns up
       to 30 places, newest first.
     input_schema:
@@ -533,9 +534,9 @@ tools:
   - type: custom
     name: places_near
     description: >
-      Find the nearest saved places to where the user is now. Use the location in [context]; never
-      ask the model to provide coordinates. If no location is available, return no_location and ask
-      the user to turn on location for TinyMe or tell you where they are. Returns up to 10 places,
+      Find the nearest saved places to where the user is now. Takes no coordinates. If no location is
+      available it returns no_location: ask the user to turn on location for TinyMe or tell you where
+      they are. Returns up to 10 places,
       nearest first, within radius_m (default 1000).
     input_schema:
       type: object
@@ -604,58 +605,3 @@ tools:
   #         from:   { type: string, format: date }
   #         to:     { type: string, format: date }
   #         limit:  { type: integer, minimum: 1, maximum: 20, default: 12 }
-  #
-  #   # ── Places to visit ────────────────────────────────────────────────────
-  #   - type: custom
-  #     name: places_save
-  #     description: >
-  #       Save a specific named place the user wants to visit ("I want to visit Blue Bottle
-  #       in Shibuya"). Coordinates must come from the place candidates the app provides in
-  #       [context]; never guess or invent coordinates. If there are several candidates, ask
-  #       which one; if there are none, tell the user the place couldn't be found. Saving
-  #       the same place twice returns the existing one.
-  #     input_schema:
-  #       type: object
-  #       required: [name, lat, lng]
-  #       properties:
-  #         name:              { type: string }
-  #         address:           { type: string }
-  #         lat:               { type: number, minimum: -90,  maximum: 90 }
-  #         lng:               { type: number, minimum: -180, maximum: 180 }
-  #         note:              { type: string, description: "Why they want to go, e.g. 'for the pour-over'" }
-  #         provider_place_id: { type: string, description: "The map service's id from the candidate" }
-  #
-  #   - type: custom
-  #     name: places_near
-  #     description: >
-  #       Answer "is there anything I wanted to visit around here?". Use the user's
-  #       current location from [context]; if no location is there, tell them to turn on
-  #       location for TinyMe. Returns saved places within radius_m, nearest first, each
-  #       with its distance in metres and note.
-  #     input_schema:
-  #       type: object
-  #       required: [lat, lng]
-  #       properties:
-  #         lat:      { type: number, minimum: -90,  maximum: 90 }
-  #         lng:      { type: number, minimum: -180, maximum: 180 }
-  #         radius_m: { type: integer, minimum: 50, maximum: 20000, default: 1000 }
-  #
-  #   - type: custom
-  #     name: places_list
-  #     description: >
-  #       List all places the user has saved to visit ("what places do I want to visit?").
-  #       Returns name, address and note for each, newest first.
-  #     input_schema:
-  #       type: object
-  #       properties: {}
-  #
-  #   - type: custom
-  #     name: places_remove
-  #     description: >
-  #       Remove a place from the visit list ("take Blue Bottle off my list"). Find its id
-  #       with places_list first. Returns the removed place so you can confirm it.
-  #     input_schema:
-  #       type: object
-  #       required: [id]
-  #       properties:
-  #         id: { type: string }

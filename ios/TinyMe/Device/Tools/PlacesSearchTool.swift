@@ -24,6 +24,8 @@ struct PlacesSearchRegion: Sendable {
 struct PlaceSearchHit: Sendable, Equatable {
     let name: String
     let address: String?
+    /// "Jingumae, Shibuya, Tokyo", so the server can tell which area a place is in.
+    var area: String? = nil
     let latitude: Double
     let longitude: Double
     let category: String?
@@ -36,6 +38,7 @@ struct PlaceSearchHit: Sendable, Equatable {
             "name": .string(name), "lat": .number(latitude), "lng": .number(longitude)
         ]
         object["address"] = address.map(JSONValue.string) ?? .null
+        object["area"] = area.map(JSONValue.string) ?? .null
         object["category"] = category.map(JSONValue.string) ?? .null
         object["url"] = url.map(JSONValue.string) ?? .null
         object["provider_place_id"] = providerPlaceId.map(JSONValue.string) ?? .null
@@ -57,6 +60,7 @@ struct PlaceSearchHit: Sendable, Equatable {
         }
         return Self(name: item.name ?? placemark.name ?? "Unknown place",
                     address: address.isEmpty ? nil : address,
+                    area: LocationProvider.areaName(of: placemark),
                     latitude: coordinate.latitude, longitude: coordinate.longitude,
                     category: item.pointOfInterestCategory?.rawValue,
                     url: item.url?.absoluteString,
@@ -144,7 +148,7 @@ struct PlacesSearchTool: DeviceTool {
             guard let origin, hit.distanceMeters == nil else { return hit }
             let distance = CLLocation(latitude: origin.latitude, longitude: origin.longitude)
                 .distance(from: CLLocation(latitude: hit.latitude, longitude: hit.longitude))
-            return PlaceSearchHit(name: hit.name, address: hit.address, latitude: hit.latitude,
+            return PlaceSearchHit(name: hit.name, address: hit.address, area: hit.area, latitude: hit.latitude,
                                   longitude: hit.longitude, category: hit.category, url: hit.url,
                                   providerPlaceId: hit.providerPlaceId, distanceMeters: distance)
         }

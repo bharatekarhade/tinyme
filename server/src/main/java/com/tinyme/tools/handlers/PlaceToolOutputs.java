@@ -14,7 +14,7 @@ final class PlaceToolOutputs {
         out.put("id", place.id().toString());
         out.put("name", place.name());
         out.put("address", place.address());
-        out.put("area", area(place.address()));
+        out.put("area", place.area());
         out.put("note", place.note());
         out.put("category", place.category());
         out.put("url", place.url());
@@ -32,12 +32,13 @@ final class PlaceToolOutputs {
         return out;
     }
 
-    static Map<String, Object> candidate(String candidateId, String name, String address, String category,
-                                         Double distanceM) {
+    static Map<String, Object> candidate(String candidateId, String name, String address, String area,
+                                         String category, Double distanceM) {
         Map<String, Object> out = new LinkedHashMap<>();
         out.put("candidate_id", candidateId);
         out.put("name", name);
         out.put("address", address);
+        if (area != null) out.put("area", area);
         out.put("category", category);
         if (distanceM != null) out.put("distance_m", Math.round(distanceM));
         return out;
@@ -52,9 +53,4 @@ final class PlaceToolOutputs {
         return out;
     }
 
-    private static String area(String address) {
-        if (address == null || address.isBlank()) return null;
-        String[] parts = address.split(",");
-        return parts[parts.length - 1].strip();
-    }
 }

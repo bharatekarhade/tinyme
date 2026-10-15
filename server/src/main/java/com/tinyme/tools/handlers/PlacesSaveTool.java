@@ -5,6 +5,7 @@ import com.tinyme.domain.places.service.PlaceService;
 import com.tinyme.tools.model.ToolContext;
 import com.tinyme.tools.model.ToolHandler;
 import com.tinyme.tools.model.ToolResult;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Component;
 import tools.jackson.databind.JsonNode;
 
@@ -26,7 +27,13 @@ public class PlacesSaveTool implements ToolHandler {
             if (note != null && note.length() > PlaceService.MAX_NOTE_LENGTH) {
                 throw new IllegalArgumentException("note must be at most 300 characters");
             }
-            PlaceSaveResult saved = places.saveCandidate(candidateId, note, context.now());
+            PlaceSaveResult saved;
+            try {
+                saved = places.saveCandidate(candidateId, note, context.now());
+            } catch (DataIntegrityViolationException raced) {
+                // Another save of the same place won; this one now finds it and returns it as already saved.
+                saved = places.saveCandidate(candidateId, note, context.now());
+            }
             Map<String, Object> output = new LinkedHashMap<>(PlaceToolOutputs.place(saved.place()));
             output.put("already_saved", saved.alreadySaved());
             return new ToolResult.Ok(output, saved.alreadySaved()

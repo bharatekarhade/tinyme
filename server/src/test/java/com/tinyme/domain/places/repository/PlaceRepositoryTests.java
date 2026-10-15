@@ -71,7 +71,7 @@ class PlaceRepositoryTests {
     }
 
     private PlaceEntity save(String name, double lat, String providerId) {
-        return places.save(new PlaceEntity(name, "Tokyo", lat, ORIGIN_LNG, null, providerId,
+        return places.save(new PlaceEntity(name, "Tokyo", null, lat, ORIGIN_LNG, null, providerId,
                 "cafe", "https://example.test/" + providerId, PlaceSource.CHAT));
     }
 

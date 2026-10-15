@@ -63,6 +63,13 @@ struct Endpoint: Sendable {
         return Endpoint(method: "GET", path: "places", query: items)
     }
 
+    static func placesWatch(lat: Double, lng: Double) -> Endpoint {
+        Endpoint(method: "GET", path: "places/watch", query: [
+            URLQueryItem(name: "lat", value: String(lat)),
+            URLQueryItem(name: "lng", value: String(lng))
+        ])
+    }
+
     static func place(_ id: String) -> Endpoint {
         Endpoint(method: "GET", path: "places/\(id)")
     }

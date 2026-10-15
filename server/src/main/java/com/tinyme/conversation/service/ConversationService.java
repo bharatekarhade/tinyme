@@ -31,6 +31,7 @@ import java.util.concurrent.CompletableFuture;
 
 @Service
 public class ConversationService implements ConversationOperations {
+    private static final Duration CLOCK_SKEW = Duration.ofMinutes(2);
 
     private final SessionManager sessions;
     private final MessageRepository messages;
@@ -79,7 +80,7 @@ public class ConversationService implements ConversationOperations {
             if (sentAt.isAfter(receivedAt.plus(Duration.ofDays(1)))) {
                 throw new InvalidClientTimestampException("sent_at cannot be more than one day in the future");
             }
-            TurnLocation location = validatedLocation(request.clientContext(), receivedAt);
+            TurnLocation location = validatedLocation(request.clientContext(), sentAt);
             SessionRef session = sessions.todaySession(zone);
             var existing = messages.findIdByClientMessageId(request.clientMessageId());
             if (existing.isPresent()) {
@@ -148,8 +149,9 @@ public class ConversationService implements ConversationOperations {
         return userZone.current();
     }
 
+    /** A fix from up to 10 minutes before the message was sent. The phone's clock may run up to 2 minutes fast. */
     private static TurnLocation validatedLocation(ConversationMessageRequest.ClientContext clientContext,
-                                                  Instant receivedAt) {
+                                                  Instant sentAt) {
         if (clientContext == null || clientContext.location() == null) return null;
         var location = clientContext.location();
         if (location.lat() == null || location.lng() == null || location.accuracyM() == null || location.at() == null) {
@@ -158,8 +160,8 @@ public class ConversationService implements ConversationOperations {
         if (!Double.isFinite(location.lat()) || location.lat() < -90 || location.lat() > 90
                 || !Double.isFinite(location.lng()) || location.lng() < -180 || location.lng() > 180
                 || !Double.isFinite(location.accuracyM()) || location.accuracyM() < 0 || location.accuracyM() >= 500
-                || location.at().isAfter(receivedAt)
-                || location.at().isBefore(receivedAt.minus(Duration.ofMinutes(10)))) {
+                || location.at().isAfter(sentAt.plus(CLOCK_SKEW))
+                || location.at().isBefore(sentAt.minus(Duration.ofMinutes(10)))) {
             return null;
         }
         return new TurnLocation(location.lat(), location.lng(), location.accuracyM(), location.at(), location.area());

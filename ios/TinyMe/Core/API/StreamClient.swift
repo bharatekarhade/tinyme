@@ -31,6 +31,8 @@ actor StreamClient {
 
                     let decoder = JSONDecoder()
                     var sawDone = false
+                    var deviceActions: [Task<Void, Never>] = []
+                    defer { deviceActions.forEach { $0.cancel() } }
                     // `bytes.lines` drops empty lines, so framing relies on one `data:` line per event.
                     lines: for try await line in bytes.lines {
                         guard line.hasPrefix("data:") else { continue }   // skips ": ping" heartbeats
@@ -46,7 +48,9 @@ actor StreamClient {
                         case .unknown(let type):
                             Self.log.debug("Skipping unknown stream event type \(type, privacy: .public)")
                         case .clientAction(let actionId, let tool, let input):
-                            await self.executeDeviceAction(actionId: actionId, tool: tool, input: input)
+                            // Runs beside the read loop: the stream keeps flowing and cancelling the send stops it too.
+                            let action = Task { await self.executeDeviceAction(actionId: actionId, tool: tool, input: input) }
+                            deviceActions.append(action)
                             continuation.yield(event)
                         case .done:
                             sawDone = true
@@ -68,11 +72,14 @@ actor StreamClient {
         }
     }
 
+    /// Adds where the phone is, but only for a message said in the last 2 minutes: one queued while offline
+    /// shouldn't carry where the phone is when it finally uploads.
     private func messageWithLocation(_ message: OutgoingMessage) async -> OutgoingMessage {
         guard let locationProvider, var context = message.clientContext, context.location == nil else {
             return message
         }
-        context.location = await locationProvider.locationForChatContext()
+        if let sentAt = message.sentAt, Date.now.timeIntervalSince(sentAt) > 120 { return message }
+        context.location = await locationProvider.cachedLocationForChatContext()
         var result = message
         result.clientContext = context
         return result

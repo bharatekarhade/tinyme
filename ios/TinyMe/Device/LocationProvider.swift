@@ -11,6 +11,9 @@ final class LocationProvider: NSObject, @preconcurrency CLLocationManagerDelegat
     private var authorizationWaiter: (id: UUID, continuation: CheckedContinuation<CLAuthorizationStatus, Never>)?
     private var cachedReverseArea: (coordinate: CLLocationCoordinate2D, at: Date, name: String)?
     private var cachedGeocode: (coordinate: CLLocationCoordinate2D, at: Date, query: String)?
+    /// The fix and area `warmUp` found, ready for the next chat message.
+    private var chatFix: (location: CLLocation, area: String)?
+    private var isWarming = false
 
     override init() {
         super.init()
@@ -18,21 +21,33 @@ final class LocationProvider: NSObject, @preconcurrency CLLocationManagerDelegat
         manager.desiredAccuracy = kCLLocationAccuracyHundredMeters
     }
 
-    /// Adds a location only when permission is already granted. Chat does not trigger a surprise prompt.
-    func locationForChatContext() async -> OutgoingMessage.ClientContext.Location? {
-        guard Self.isAuthorized(manager.authorizationStatus),
-              let location = await currentLocation(requestPermission: false),
-              Self.isUsable(location, now: .now) else {
+    /// Gets a fix and its area ready before anything is sent: when chat opens and when the app comes forward.
+    /// Only with permission already granted; this never shows the prompt.
+    func warmUp() {
+        guard Self.isAuthorized(manager.authorizationStatus), !isWarming else { return }
+        isWarming = true
+        Task {
+            defer { isWarming = false }
+            guard let location = await currentLocation(requestPermission: false) else { return }
+            // Coordinates remain useful even if Apple's reverse geocoder has no placemark or is offline.
+            chatFix = (location, await areaName(for: location) ?? "Current location")
+        }
+    }
+
+    /// The fix `warmUp` found, if it is still fresh. Never waits for GPS or the network, so sending isn't held up;
+    /// a stale one starts a new warm-up for the next message.
+    func cachedLocationForChatContext() -> OutgoingMessage.ClientContext.Location? {
+        guard Self.isAuthorized(manager.authorizationStatus) else { return nil }
+        guard let fix = chatFix, Self.isUsable(fix.location, now: .now) else {
+            warmUp()
             return nil
         }
-        // Coordinates remain useful even if Apple's reverse geocoder has no placemark or is offline.
-        let area = await areaName(for: location) ?? "Current location"
         return OutgoingMessage.ClientContext.Location(
-            lat: location.coordinate.latitude,
-            lng: location.coordinate.longitude,
-            accuracyM: location.horizontalAccuracy,
-            at: location.timestamp.formatted(Date.ISO8601FormatStyle(includingFractionalSeconds: true)),
-            area: area
+            lat: fix.location.coordinate.latitude,
+            lng: fix.location.coordinate.longitude,
+            accuracyM: fix.location.horizontalAccuracy,
+            at: fix.location.timestamp.formatted(Date.ISO8601FormatStyle(includingFractionalSeconds: true)),
+            area: fix.area
         )
     }
 
@@ -105,19 +120,21 @@ final class LocationProvider: NSObject, @preconcurrency CLLocationManagerDelegat
             .distance(from: location) < 1000 {
             return cachedReverseArea.name
         }
-        guard let placemark = try? await geocoder.reverseGeocodeLocation(location).first else { return nil }
-        let locality = placemark.locality
-        let neighborhood = placemark.subLocality
-        let region = placemark.administrativeArea
-        let pieces = [neighborhood, locality, region].compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
+        guard let placemark = try? await geocoder.reverseGeocodeLocation(location).first,
+              let name = Self.areaName(of: placemark) else { return nil }
+        cachedReverseArea = (location.coordinate, .now, name)
+        return name
+    }
+
+    /// "Jingumae, Shibuya, Tokyo": neighbourhood, city and region, each once. Also names each place search hit.
+    nonisolated static func areaName(of placemark: CLPlacemark) -> String? {
+        let pieces = [placemark.subLocality, placemark.locality, placemark.administrativeArea]
+            .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
         var unique: [String] = []
         for piece in pieces where !piece.isEmpty && !unique.contains(where: { $0.localizedCaseInsensitiveCompare(piece) == .orderedSame }) {
             unique.append(piece)
         }
-        guard !unique.isEmpty else { return nil }
-        let name = unique.joined(separator: ", ")
-        cachedReverseArea = (location.coordinate, .now, name)
-        return name
+        return unique.isEmpty ? nil : unique.joined(separator: ", ")
     }
 
     private func finishLocation(id: UUID, value: CLLocation?) {

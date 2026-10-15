@@ -21,7 +21,7 @@ import java.util.UUID;
 
 @Service
 public class PlaceService {
-    public static final int MAX_NOTE_LENGTH = 300;
+    public static final int MAX_NOTE_LENGTH = PlaceEntity.MAX_NOTE_LENGTH;
     public static final int MAX_LIST_RESULTS = 30;
     public static final int MAX_NEAR_RESULTS = 10;
 
@@ -45,17 +45,23 @@ public class PlaceService {
                 .or(() -> places.findSameNameWithin(candidate.name(), candidate.lat(), candidate.lng(), 50));
         if (duplicate.isPresent()) {
             PlaceEntity existing = duplicate.get();
-            if (cleanNote != null) {
-                String previous = existing.getNote();
-                existing.updateNote(previous == null || previous.isBlank()
-                        ? cleanNote : previous + " · also: " + cleanNote);
-            }
+            if (cleanNote != null) existing.updateNote(mergedNote(existing.getNote(), cleanNote));
             return new PlaceSaveResult(PlaceSnapshot.from(existing), true);
         }
 
-        PlaceEntity created = new PlaceEntity(candidate.name(), candidate.address(), candidate.lat(), candidate.lng(),
-                cleanNote, candidate.providerPlaceId(), candidate.category(), candidate.url(), PlaceSource.APP);
-        return new PlaceSaveResult(PlaceSnapshot.from(places.save(created)), false);
+        PlaceEntity created = new PlaceEntity(candidate.name(), candidate.address(), candidate.area(),
+                candidate.lat(), candidate.lng(), cleanNote, candidate.providerPlaceId(), candidate.category(),
+                candidate.url(), PlaceSource.CHAT);
+        // Flushed here, so two saves of the same place at once fail on the unique index inside this call.
+        return new PlaceSaveResult(PlaceSnapshot.from(places.saveAndFlush(created)), false);
+    }
+
+    /** Saving again with a new reason adds it; the same reason again, or one that would overflow, changes nothing. */
+    static String mergedNote(String previous, String addition) {
+        if (previous == null || previous.isBlank()) return addition;
+        if (previous.toLowerCase(Locale.ROOT).contains(addition.toLowerCase(Locale.ROOT))) return previous;
+        String merged = previous + " · also: " + addition;
+        return merged.length() > MAX_NOTE_LENGTH ? previous : merged;
     }
 
     @Transactional(readOnly = true)
@@ -63,8 +69,7 @@ public class PlaceService {
         String q = query == null || query.isBlank() ? null : query.strip().toLowerCase(Locale.ROOT);
         if (q != null && q.length() > 120) throw new IllegalArgumentException("q must be at most 120 characters");
         return places.listLive(includeVisited).stream()
-                .filter(place -> q == null || contains(place.getName(), q) || contains(place.getAddress(), q)
-                        || contains(place.getNote(), q) || contains(place.getCategory(), q))
+                .filter(place -> q == null || matches(place, q))
                 .limit(MAX_LIST_RESULTS)
                 .map(PlaceSnapshot::from)
                 .toList();
@@ -79,14 +84,19 @@ public class PlaceService {
         if (nearLat != null) validateCoordinates(nearLat, nearLng);
         var result = places.listLive(true).stream()
                 .filter(place -> visited == null || (place.getVisitedAt() != null) == visited)
-                .filter(place -> q == null || contains(place.getName(), q) || contains(place.getAddress(), q)
-                        || contains(place.getNote(), q) || contains(place.getCategory(), q))
+                .filter(place -> q == null || matches(place, q))
                 .map(PlaceSnapshot::from)
                 .map(place -> nearLat == null ? place : place.withDistance(distanceMeters(nearLat, nearLng, place.lat(), place.lng())))
                 .toList();
         if (nearLat == null) return result;
         return result.stream().sorted(java.util.Comparator.comparing(PlaceSnapshot::distanceM)
                 .thenComparing(PlaceSnapshot::name, String.CASE_INSENSITIVE_ORDER)).toList();
+    }
+
+    /** Nearest unvisited places eligible for the phone's bounded geofence monitor. */
+    @Transactional(readOnly = true)
+    public List<PlaceSnapshot> watch(double lat, double lng) {
+        return listForApp(null, false, lat, lng).stream().limit(20).toList();
     }
 
     @Transactional(readOnly = true)
@@ -122,6 +132,11 @@ public class PlaceService {
             place.softDelete(now);
             return PlaceSnapshot.from(place);
         });
+    }
+
+    private static boolean matches(PlaceEntity place, String q) {
+        return contains(place.getName(), q) || contains(place.getAddress(), q) || contains(place.getArea(), q)
+                || contains(place.getNote(), q) || contains(place.getCategory(), q);
     }
 
     private static boolean contains(String value, String q) {
@@ -168,9 +183,17 @@ public class PlaceService {
 
     private static PlaceCandidate candidate(JsonNode json) {
         if (json == null || !json.isObject()) throw new CandidateNotFoundException("stored candidate");
-        return new PlaceCandidate(requiredText(json, "name"), optionalText(json, "address"),
+        return new PlaceCandidate(requiredText(json, "name"), optionalText(json, "address"), area(json),
                 requiredNumber(json, "lat"), requiredNumber(json, "lng"), optionalText(json, "category"),
                 optionalText(json, "url"), optionalText(json, "provider_place_id"), optionalNumber(json, "distance_m"));
+    }
+
+    /** The phone's "sub-locality, locality"; anything odd is dropped rather than failing the save. */
+    private static String area(JsonNode json) {
+        String area = optionalText(json, "area");
+        if (area == null || area.isBlank()) return null;
+        area = area.strip();
+        return area.length() > 120 ? null : area;
     }
 
     private static String requiredText(JsonNode object, String key) {

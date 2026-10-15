@@ -1,8 +1,8 @@
 package com.tinyme.domain.places.model;
 
 /** A place result returned by a device search; coordinates are supplied by the device, never the model. */
-public record PlaceCandidate(String name, String address, double lat, double lng, String category, String url,
-                             String providerPlaceId, Double distanceM) {
+public record PlaceCandidate(String name, String address, String area, double lat, double lng, String category,
+                             String url, String providerPlaceId, Double distanceM) {
     public PlaceCandidate {
         if (name == null || name.isBlank()) throw new IllegalArgumentException("name is required");
         if (name.length() > 200) throw new IllegalArgumentException("name must be at most 200 characters");

@@ -16,5 +16,9 @@
 	<string>TinyMe turns what you say into text on this phone. Your voice isn't sent anywhere.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
 	<string>TinyMe uses your location to find nearby places you ask about and to add the neighborhood to chat context. Your coordinates are not sent to the AI.</string>
+	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
+	<string>TinyMe uses your location in the background only when you enable nearby place alerts, so it can notify you when you pass a saved place.</string>
+	<key>UIBackgroundModes</key>
+	<array><string>location</string></array>
 </dict>
 </plist>

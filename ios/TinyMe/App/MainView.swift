@@ -89,7 +89,13 @@ struct MainView: View {
             }
         }
         .onChange(of: router.chat?.id) { _, chatID in
-            if chatID == nil { router.presentPendingPlace() }
+            if chatID != nil { environment.session.warmUpLocation() }
+            if chatID == nil {
+                router.presentPendingPlace()
+                if let api = environment.session.api {
+                    Task { await environment.nearbyPlaceAlerts.refresh(api: api) }
+                }
+            }
         }
         .overlay {
             SettingsSheet(isPresented: $router.showsSettings, session: environment.session) { [home, router] in
@@ -110,6 +116,7 @@ struct MainView: View {
         }
         .onAppear {
             // Foreground is caught below; this is the launch.
+            environment.session.warmUpLocation()
             environment.healthSync.start(api: environment.session.api)
         }
         .task {
@@ -124,10 +131,15 @@ struct MainView: View {
         }
         .onChange(of: scenePhase) { _, phase in
             if phase == .active {
+                environment.session.warmUpLocation()   // so chat never waits on GPS
+                Task { await environment.nearbyPlaceAlerts.appBecameActive(api: environment.session.api) }
                 Task { await environment.outbox.wake(retryNow: true) }
                 Task { await environment.health.pushIfNeeded(api: environment.session.api) }
                 environment.healthSync.start(api: environment.session.api)
             }
+        }
+        .task {
+            await environment.nearbyPlaceAlerts.appBecameActive(api: environment.session.api)
         }
         .onChange(of: environment.healthSync.changes) {
             // New Health numbers: the cards and History reload.

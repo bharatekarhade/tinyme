@@ -33,11 +33,20 @@ public final class SseTurnSink implements TurnListener {
 
     public SseTurnSink(SseEmitter emitter) {
         this.emitter = emitter;
+        // The phone hung up: stop offering device actions, so a tool fails at once instead of waiting it out.
+        emitter.onCompletion(this::disconnected);
+        emitter.onError(failure -> disconnected());
+        emitter.onTimeout(this::disconnected);
+    }
+
+    private synchronized void disconnected() {
+        stopHeartbeat();
+        closed = true;
     }
 
     @Override
-    public boolean supportsDeviceActions() {
-        return true;
+    public synchronized boolean supportsDeviceActions() {
+        return !closed;
     }
 
     public synchronized void start(UUID userMessageId) {

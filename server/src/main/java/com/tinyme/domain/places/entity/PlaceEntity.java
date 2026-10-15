@@ -18,6 +18,8 @@ import java.util.UUID;
 @Entity
 @Table(name = "places")
 public class PlaceEntity {
+    public static final int MAX_NOTE_LENGTH = 300;
+
     @Id
     @GeneratedValue
     @UuidGenerator(style = UuidGenerator.Style.VERSION_7)
@@ -28,6 +30,9 @@ public class PlaceEntity {
 
     @Column(name = "address")
     private String address;
+
+    @Column(name = "area")
+    private String area;
 
     @Column(name = "lat", nullable = false)
     private double lat;
@@ -67,12 +72,13 @@ public class PlaceEntity {
 
     protected PlaceEntity() { }
 
-    public PlaceEntity(String name, String address, double lat, double lng, String note,
+    public PlaceEntity(String name, String address, String area, double lat, double lng, String note,
                        String providerPlaceId, String category, String url, PlaceSource source) {
         setName(name);
         setCoordinates(lat, lng);
         this.address = address;
-        this.note = note;
+        this.area = area == null || area.isBlank() ? null : area.strip();
+        updateNote(note);
         this.providerPlaceId = providerPlaceId;
         this.category = category;
         this.url = url;
@@ -89,6 +95,7 @@ public class PlaceEntity {
     public String getCategory() { return category; }
     public String getUrl() { return url; }
     public PlaceSource getSource() { return source; }
+    public String getArea() { return area; }
     public Instant getCreatedAt() { return createdAt; }
     public Instant getUpdatedAt() { return updatedAt; }
     public Instant getVisitedAt() { return visitedAt; }
@@ -96,7 +103,11 @@ public class PlaceEntity {
 
     public void updateNote(String note) {
         ensureLive();
-        this.note = note == null || note.isBlank() ? null : note.strip();
+        String clean = note == null || note.isBlank() ? null : note.strip();
+        if (clean != null && clean.length() > MAX_NOTE_LENGTH) {
+            throw new IllegalArgumentException("note must be at most %d characters".formatted(MAX_NOTE_LENGTH));
+        }
+        this.note = clean;
     }
 
     public void markVisited(Instant now) {

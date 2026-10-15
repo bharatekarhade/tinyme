@@ -54,14 +54,19 @@ public class PlacesSearchTool implements ToolHandler {
             for (int i = 0; i < Math.min(5, data.size()); i++) {
                 JsonNode item = data.get(i);
                 if (!item.isObject() || item.get("name") == null || !item.get("name").isString()) continue;
+                Double lat = numberOrNull(item.get("lat"));
+                Double lng = numberOrNull(item.get("lng"));
+                // Without a point places_save would refuse it, so the model never hears of it.
+                if (lat == null || lng == null) continue;
                 String address = stringOrNull(item.get("address"));
+                String area = stringOrNull(item.get("area"));
                 String category = stringOrNull(item.get("category"));
                 Double distance = numberOrNull(item.get("distance_m"));
                 Map<String, Object> candidate = PlaceToolOutputs.candidate(completed.actionId() + ":" + i,
-                        item.get("name").stringValue(), address, category, distance);
+                        item.get("name").stringValue(), address, area, category, distance);
                 found.add(candidate);
-                references.add(PlaceToolOutputs.candidateReference(candidate, numberOrNull(item.get("lat")),
-                        numberOrNull(item.get("lng")), stringOrNull(item.get("url"))));
+                references.add(PlaceToolOutputs.candidateReference(candidate, lat, lng,
+                        stringOrNull(item.get("url"))));
             }
             String summary = found.isEmpty() ? "No matching places found"
                     : "Found " + found.size() + (found.size() == 1 ? " place" : " places");

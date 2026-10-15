@@ -127,17 +127,41 @@ class ConversationDisconnectTests {
 
         var stale = acceptLocation(now.minus(Duration.ofMinutes(11)), 35.0, 35.6595, 139.7005);
         var inaccurate = acceptLocation(now, 500.0, 35.6595, 139.7005);
-        var future = acceptLocation(now.plusSeconds(1), 35.0, 35.6595, 139.7005);
+        // A phone clock a little fast is fine; a fix from well after the message was sent is not.
+        var slightlyAhead = acceptLocation(now.plusSeconds(30), 35.0, 35.6595, 139.7005);
+        var future = acceptLocation(now.plus(Duration.ofMinutes(3)), 35.0, 35.6595, 139.7005);
         var outOfRange = acceptLocation(now, 35.0, 91.0, 139.7005);
 
         assertThat(stale.location()).isNull();
         assertThat(inaccurate.location()).isNull();
+        assertThat(slightlyAhead.location()).isNotNull();
         assertThat(future.location()).isNull();
         assertThat(outOfRange.location()).isNull();
+        slightlyAhead.permit().close();
         stale.permit().close();
         inaccurate.permit().close();
         future.permit().close();
         outOfRange.permit().close();
+    }
+
+    @Test
+    void aQueuedMessageKeepsOnlyALocationFromWhenItWasSent() throws Exception {
+        Instant sentAt = Instant.now().truncatedTo(ChronoUnit.SECONDS).minus(Duration.ofMinutes(30));
+        var fromThen = acceptQueued(sentAt, sentAt.minusSeconds(60));
+        var fromUpload = acceptQueued(sentAt, sentAt.plus(Duration.ofMinutes(30)));
+
+        assertThat(fromThen.location()).isNotNull();
+        assertThat(fromUpload.location()).as("where the phone is now is not where they said it").isNull();
+        fromThen.permit().close();
+        fromUpload.permit().close();
+    }
+
+    private ConversationService.Accepted acceptQueued(Instant sentAt, Instant at) throws Exception {
+        var request = new ConversationMessageRequest(UUID.randomUUID(), "anything nearby?",
+                new ConversationMessageRequest.ClientContext("Asia/Tokyo",
+                        new ConversationMessageRequest.ClientLocation(35.6595, 139.7005, 35.0, at, "Tokyo")),
+                sentAt, java.util.List.of());
+        return (ConversationService.Accepted) conversations.accept(request);
     }
 
     private ConversationService.Accepted acceptLocation(Instant at, double accuracy,

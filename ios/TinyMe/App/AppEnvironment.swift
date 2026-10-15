@@ -13,6 +13,7 @@ final class AppEnvironment {
     /// The Apple Health switches; cleared on sign-out and Delete all.
     let health: HealthSettingsStore
     let healthSync: HealthSync
+    let nearbyPlaceAlerts: NearbyPlacesAlerts
 
     init(authStore: AuthStore = AuthStore(), outbox: OutboxWorker = .onDisk(), health: HealthSettingsStore = HealthSettingsStore()) {
         self.authStore = authStore
@@ -20,6 +21,7 @@ final class AppEnvironment {
         self.health = health
         let session = SessionModel(authStore: authStore, outbox: outbox, health: health)
         self.session = session
+        self.nearbyPlaceAlerts = NearbyPlacesAlerts()
         // Created at launch, so background delivery is set up before anything else (guide §3.2).
         self.healthSync = HealthSync(settings: health, api: { session.api })
         Task { await outbox.startMonitoring() }

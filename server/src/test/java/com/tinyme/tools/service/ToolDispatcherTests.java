@@ -63,13 +63,15 @@ class ToolDispatcherTests {
         assertThat(envelope.get("ok").booleanValue()).isTrue();
         assertThat(envelope.get("data").stringValue()).isEqualTo("entry-1");
         assertThat(envelope.get("summary").stringValue()).isEqualTo("Added drink");
-        assertThat(envelope.get("ref").get("card_id").stringValue()).isEqualTo("card-1");
+        assertThat(envelope.has("ref")).as("ref is for the phone, never the model").isFalse();
         assertThat(outcome.ref()).containsEntry("card_id", "card-1");
 
         var context = org.mockito.ArgumentCaptor.forClass(ToolContext.class);
         verify(fixture.handler).handle(eq(fixture.input), context.capture());
         assertThat(context.getValue().toolCallId()).isEqualTo(callId);
-        verify(fixture.calls).finish(eq(callId), any(JsonNode.class), eq(false), eq("done"));
+        var stored = org.mockito.ArgumentCaptor.forClass(JsonNode.class);
+        verify(fixture.calls).finish(eq(callId), stored.capture(), eq(false), eq("done"));
+        assertThat(stored.getValue().get("ref").get("card_id").stringValue()).isEqualTo("card-1");
     }
 
     @Test
@@ -89,7 +91,10 @@ class ToolDispatcherTests {
 
         assertThat(outcome.isError()).isTrue();
         assertThat(outcome.ref()).containsEntry("error_code", "no_location");
-        JsonNode saved = JSON.readTree(outcome.resultJson());
+        assertThat(JSON.readTree(outcome.resultJson()).has("ref")).isFalse();
+        var stored = org.mockito.ArgumentCaptor.forClass(JsonNode.class);
+        verify(fixture.calls).finish(any(), stored.capture(), eq(true), eq("done"));
+        JsonNode saved = stored.getValue();
         assertThat(saved.get("ref").get("error_code").stringValue()).isEqualTo("no_location");
 
         when(fixture.calls.findByEventId(fixture.eventId)).thenReturn(Optional.of(
@@ -111,7 +116,9 @@ class ToolDispatcherTests {
         DispatchOutcome outcome = fixture.dispatcher().dispatch(
                 fixture.eventId, "entries_add", fixture.input, fixture.base);
 
-        assertThat(JSON.readTree(outcome.resultJson())).isEqualTo(savedResult);
+        JsonNode replayed = JSON.readTree(outcome.resultJson());
+        assertThat(replayed.get("data").get("id").stringValue()).isEqualTo("entry-1");
+        assertThat(replayed.has("ref")).as("replays strip ref too").isFalse();
         assertThat(outcome.isError()).isFalse();
         assertThat(outcome.ref()).containsEntry("card_id", "card-1");
         verify(fixture.calls, never()).insertRunning(any(), any(), any(), any());

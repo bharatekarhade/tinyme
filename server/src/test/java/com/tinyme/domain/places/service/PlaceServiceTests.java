@@ -13,6 +13,10 @@ import tools.jackson.databind.json.JsonMapper;
 
 import java.time.Instant;
 import java.sql.Timestamp;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -57,9 +61,32 @@ class PlaceServiceTests {
         assertThat(jdbc.queryForObject("SELECT lat FROM places WHERE id = ?", Double.class, first.place().id()))
                 .isEqualTo(LAT);
         assertThat(jdbc.queryForObject("SELECT source FROM places WHERE id = ?", String.class, first.place().id()))
-                .isEqualTo("app");
+                .isEqualTo("chat");
         assertThat(jdbc.queryForObject("SELECT expires_at > ? FROM pending_actions WHERE id = ?", Boolean.class,
                 Timestamp.from(NOW.plusSeconds(7_199)), action)).isTrue();
+    }
+
+    @Test
+    void savingTheSameReasonTwiceDoesNotRepeatItAndAStoredAreaIsSearchable() {
+        UUID action = searchResult("""
+                [{"name":"Blue Bottle Shibuya","address":"1 Jingumae Shibuya Tokyo 150-0001","area":"Jingumae, Shibuya",
+                  "lat":35.6595,"lng":139.7005,"provider_place_id":"mapkit-area"}]
+                """, NOW.plusSeconds(7200));
+        places.saveCandidate(action + ":0", "for the pour-over", NOW);
+        var again = places.saveCandidate(action + ":0", "For the pour-over", NOW.plusSeconds(1));
+
+        assertThat(again.place().note()).isEqualTo("for the pour-over");
+        assertThat(again.place().area()).isEqualTo("Jingumae, Shibuya");
+        assertThat(places.list("jingumae", false)).extracting(PlaceSnapshot::id).containsExactly(again.place().id());
+    }
+
+    @Test
+    void anAddedReasonThatWouldPassThreeHundredCharactersIsDropped() {
+        String long1 = "a".repeat(200);
+        String long2 = "b".repeat(150);
+        assertThat(PlaceService.mergedNote(long1, long2)).isEqualTo(long1);
+        assertThat(PlaceService.mergedNote("espresso", "beans")).isEqualTo("espresso · also: beans");
+        assertThat(PlaceService.mergedNote(null, "beans")).isEqualTo("beans");
     }
 
     @Test
@@ -134,6 +161,34 @@ class PlaceServiceTests {
                 .extracting(PlaceSnapshot::id).containsExactly(near.id(), far.id());
     }
 
+    @Test
+    void watchReturnsTheTwentyNearestUnvisitedPlaces() {
+        List<Map<String, Object>> candidates = new ArrayList<>();
+        for (int index = 0; index < 22; index++) {
+            var candidate = new LinkedHashMap<String, Object>();
+            candidate.put("name", "Place %02d".formatted(index));
+            candidate.put("lat", offsetLatitude(index * 100));
+            candidate.put("lng", LNG);
+            candidate.put("provider_place_id", "watch-%d".formatted(index));
+            candidates.add(candidate);
+        }
+        List<PlaceSnapshot> saved = new ArrayList<>();
+        for (int offset = 0; offset < candidates.size(); offset += 5) {
+            int end = Math.min(offset + 5, candidates.size());
+            UUID action = searchResult(write(candidates.subList(offset, end)), NOW.plusSeconds(7200));
+            for (int index = 0; index < end - offset; index++) {
+                saved.add(places.saveCandidate(action + ":" + index, null, NOW).place());
+            }
+        }
+        places.update(saved.getFirst().id(), false, null, true, NOW.plusSeconds(1));
+
+        var watch = places.watch(LAT, LNG);
+
+        assertThat(watch).hasSize(20).extracting(PlaceSnapshot::id)
+                .containsExactlyElementsOf(saved.subList(1, 21).stream().map(PlaceSnapshot::id).toList());
+        assertThat(watch).extracting(PlaceSnapshot::distanceM).isSorted();
+    }
+
     private UUID searchResult(String data, Instant expiresAt) {
         UUID id = UUID.randomUUID();
         jdbc.update("""
@@ -141,6 +196,11 @@ class PlaceServiceTests {
                 VALUES (?, 'places_search', '{}'::jsonb, 'chat', 'succeeded', ?, ?, jsonb_build_object('ok', true, 'data', ?::jsonb))
                 """, id, Timestamp.from(NOW), Timestamp.from(expiresAt), data);
         return id;
+    }
+
+    private String write(Object value) {
+        try { return JSON.writeValueAsString(value); }
+        catch (Exception failure) { throw new IllegalStateException(failure); }
     }
 
     private static String candidate(String name, double lat, double lng, String providerId) {
