@@ -32,6 +32,20 @@ final class PlaceToolOutputs {
         return out;
     }
 
+    /** At most this many saved places come back as cards under a reply; the model still gets them all. */
+    static final int MAX_CARDS = 10;
+
+    /** A saved place as a card under the reply, for the phone only (it goes in ref, never to the model). */
+    static Map<String, Object> savedCard(String id, String name, String detail, Double distanceM, boolean visited) {
+        Map<String, Object> out = new LinkedHashMap<>();
+        out.put("place_id", id);
+        out.put("name", name);
+        if (detail != null && !detail.isBlank()) out.put("detail", detail);
+        if (distanceM != null) out.put("distance_m", Math.round(distanceM));
+        out.put("visited", visited);
+        return out;
+    }
+
     static Map<String, Object> candidate(String candidateId, String name, String address, String area,
                                          String category, Double distanceM) {
         Map<String, Object> out = new LinkedHashMap<>();

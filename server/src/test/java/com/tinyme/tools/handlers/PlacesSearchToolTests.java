@@ -68,6 +68,21 @@ class PlacesSearchToolTests {
     }
 
     @Test
+    void nearbySavedPlacesComeBackAsCardsForThePhone() throws Exception {
+        var service = mock(com.tinyme.domain.places.service.PlaceService.class);
+        UUID id = UUID.randomUUID();
+        when(service.near(35.6, 139.7, 1_000)).thenReturn(java.util.List.of(new com.tinyme.domain.places.model.NearbyPlace(
+                id, "Naggy's", "1 Nishi Kamata", 35.6, 139.7, "restaurant", null, "famous burritos",
+                com.tinyme.domain.places.model.PlaceSource.CHAT, null, Instant.parse("2026-10-14T00:00:00Z"), 836.4)));
+
+        ToolResult.Ok ok = (ToolResult.Ok) new PlacesNearTool(service).handle(JSON.readTree("{}"), context(true));
+
+        assertThat(ok.ref()).containsEntry("label", "Saved near you");
+        assertThat(ok.ref().get("saved_places").toString())
+                .contains("place_id=" + id, "name=Naggy's", "detail=1 Nishi Kamata", "distance_m=836", "visited=false");
+    }
+
+    @Test
     void deviceUnavailableIsAUsefulToolError() throws Exception {
         DeviceToolGateway gateway = mock(DeviceToolGateway.class);
         when(gateway.callWithActionId(any(), eq("places_search"), any(), any()))

@@ -23,11 +23,16 @@ public class PlacesListTool implements ToolHandler {
         try {
             String q = ToolInputs.optionalString(input, "q");
             Boolean includeVisited = ToolInputs.optionalBoolean(input, "include_visited");
-            List<Map<String, Object>> result = places.list(q, Boolean.TRUE.equals(includeVisited)).stream()
-                    .map(PlaceToolOutputs::place).toList();
+            List<PlaceSnapshot> found = places.list(q, Boolean.TRUE.equals(includeVisited));
+            List<Map<String, Object>> result = found.stream().map(PlaceToolOutputs::place).toList();
+            List<Map<String, Object>> cards = found.stream().limit(PlaceToolOutputs.MAX_CARDS)
+                    .map(place -> PlaceToolOutputs.savedCard(place.id().toString(), place.name(),
+                            place.area() != null ? place.area() : place.address(), null, place.visited()))
+                    .toList();
             String summary = result.isEmpty() ? "No saved places" : "Found " + result.size()
                     + (result.size() == 1 ? " saved place" : " saved places");
-            return new ToolResult.Ok(Map.of("places", result), summary);
+            return new ToolResult.Ok(Map.of("places", result), summary,
+                    cards.isEmpty() ? Map.of() : Map.of("saved_places", cards, "label", "Your saved places"));
         } catch (IllegalArgumentException invalid) {
             return invalid(invalid.getMessage());
         }

@@ -234,6 +234,7 @@ private struct PlacesMap: View {
 
     var body: some View {
         Map(position: $camera) {
+            UserAnnotation()
             ForEach(places) { place in
                 Annotation(place.name, coordinate: CLLocationCoordinate2D(latitude: place.lat, longitude: place.lng), anchor: .bottom) {
                     Button { onSelect(place) } label: {
@@ -249,6 +250,9 @@ private struct PlacesMap: View {
             }
         }
         .mapStyle(.standard(elevation: .flat))
+        .mapControls {
+            MapUserLocationButton()
+        }
         .clipShape(RoundedRectangle(cornerRadius: Radius.lg, style: .continuous))
         .padding(.horizontal, Space.s4)
         .padding(.bottom, Space.s4)

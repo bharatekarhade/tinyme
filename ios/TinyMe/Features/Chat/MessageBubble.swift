@@ -111,7 +111,8 @@ struct MessageBubble: View {
             TinyMeFace(size: 28, mood: status == .streaming ? .thinking : .awake, isAlive: status == .streaming)
                 .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: Space.s2) {
-                let visibleActions = actions.filter { $0.tool != "places_search" }
+                // Place searches and saved-place lookups show as cards below, not chips.
+                let visibleActions = actions.filter { $0.tool != "places_search" && $0.savedPlaces.isEmpty }
                 if !visibleActions.isEmpty {
                     FlowLayout(spacing: 6) {
                         ForEach(Array(visibleActions.enumerated()), id: \.offset) { _, action in
@@ -151,37 +152,26 @@ struct MessageBubble: View {
                                     .textStyle(.caption, weight: .semibold)
                                     .foregroundStyle(Palette.inkMuted)
                                 ForEach(group.candidates) { candidate in
-                                    Button { onOpenPlaceCandidate?(candidate) } label: {
-                                        HStack(spacing: Space.s3) {
-                                            Image(systemName: "mappin.and.ellipse")
-                                                .font(.system(size: 16, weight: .semibold))
-                                                .foregroundStyle(Palette.brandStrong)
-                                                .frame(width: 34, height: 34)
-                                                .background(Palette.brandSoft, in: Circle())
-                                            VStack(alignment: .leading, spacing: 2) {
-                                                Text(candidate.name)
-                                                    .textStyle(.label, weight: .semibold)
-                                                    .foregroundStyle(Palette.ink)
-                                                    .lineLimit(1)
-                                                Text([candidate.address, candidate.distanceLabel].compactMap { $0 }.joined(separator: " · "))
-                                                    .textStyle(.caption)
-                                                    .foregroundStyle(Palette.inkMuted)
-                                                    .lineLimit(1)
-                                            }
-                                            Spacer(minLength: 0)
-                                            Image(systemName: "chevron.right")
-                                                .font(.system(size: 12, weight: .semibold))
-                                                .foregroundStyle(Palette.inkMuted)
-                                        }
-                                        .padding(.horizontal, Space.s3)
-                                        .padding(.vertical, Space.s2)
-                                        .background(Palette.surfaceRaised, in: RoundedRectangle(cornerRadius: Radius.md, style: .continuous))
-                                        .cardShadow()
-                                        .contentShape(RoundedRectangle(cornerRadius: Radius.md, style: .continuous))
+                                    PlaceCardRow(icon: "mappin.and.ellipse", title: candidate.name,
+                                                 subtitle: [candidate.address, candidate.distanceLabel].compactMap { $0 }.joined(separator: " · "),
+                                                 hint: "Open place details") {
+                                        onOpenPlaceCandidate?(candidate)
                                     }
-                                    .buttonStyle(.plain)
-                                    .accessibilityHint("Open place details")
                                 }
+                            }
+                        }
+                    }
+                    .padding(.top, Space.s2)
+                }
+                ForEach(Array(actions.filter { !$0.savedPlaces.isEmpty }.enumerated()), id: \.offset) { _, action in
+                    VStack(alignment: .leading, spacing: Space.s2) {
+                        Text(action.savedPlacesLabel)
+                            .textStyle(.caption, weight: .semibold)
+                            .foregroundStyle(Palette.inkMuted)
+                        ForEach(action.savedPlaces) { place in
+                            PlaceCardRow(icon: place.visited ? "checkmark" : "bookmark.fill", title: place.name,
+                                         subtitle: place.subtitle, hint: "Open this saved place") {
+                                onOpenPlace?(place.id)
                             }
                         }
                     }
@@ -257,6 +247,48 @@ struct MessageBubble: View {
     private static func formatted(_ text: String) -> AttributedString {
         let options = AttributedString.MarkdownParsingOptions(interpretedSyntax: .inlineOnlyPreservingWhitespace)
         return (try? AttributedString(markdown: text, options: options)) ?? AttributedString(text)
+    }
+}
+
+/// One place under a reply: a search result to look at, or a saved place to open.
+private struct PlaceCardRow: View {
+    let icon: String
+    let title: String
+    let subtitle: String
+    let hint: String
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: Space.s3) {
+                Image(systemName: icon)
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundStyle(Palette.brandStrong)
+                    .frame(width: 34, height: 34)
+                    .background(Palette.brandSoft, in: Circle())
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(title)
+                        .textStyle(.label, weight: .semibold)
+                        .foregroundStyle(Palette.ink)
+                        .lineLimit(1)
+                    Text(subtitle)
+                        .textStyle(.caption)
+                        .foregroundStyle(Palette.inkMuted)
+                        .lineLimit(1)
+                }
+                Spacer(minLength: 0)
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(Palette.inkMuted)
+            }
+            .padding(.horizontal, Space.s3)
+            .padding(.vertical, Space.s2)
+            .background(Palette.surfaceRaised, in: RoundedRectangle(cornerRadius: Radius.md, style: .continuous))
+            .cardShadow()
+            .contentShape(RoundedRectangle(cornerRadius: Radius.md, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .accessibilityHint(hint)
     }
 }
 

@@ -26,9 +26,14 @@ public class PlacesNearTool implements ToolHandler {
             Integer radius = ToolInputs.optionalInt(input, "radius_m");
             var found = places.near(context.location().lat(), context.location().lng(), radius == null ? 1_000 : radius);
             List<Map<String, Object>> result = found.stream().map(PlaceToolOutputs::nearby).toList();
+            List<Map<String, Object>> cards = found.stream().limit(PlaceToolOutputs.MAX_CARDS)
+                    .map(place -> PlaceToolOutputs.savedCard(place.id().toString(), place.name(), place.address(),
+                            place.distanceM(), place.visitedAt() != null))
+                    .toList();
             return new ToolResult.Ok(Map.of("places", result), result.isEmpty()
                     ? "No saved places nearby" : "Found " + result.size() + " saved nearby "
-                    + (result.size() == 1 ? "place" : "places"));
+                    + (result.size() == 1 ? "place" : "places"),
+                    cards.isEmpty() ? Map.of() : Map.of("saved_places", cards, "label", "Saved near you"));
         } catch (IllegalArgumentException invalid) {
             return invalid(invalid.getMessage());
         }

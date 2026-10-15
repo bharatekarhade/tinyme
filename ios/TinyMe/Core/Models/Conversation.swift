@@ -84,6 +84,31 @@ struct PlaceCandidateDTO: Sendable, Hashable, Identifiable {
     }
 }
 
+struct SavedPlaceCardDTO: Sendable, Hashable, Identifiable {
+    let id: String
+    let name: String
+    let detail: String?
+    let distanceMeters: Double?
+    let visited: Bool
+
+    init?(json: JSONValue) {
+        guard case .object(let fields) = json,
+              let id = fields["place_id"]?.stringValue,
+              let name = fields["name"]?.stringValue else { return nil }
+        self.id = id
+        self.name = name
+        self.detail = fields["detail"]?.stringValue
+        self.distanceMeters = fields["distance_m"]?.numberValue
+        self.visited = fields["visited"]?.boolValue ?? false
+    }
+
+    var subtitle: String {
+        let distance = distanceMeters.map { $0 < 1_000 ? "\(Int($0.rounded())) m away" : String(format: "%.1f km away", $0 / 1_000) }
+        let parts = [distance, detail, visited ? "Visited" : nil].compactMap { $0 }
+        return parts.isEmpty ? "Saved place" : parts.joined(separator: " · ")
+    }
+}
+
 /// Something TinyMe did during a reply, shown as a chip under it.
 struct ActionDTO: Decodable, Sendable, Hashable {
     let tool: String
@@ -133,6 +158,16 @@ struct ActionDTO: Decodable, Sendable, Hashable {
     /// What the chip shows: a few words. The full summary is still read out by VoiceOver.
     var chipText: String {
         needsLocationPermission ? "Location is off" : summary
+    }
+
+    /// Saved places places_near or places_list found, shown as cards that open the saved place.
+    var savedPlaces: [SavedPlaceCardDTO] {
+        guard !isError, case .array(let values)? = ref?["saved_places"] else { return [] }
+        return values.compactMap(SavedPlaceCardDTO.init(json:))
+    }
+
+    var savedPlacesLabel: String {
+        ref?["label"]?.stringValue ?? "Your saved places"
     }
 
     var placeCandidates: [PlaceCandidateDTO] {
