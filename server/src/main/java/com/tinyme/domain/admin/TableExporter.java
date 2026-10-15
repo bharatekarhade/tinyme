@@ -37,7 +37,7 @@ public class TableExporter {
 
     /** @return number of rows written */
     public long export(String table, String archiveRoot, ZipOutputStream zip) throws IOException {
-        if (!UserDataTables.ALL.contains(table)) throw new IllegalArgumentException("Table is not exportable: " + table);
+        if (!UserDataTables.EXPORTABLE.contains(table)) throw new IllegalArgumentException("Table is not exportable: " + table);
         String orderBy = switch (table) {
             case "entry_kinds" -> "kind";
             case "entry_people" -> "entry_id, person_id";

@@ -13,10 +13,12 @@ import com.tinyme.domain.cards.service.CardBootstrap;
 import com.tinyme.domain.health.service.HealthKindBootstrap;
 import com.tinyme.domain.health.repository.HealthSyncEpochRepository;
 import com.tinyme.domain.admin.UserDataTables;
+import com.tinyme.integrations.google.service.GoogleConnection;
 import com.tinyme.maintenance.MaintenanceGate;
 import com.tinyme.storage.BlobStore;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
@@ -50,13 +52,15 @@ public class DeleteAllService {
     private final HealthKindBootstrap healthKinds;
     private final HealthSyncEpochRepository healthSyncEpoch;
     private final BlobStore blobs;
+    private final ObjectProvider<GoogleConnection> googleConnection;
 
     public DeleteAllService(ManagedAgents agents, AgentResources resources, AgentSessionRepository sessions,
                             MemorySeedFiles memorySeeds, AccountRepository accounts, PasswordService passwords,
                             LoginRateLimiter rateLimiter, MaintenanceGate gate,
                             com.tinyme.agent.service.SessionTurnLock turnLocks, JdbcTemplate jdbc,
                             TransactionTemplate transactions, CardBootstrap cardBootstrap,
-                            HealthKindBootstrap healthKinds, HealthSyncEpochRepository healthSyncEpoch, BlobStore blobs) {
+                            HealthKindBootstrap healthKinds, HealthSyncEpochRepository healthSyncEpoch, BlobStore blobs,
+                            ObjectProvider<GoogleConnection> googleConnection) {
         this.agents = agents;
         this.resources = resources;
         this.sessions = sessions;
@@ -72,6 +76,7 @@ public class DeleteAllService {
         this.healthKinds = healthKinds;
         this.healthSyncEpoch = healthSyncEpoch;
         this.blobs = blobs;
+        this.googleConnection = googleConnection;
     }
 
     public DeleteAllCounts deleteAll(String confirm, String password, short ownerId, String remoteIp) {
@@ -108,6 +113,7 @@ public class DeleteAllService {
                 throw remoteFailure(remoteFailure);
             }
 
+            disconnectGoogleBestEffort();
             transactions.executeWithoutResult(status -> {
                 jdbc.execute("TRUNCATE " + String.join(", ", UserDataTables.ALL)
                         + " RESTART IDENTITY CASCADE");
@@ -125,6 +131,17 @@ public class DeleteAllService {
             return counts;
         } finally {
             gate.endMaintenance();
+        }
+    }
+
+    private void disconnectGoogleBestEffort() {
+        GoogleConnection connection = googleConnection.getIfAvailable();
+        if (connection == null) return;
+        try {
+            connection.disconnect();
+        } catch (IOException | InterruptedException | RuntimeException failure) {
+            if (failure instanceof InterruptedException) Thread.currentThread().interrupt();
+            log.warn("Could not revoke Google access during delete-all; continuing with local data deletion", failure);
         }
     }
 

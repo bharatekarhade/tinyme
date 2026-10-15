@@ -33,6 +33,8 @@ tinyme:
   blobs:
     path: ${TINYME_BLOBS_PATH:./blobs}
 
+  encryption-key: ${TINYME_ENCRYPTION_KEY:}
+
 # Only enable behind a reverse proxy you control; forwarded headers affect login IP limiting.
 # server.forward-headers-strategy: native
 

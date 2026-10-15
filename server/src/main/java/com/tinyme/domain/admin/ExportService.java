@@ -30,7 +30,7 @@ public class ExportService {
             Entries marked deleted are included so this archive is a complete record.
             JSON columns remain nested JSON; timestamps are written in UTC.
             The memory folder contains the Markdown files the agent keeps for you.
-            Account password hashes, phone sign-in tokens, and server configuration are not included.
+            Account password hashes, phone sign-in tokens, Google credentials, and server configuration are not included.
             See manifest.json for export time, row counts, and any memory export warning.
             """;
 
@@ -74,7 +74,7 @@ public class ExportService {
         try (ZipOutputStream zip = new ZipOutputStream(output)) {
             String root = "tinyme-export-" + LocalDate.now(clock.withZone(userZone.current())) + "/";
             addText(zip, root + "README.txt", README);
-            for (String table : UserDataTables.ALL) {
+            for (String table : UserDataTables.EXPORTABLE) {
                 rowCounts.put(table, tables.export(table, root, zip));
             }
 

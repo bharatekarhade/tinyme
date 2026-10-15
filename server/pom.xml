@@ -20,6 +20,7 @@
     <json-schema-validator.version>3.0.8</json-schema-validator.version>
     <metadata-extractor.version>2.21.0</metadata-extractor.version>
     <archunit.version>1.5.1</archunit.version>
+    <tink.version>1.23.0</tink.version>
   </properties>
 
   <dependencies>
@@ -72,6 +73,11 @@
       <groupId>org.bouncycastle</groupId>
       <artifactId>bcprov-jdk18on</artifactId>
       <version>${bouncycastle.version}</version>
+    </dependency>
+    <dependency>
+      <groupId>com.google.crypto.tink</groupId>
+      <artifactId>tink</artifactId>
+      <version>${tink.version}</version>
     </dependency>
     <dependency>
       <groupId>com.anthropic</groupId>
