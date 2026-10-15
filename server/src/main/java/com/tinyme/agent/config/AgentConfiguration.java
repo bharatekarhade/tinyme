@@ -4,11 +4,13 @@ import com.tinyme.agent.client.ManagedAgentApi;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.boot.context.properties.EnableConfigurationProperties;
 
 import java.net.URI;
 import java.time.Clock;
 
 @Configuration(proxyBeanMethods = false)
+@EnableConfigurationProperties(AgentToolAllowLists.class)
 class AgentConfiguration {
     @Bean
     ManagedAgentApi managedAgentApi(@Value("${tinyme.agent.api-key}") String apiKey) {

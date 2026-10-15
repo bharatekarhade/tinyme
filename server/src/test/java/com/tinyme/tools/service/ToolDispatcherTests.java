@@ -48,7 +48,7 @@ class ToolDispatcherTests {
         UUID callId = UUID.randomUUID();
         when(fixture.calls.findByEventId(fixture.eventId)).thenReturn(Optional.empty());
         when(fixture.calls.insertRunning(fixture.base.sessionRowId(), fixture.eventId,
-                "entries_add", fixture.input)).thenReturn(callId);
+                "entries_add", fixture.input, "tinyme-chat", null)).thenReturn(callId);
         RegisteredTool registration = new RegisteredTool(spec(), fixture.handler);
         when(fixture.registry.find("entries_add")).thenReturn(Optional.of(registration));
         when(fixture.validator.validate("entries_add", fixture.input)).thenReturn(List.of());
@@ -72,6 +72,28 @@ class ToolDispatcherTests {
         var stored = org.mockito.ArgumentCaptor.forClass(JsonNode.class);
         verify(fixture.calls).finish(eq(callId), stored.capture(), eq(false), eq("done"));
         assertThat(stored.getValue().get("ref").get("card_id").stringValue()).isEqualTo("card-1");
+    }
+
+    @Test
+    void refusesToolsOutsideTheCallingAgentsAllowList() {
+        Fixture fixture = new Fixture();
+        fixture.startNewCall();
+        var restricted = new com.tinyme.agent.config.AgentToolAllowLists();
+        restricted.setToolAllowLists(Map.of("tinyme-gmail", List.of("gmail_search")));
+        var dispatcher = new ToolDispatcher(fixture.registry, fixture.validator, fixture.calls, restricted);
+        when(fixture.calls.insertRunning(fixture.base.sessionRowId(), fixture.eventId,
+                "entries_add", fixture.input, "tinyme-gmail", "thread-1")).thenReturn(fixture.callId);
+        var registration = new RegisteredTool(spec(), fixture.handler);
+        when(fixture.registry.find("entries_add")).thenReturn(Optional.of(registration));
+        var context = fixture.base.withAgent("tinyme-gmail", "thread-1");
+
+        DispatchOutcome outcome = dispatcher.dispatch(fixture.eventId, "entries_add", fixture.input, context);
+
+        assertError(outcome, "tool_not_allowed");
+        verify(fixture.calls).insertRunning(fixture.base.sessionRowId(), fixture.eventId,
+                "entries_add", fixture.input, "tinyme-gmail", "thread-1");
+        verifyNoInteractions(fixture.validator);
+        verify(fixture.handler, never()).handle(any(), any());
     }
 
     @Test
@@ -145,7 +167,7 @@ class ToolDispatcherTests {
         when(fixture.calls.findByEventId(fixture.eventId)).thenReturn(
                 Optional.empty(), Optional.of(storedCall("running", null, false)));
         when(fixture.calls.insertRunning(fixture.base.sessionRowId(), fixture.eventId,
-                "entries_add", fixture.input)).thenThrow(new DuplicateKeyException("duplicate"));
+                "entries_add", fixture.input, "tinyme-chat", null)).thenThrow(new DuplicateKeyException("duplicate"));
 
         DispatchOutcome outcome = fixture.dispatcher().dispatch(
                 fixture.eventId, "entries_add", fixture.input, fixture.base);
@@ -161,7 +183,7 @@ class ToolDispatcherTests {
         when(fixture.calls.findByEventId(fixture.eventId)).thenReturn(
                 Optional.empty(), Optional.of(storedCall("done", savedResult, true)));
         when(fixture.calls.insertRunning(fixture.base.sessionRowId(), fixture.eventId,
-                "entries_add", fixture.input)).thenThrow(new DuplicateKeyException("duplicate"));
+                "entries_add", fixture.input, "tinyme-chat", null)).thenThrow(new DuplicateKeyException("duplicate"));
 
         DispatchOutcome outcome = fixture.dispatcher().dispatch(
                 fixture.eventId, "entries_add", fixture.input, fixture.base);
@@ -306,7 +328,7 @@ class ToolDispatcherTests {
         private void startNewCall(String toolName) {
             callId = UUID.randomUUID();
             when(calls.findByEventId(eventId)).thenReturn(Optional.empty());
-            when(calls.insertRunning(sessionId, eventId, toolName, input)).thenReturn(callId);
+            when(calls.insertRunning(sessionId, eventId, toolName, input, "tinyme-chat", null)).thenReturn(callId);
         }
 
         private ToolDispatcher dispatcher() {

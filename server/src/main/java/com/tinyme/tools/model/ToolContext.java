@@ -18,8 +18,16 @@ public record ToolContext(
         Instant now,
         UUID attachedPhotoId,
         TurnLocation location,
-        TurnListener turnListener
+        TurnListener turnListener,
+        String agent,
+        String threadId
 ) {
+    public ToolContext(UUID sessionRowId, UUID toolCallId, ZoneId zone, LocalDate localDate, Instant now,
+                       UUID attachedPhotoId, TurnLocation location, TurnListener turnListener) {
+        this(sessionRowId, toolCallId, zone, localDate, now, attachedPhotoId, location, turnListener,
+                "tinyme-chat", null);
+    }
+
     public ToolContext(UUID sessionRowId, UUID toolCallId, ZoneId zone, LocalDate localDate, Instant now) {
         this(sessionRowId, toolCallId, zone, localDate, now, null, null, TurnListener.NONE);
     }
@@ -35,6 +43,12 @@ public record ToolContext(
     }
 
     public ToolContext withToolCallId(UUID id) {
-        return new ToolContext(sessionRowId, id, zone, localDate, now, attachedPhotoId, location, turnListener);
+        return new ToolContext(sessionRowId, id, zone, localDate, now, attachedPhotoId, location, turnListener,
+                agent, threadId);
+    }
+
+    public ToolContext withAgent(String agentName, String thread) {
+        return new ToolContext(sessionRowId, toolCallId, zone, localDate, now, attachedPhotoId, location, turnListener,
+                agentName, thread);
     }
 }

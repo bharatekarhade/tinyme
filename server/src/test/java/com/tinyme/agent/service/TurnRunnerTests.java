@@ -193,6 +193,48 @@ class TurnRunnerTests {
     }
 
     @Test
+    void routesSubagentToolCallsBackToTheirThreadAndSuppressesItsPreview() throws Exception {
+        var body = events(
+                "{\"type\":\"session.thread_started\",\"id\":\"thread-event\",\"session_thread_id\":\"th-gmail\",\"agent_name\":\"tinyme-gmail\"}",
+                "{\"type\":\"agent.message\",\"id\":\"gmail-preview\",\"session_thread_id\":\"th-gmail\",\"content\":[{\"type\":\"text\",\"text\":\"Private Gmail preview\"}]}",
+                "{\"type\":\"agent.custom_tool_use\",\"id\":\"gmail-search\",\"session_thread_id\":\"th-gmail\",\"name\":\"gmail_search\",\"input\":{\"query\":\"newer_than:1d\"}}",
+                "{\"type\":\"session.thread_status_idle\",\"id\":\"thread-idle\",\"session_thread_id\":\"th-gmail\",\"stop_reason\":{\"type\":\"end_turn\"}}",
+                "{\"type\":\"agent.message\",\"id\":\"chat-reply\",\"content\":[{\"type\":\"text\",\"text\":\"Here are your messages.\"}]}",
+                END);
+        when(api.openStream("sesn_test")).thenReturn(new EventStream(body));
+        when(dispatcher.dispatch(anyString(), anyString(), any(), any()))
+                .thenReturn(new DispatchOutcome("{\"ok\":true,\"summary\":\"Found mail\"}", false));
+        when(messages.insert(eq(session.sessionRowId()), eq(MessageRole.ASSISTANT), anyString(), anyList()))
+                .thenReturn(UUID.randomUUID());
+        var runner = runner(Duration.ofSeconds(5));
+        var observed = new ArrayList<TurnEvent>();
+
+        var result = runner.run(request("search my email"), observed::add);
+
+        assertThat(result.replyText()).isEqualTo("Here are your messages.");
+        assertThat(observed).contains(new TurnEvent.Text("Here are your messages."))
+                .noneMatch(event -> event.toString().contains("Private Gmail preview"));
+        var context = org.mockito.ArgumentCaptor.forClass(ToolContext.class);
+        verify(dispatcher).dispatch(eq("gmail-search"), eq("gmail_search"), any(), context.capture());
+        assertThat(context.getValue().agent()).isEqualTo("tinyme-gmail");
+        assertThat(context.getValue().threadId()).isEqualTo("th-gmail");
+        var resultEvents = org.mockito.ArgumentCaptor.forClass(List.class);
+        verify(api, atLeastOnce()).sendEvents(eq("sesn_test"), resultEvents.capture());
+        var sentResults = new ArrayList<Map<?, ?>>();
+        for (Object batch : resultEvents.getAllValues()) {
+            for (Object event : (List<?>) batch) {
+                if (event instanceof Map<?, ?> map && "user.custom_tool_result".equals(map.get("type"))) {
+                    sentResults.add(map);
+                }
+            }
+        }
+        assertThat(sentResults).hasSize(1);
+        Map<?, ?> sentResult = sentResults.getFirst();
+        assertThat(sentResult.get("custom_tool_use_id")).isEqualTo("gmail-search");
+        assertThat(sentResult.get("session_thread_id")).isEqualTo("th-gmail");
+    }
+
+    @Test
     void consumesTheRecordedCoffeeSession() throws Exception {
         JsonNode recording;
         try (var resource = getClass().getResourceAsStream("/streams/had-a-coffee.json")) {

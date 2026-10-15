@@ -48,13 +48,16 @@ class ToolCallRepositoryTests {
 
         try {
             assertThat(toolCalls.findByEventId(eventId)).isEmpty();
-            UUID callId = toolCalls.insertRunning(sessionId, eventId, "entries_add", input);
+            UUID callId = toolCalls.insertRunning(sessionId, eventId, "entries_add", input,
+                    "tinyme-gmail", "thread-1");
             assertThat(callId.version()).isEqualTo(7);
 
             StoredCall running = toolCalls.findByEventId(eventId).orElseThrow();
             assertThat(running.id()).isEqualTo(callId);
             assertThat(running.sessionRowId()).isEqualTo(sessionId);
             assertThat(running.tool()).isEqualTo("entries_add");
+            assertThat(running.agent()).isEqualTo("tinyme-gmail");
+            assertThat(running.threadId()).isEqualTo("thread-1");
             assertThat(running.input().get("kind").stringValue()).isEqualTo("drink");
             assertThat(running.status()).isEqualTo("running");
             assertThat(running.startedAt()).isNotNull();

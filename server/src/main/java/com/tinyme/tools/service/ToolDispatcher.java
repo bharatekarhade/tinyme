@@ -6,12 +6,14 @@ import com.tinyme.tools.model.StoredCall;
 import com.tinyme.tools.model.ToolContext;
 import com.tinyme.tools.model.ToolResult;
 import com.tinyme.tools.repository.ToolCallRepository;
+import com.tinyme.agent.config.AgentToolAllowLists;
 
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Component;
+import org.springframework.beans.factory.annotation.Autowired;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 import tools.jackson.databind.node.ObjectNode;
@@ -32,11 +34,19 @@ public class ToolDispatcher {
     private final ToolRegistry registry;
     private final ToolValidator validator;
     private final ToolCallRepository calls;
+    private final AgentToolAllowLists allowLists;
 
-    public ToolDispatcher(ToolRegistry registry, ToolValidator validator, ToolCallRepository calls) {
+    @Autowired
+    public ToolDispatcher(ToolRegistry registry, ToolValidator validator, ToolCallRepository calls,
+                          AgentToolAllowLists allowLists) {
         this.registry = Objects.requireNonNull(registry, "registry");
         this.validator = Objects.requireNonNull(validator, "validator");
         this.calls = Objects.requireNonNull(calls, "calls");
+        this.allowLists = Objects.requireNonNull(allowLists, "allowLists");
+    }
+
+    public ToolDispatcher(ToolRegistry registry, ToolValidator validator, ToolCallRepository calls) {
+        this(registry, validator, calls, AgentToolAllowLists.forTests());
     }
 
     public DispatchOutcome dispatch(String eventId, String toolName,
@@ -53,7 +63,8 @@ public class ToolDispatcher {
 
         final java.util.UUID toolCallId;
         try {
-            toolCallId = calls.insertRunning(base.sessionRowId(), eventId, toolName, input);
+            toolCallId = calls.insertRunning(base.sessionRowId(), eventId, toolName, input,
+                    base.agent(), base.threadId());
         } catch (DuplicateKeyException duplicate) {
             return calls.findByEventId(eventId)
                     .map(stored -> replayOrAlreadyRunning(stored, toolName, eventId))
@@ -69,6 +80,10 @@ public class ToolDispatcher {
         }
 
         RegisteredTool registered = registration.get();
+        if (!allowLists.allows(base.agent(), toolName)) {
+            return finishError(toolCallId, toolName, eventId, "tool_not_allowed",
+                    "Tool is not available to this agent");
+        }
         if (!registered.implemented()) {
             return finishError(toolCallId, toolName, eventId, "not_implemented",
                     "Tool '" + toolName + "' is not implemented yet");

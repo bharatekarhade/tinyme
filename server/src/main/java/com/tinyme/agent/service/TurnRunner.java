@@ -48,17 +48,33 @@ public class TurnRunner {
     private final Clock clock;
     private final Duration timeout;
     private final ResilientEventSource.Sleeper reconnectSleeper;
+    private final String coordinatorAgent;
 
     @Autowired
     TurnRunner(ContextPrefixBuilder contextPrefix, ManagedAgents api,
                ToolDispatcher dispatcher, SessionTurnLock sessionTurnLock, MessageRepository messages, Clock clock,
-               @Value("${tinyme.agent.turn-timeout:120s}") Duration timeout) {
-        this(contextPrefix, api, dispatcher, sessionTurnLock, messages, clock, timeout, Thread::sleep);
+               @Value("${tinyme.agent.turn-timeout:120s}") Duration timeout,
+               @Value("${tinyme.agent.name:tinyme-chat}") String coordinatorAgent) {
+        this(contextPrefix, api, dispatcher, sessionTurnLock, messages, clock, timeout, Thread::sleep,
+                coordinatorAgent);
+    }
+
+    TurnRunner(ContextPrefixBuilder contextPrefix, ManagedAgents api,
+               ToolDispatcher dispatcher, SessionTurnLock sessionTurnLock, MessageRepository messages, Clock clock,
+               Duration timeout) {
+        this(contextPrefix, api, dispatcher, sessionTurnLock, messages, clock, timeout, Thread::sleep, "tinyme-chat");
     }
 
     TurnRunner(ContextPrefixBuilder contextPrefix, ManagedAgents api,
                ToolDispatcher dispatcher, SessionTurnLock sessionTurnLock, MessageRepository messages, Clock clock,
                Duration timeout, ResilientEventSource.Sleeper reconnectSleeper) {
+        this(contextPrefix, api, dispatcher, sessionTurnLock, messages, clock, timeout, reconnectSleeper,
+                "tinyme-chat");
+    }
+
+    TurnRunner(ContextPrefixBuilder contextPrefix, ManagedAgents api,
+               ToolDispatcher dispatcher, SessionTurnLock sessionTurnLock, MessageRepository messages, Clock clock,
+               Duration timeout, ResilientEventSource.Sleeper reconnectSleeper, String coordinatorAgent) {
         this.contextPrefix = contextPrefix;
         this.api = api;
         this.dispatcher = dispatcher;
@@ -66,6 +82,7 @@ public class TurnRunner {
         this.messages = messages;
         this.clock = clock;
         this.reconnectSleeper = Objects.requireNonNull(reconnectSleeper, "reconnectSleeper");
+        this.coordinatorAgent = Objects.requireNonNull(coordinatorAgent, "coordinatorAgent");
         if (timeout.isZero() || timeout.isNegative()) {
             throw new IllegalArgumentException("Turn timeout must be positive");
         }
@@ -165,6 +182,7 @@ public class TurnRunner {
         var context = new ToolContext(session.sessionRowId(), null, zone,
                 LocalDate.ofInstant(referenceTime, zone), referenceTime, request.attachedPhotoId(), request.location(),
                 listener);
+        var threads = new ThreadRegistry(coordinatorAgent);
         String prefix = request.location() == null
                 ? contextPrefix.build(zone, referenceTime)
                 : contextPrefix.build(zone, referenceTime, request.location());
@@ -191,6 +209,10 @@ public class TurnRunner {
                     state.checkCancelled();
                     if (event == null) throw new IOException("Managed Agents stream ended before end_turn");
                     String type = requiredText(event, "type");
+                    if (type.startsWith("session.thread_")) {
+                        threads.observe(event);
+                        continue;
+                    }
                     // Ignore built-in tool activity, usage, thread status and any preview events.
                     if (!List.of("agent.custom_tool_use", "agent.message", "session.status_idle", "session.error")
                             .contains(type)) continue;
@@ -201,7 +223,14 @@ public class TurnRunner {
                             JsonNode input = event.get("input");
                             if (input == null) throw new IOException("Custom tool event is missing input");
                             // EventStream already supplies Jackson 3 nodes, matching the dispatcher.
-                            var result = dispatcher.dispatch(id, name, input, context);
+                            String threadId = optionalText(event, "session_thread_id");
+                            if (threadId == null) threadId = optionalText(event, "thread_id");
+                            String announcedAgent = optionalText(event, "agent_name");
+                            if (threadId != null && announcedAgent != null) {
+                                threads.register(threadId, announcedAgent);
+                            }
+                            var result = dispatcher.dispatch(id, name, input,
+                                    context.withAgent(threads.agentFor(threadId), threadId));
                             toolCalls++;
                             String summary = actionSummary(result);
                             var action = new LinkedHashMap<String, Object>();
@@ -212,11 +241,18 @@ public class TurnRunner {
                             actions.add(action);
                             listener.on(new TurnEvent.ActionDone(name, summary, result.isError(), result.ref()));
                             state.checkCancelled();
-                            api.sendEvents(session.anthropicSessionId(), List.of(Map.of(
-                                    "type", "user.custom_tool_result", "custom_tool_use_id", id,
-                                    "content", List.of(textBlock(result.resultJson())), "is_error", result.isError())));
+                            var toolResultEvent = new LinkedHashMap<String, Object>();
+                            toolResultEvent.put("type", "user.custom_tool_result");
+                            toolResultEvent.put("custom_tool_use_id", id);
+                            toolResultEvent.put("content", List.of(textBlock(result.resultJson())));
+                            toolResultEvent.put("is_error", result.isError());
+                            if (threadId != null) toolResultEvent.put("session_thread_id", threadId);
+                            api.sendEvents(session.anthropicSessionId(), List.of(toolResultEvent));
                         }
                         case "agent.message" -> {
+                            String threadId = optionalText(event, "session_thread_id");
+                            if (threadId == null) threadId = optionalText(event, "thread_id");
+                            if (threadId != null && !coordinatorAgent.equals(threads.agentFor(threadId))) continue;
                             String textEvent = messageText(event);
                             reply.append(textEvent);
                             if (!textEvent.isEmpty()) listener.on(new TurnEvent.Text(textEvent));
@@ -345,6 +381,12 @@ public class TurnRunner {
             throw new IOException("Managed Agents event is missing " + field);
         }
         return value.stringValue();
+    }
+
+    private static String optionalText(JsonNode node, String field) {
+        JsonNode value = node.get(field);
+        return value != null && value.isString() && !value.stringValue().isBlank()
+                ? value.stringValue() : null;
     }
 
     private static void cancel(FutureTask<?> task, TurnState state, Exception failure) {

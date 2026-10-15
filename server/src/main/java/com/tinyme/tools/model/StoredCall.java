@@ -12,10 +12,18 @@ public record StoredCall(
         UUID sessionRowId,
         String eventId,
         String tool,
+        String agent,
+        String threadId,
         JsonNode input,
         JsonNode result,
         boolean isError,
         String status,
         Instant startedAt,
         Instant finishedAt
-) {}
+) {
+    public StoredCall(UUID id, UUID sessionRowId, String eventId, String tool, JsonNode input, JsonNode result,
+                      boolean isError, String status, Instant startedAt, Instant finishedAt) {
+        this(id, sessionRowId, eventId, tool, "tinyme-chat", null, input, result, isError, status,
+                startedAt, finishedAt);
+    }
+}

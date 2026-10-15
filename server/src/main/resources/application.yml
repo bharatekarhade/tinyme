@@ -44,6 +44,29 @@ tinyme:
 # server.forward-headers-strategy: native
 
   agent:
+    name: ${TINYME_AGENT_NAME:tinyme-chat}
+    tool-allow-lists:
+      tinyme-chat:
+        - entries_add
+        - entries_query
+        - entries_aggregate
+        - entries_update
+        - entries_delete
+        - people_get
+        - people_upsert
+        - people_photo_add
+        - plans_add
+        - plans_query
+        - plans_update
+        - cards_list
+        - cards_save
+        - cards_delete
+        - places_search
+        - places_save
+        - places_list
+        - places_near
+        - places_update
+        - places_remove
     setup-enabled: ${TINYME_AGENT_SETUP_ENABLED:true}
     api-key: ${ANTHROPIC_API_KEY:}
     environment-id: ${ANTHROPIC_ENVIRONMENT_ID:}
