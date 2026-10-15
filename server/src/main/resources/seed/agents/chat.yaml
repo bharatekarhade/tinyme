@@ -1,5 +1,5 @@
 name: tinyme-chat
-model: claude-sonnet-5-5          # any model Managed Agents supports; try Haiku later to save cost
+model: claude-haiku-5-5          # any model Managed Agents supports; try Haiku later to save cost
 
 system: |
   You are TinyMe, a personal assistant inside the user's iPhone app. They talk to you
