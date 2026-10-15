@@ -1,8 +1,10 @@
 import Foundation
+import os
 
 /// Runs device tools and reports the outcome to the server.
 /// Used for live `.clientAction` stream events and for pending actions from `GET /sync`.
 actor DeviceToolRegistry {
+    private static let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "TinyMe", category: "device-tools")
     private let api: APIClient
     private let tools: [String: any DeviceTool]
 
@@ -17,11 +19,17 @@ actor DeviceToolRegistry {
             do {
                 result = .ok(try await handler.run(input))
             } catch {
-                result = .error(code: "device_error", message: error.localizedDescription)
+                let code = (error as? PlacesSearchError)?.code ?? "device_error"
+                Self.log.error("Device tool \(tool, privacy: .public) failed with \(code, privacy: .public): \(error.localizedDescription, privacy: .public)")
+                result = .error(code: code, message: error.localizedDescription)
             }
         } else {
             result = .error(code: "unknown_tool", message: "This version of the app can't run \(tool)")
         }
-        try? await api.postActionResult(actionId, result)
+        do {
+            try await api.postActionResult(actionId, result)
+        } catch {
+            Self.log.error("Could not post result for device tool \(tool, privacy: .public): \(error.localizedDescription, privacy: .public)")
+        }
     }
 }

@@ -11,6 +11,8 @@ struct MessageBubble: View {
     var inlineCard: ((String) -> InlineCardModel)?
     var onChangeGoal: (CardDTO) -> Void = { _ in }
     var onOpenPlan: ((String) -> Void)?
+    var onOpenPlace: ((String) -> Void)?
+    var onOpenPlaceCandidate: ((PlaceCandidateDTO) -> Void)?
 
     var body: some View {
         switch item {
@@ -109,13 +111,15 @@ struct MessageBubble: View {
             TinyMeFace(size: 28, mood: status == .streaming ? .thinking : .awake, isAlive: status == .streaming)
                 .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: Space.s2) {
-                if !actions.isEmpty {
+                let visibleActions = actions.filter { $0.tool != "places_search" }
+                if !visibleActions.isEmpty {
                     FlowLayout(spacing: 6) {
-                        ForEach(Array(actions.enumerated()), id: \.offset) { _, action in
-                            ActionChip(action: action, onOpenPlan: onOpenPlan)
+                        ForEach(Array(visibleActions.enumerated()), id: \.offset) { _, action in
+                            ActionChip(action: action, onOpenPlan: onOpenPlan, onOpenPlace: onOpenPlace)
                         }
                     }
                 }
+                let candidateGroups = Self.placeCandidateGroups(in: actions)
                 if !text.isEmpty {
                     Text(Self.formatted(text))
                         .textStyle(.body)
@@ -138,6 +142,50 @@ struct MessageBubble: View {
                                 .cardShadow()
                         }
                         .accessibilityLabel("TinyMe is thinking")
+                }
+                if !candidateGroups.isEmpty {
+                    VStack(alignment: .leading, spacing: Space.s3) {
+                        ForEach(candidateGroups) { group in
+                            VStack(alignment: .leading, spacing: Space.s2) {
+                                Text(group.label ?? "Places found")
+                                    .textStyle(.caption, weight: .semibold)
+                                    .foregroundStyle(Palette.inkMuted)
+                                ForEach(group.candidates) { candidate in
+                                    Button { onOpenPlaceCandidate?(candidate) } label: {
+                                        HStack(spacing: Space.s3) {
+                                            Image(systemName: "mappin.and.ellipse")
+                                                .font(.system(size: 16, weight: .semibold))
+                                                .foregroundStyle(Palette.brandStrong)
+                                                .frame(width: 34, height: 34)
+                                                .background(Palette.brandSoft, in: Circle())
+                                            VStack(alignment: .leading, spacing: 2) {
+                                                Text(candidate.name)
+                                                    .textStyle(.label, weight: .semibold)
+                                                    .foregroundStyle(Palette.ink)
+                                                    .lineLimit(1)
+                                                Text([candidate.address, candidate.distanceLabel].compactMap { $0 }.joined(separator: " · "))
+                                                    .textStyle(.caption)
+                                                    .foregroundStyle(Palette.inkMuted)
+                                                    .lineLimit(1)
+                                            }
+                                            Spacer(minLength: 0)
+                                            Image(systemName: "chevron.right")
+                                                .font(.system(size: 12, weight: .semibold))
+                                                .foregroundStyle(Palette.inkMuted)
+                                        }
+                                        .padding(.horizontal, Space.s3)
+                                        .padding(.vertical, Space.s2)
+                                        .background(Palette.surfaceRaised, in: RoundedRectangle(cornerRadius: Radius.md, style: .continuous))
+                                        .cardShadow()
+                                        .contentShape(RoundedRectangle(cornerRadius: Radius.md, style: .continuous))
+                                    }
+                                    .buttonStyle(.plain)
+                                    .accessibilityHint("Open place details")
+                                }
+                            }
+                        }
+                    }
+                    .padding(.top, Space.s2)
                 }
                 if let inlineCard {
                     ForEach(Self.cardIds(in: actions), id: \.self) { cardId in
@@ -181,6 +229,14 @@ struct MessageBubble: View {
         return actions.compactMap(\.cardId).filter { seen.insert($0).inserted }
     }
 
+    private static func placeCandidateGroups(in actions: [ActionDTO]) -> [PlaceCandidateGroup] {
+        actions.compactMap { action in
+            let candidates = action.placeCandidates
+            guard !candidates.isEmpty else { return nil }
+            return PlaceCandidateGroup(id: candidates[0].id, label: candidates[0].searchArea, candidates: candidates)
+        }
+    }
+
     // MARK: - Shared
 
     /// radius-md corners, with a small one where the bubble points at its speaker.
@@ -199,6 +255,12 @@ struct MessageBubble: View {
         let options = AttributedString.MarkdownParsingOptions(interpretedSyntax: .inlineOnlyPreservingWhitespace)
         return (try? AttributedString(markdown: text, options: options)) ?? AttributedString(text)
     }
+}
+
+private struct PlaceCandidateGroup: Identifiable {
+    let id: String
+    let label: String?
+    let candidates: [PlaceCandidateDTO]
 }
 
 private struct ChatPhotoPreview: View {

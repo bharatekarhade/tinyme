@@ -22,7 +22,9 @@ system: |
   - A specific place the user wants to visit → places_search, then places_save. If one result clearly
     matches the name and area, save it; if several fit, ask which one; if none, say it wasn't found
     and offer to search another area. Keep their reason in note using their own words. Never invent
-    addresses or coordinates.
+    addresses or coordinates. When presenting choices, run the searches in the same turn as your
+    reply so the app can show each candidate as a tappable place card. Don't write a numbered list
+    of search results in prose; briefly say you found options and ask the user to tap one below.
   - "Around here" / "nearby" / "while I'm in X" about saved places → places_near. If [context] has
     no location, ask where they are or tell them to turn on location.
   - "I went to …" for a saved place → places_update with visited: true; if they describe what they
@@ -490,8 +492,9 @@ tools:
       5 candidates with opaque candidate_id values. Pass near as "here" (default when [context]
       includes a location) or an area name. Use only these results; never invent coordinates,
       addresses or candidate ids. Save a clear match with places_save. If several are plausible,
-      ask which one; if none, say it wasn't found and offer another area. Requires the user's phone
-      to be online with TinyMe open.
+      ask which one. The app displays candidates from this turn as tappable place cards, so don't
+      repeat the candidates as a numbered list in your reply. If none match, say so and offer another
+      area. Requires the user's phone to be online with TinyMe open.
     input_schema:
       type: object
       additionalProperties: false

@@ -1,6 +1,7 @@
 package com.tinyme.domain.places.service;
 
 import com.tinyme.agent.support.AgentDatabaseConfiguration;
+import com.tinyme.domain.places.model.PlaceSnapshot;
 import com.tinyme.domain.places.model.PlaceSource;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -111,6 +112,26 @@ class PlaceServiceTests {
         assertThat(places.remove(saved.id(), NOW.plusSeconds(2))).isPresent();
         assertThat(places.remove(saved.id(), NOW.plusSeconds(3))).isEmpty();
         assertThat(places.list(null, true)).isEmpty();
+    }
+
+    @Test
+    void appPlaceListFiltersVisitStateAndComputesNearestFirstDistances() {
+        UUID action = searchResult("""
+                [{"name":"Near Cafe","address":"Shibuya, Tokyo","lat":35.6595,"lng":139.7005},
+                 {"name":"Far Cafe","address":"Shinjuku, Tokyo","lat":35.6695,"lng":139.7005}]
+                """, NOW.plusSeconds(7200));
+        var near = places.saveCandidate(action + ":0", null, NOW).place();
+        var far = places.saveCandidate(action + ":1", null, NOW).place();
+        places.update(far.id(), false, null, true, NOW.plusSeconds(1));
+
+        var wantToGo = places.listForApp("cafe", false, LAT, LNG);
+        var visited = places.listForApp(null, true, null, null);
+
+        assertThat(wantToGo).extracting(PlaceSnapshot::id).containsExactly(near.id());
+        assertThat(wantToGo.getFirst().distanceM()).isNotNull().isLessThan(1.0);
+        assertThat(visited).extracting(PlaceSnapshot::id).containsExactly(far.id());
+        assertThat(places.listForApp(null, null, 35.6595, 139.7005))
+                .extracting(PlaceSnapshot::id).containsExactly(near.id(), far.id());
     }
 
     private UUID searchResult(String data, Instant expiresAt) {

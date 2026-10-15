@@ -73,6 +73,33 @@ class ToolDispatcherTests {
     }
 
     @Test
+    void noLocationNearbyErrorCarriesPromptMarkerAndPersistsItForReplay() {
+        Fixture fixture = new Fixture();
+        fixture.startNewCall("places_near");
+        when(fixture.handler.name()).thenReturn("places_near");
+        RegisteredTool placesNear = new RegisteredTool(
+                new ToolSpec("places_near", JSON.readTree("{\"type\":\"object\"}")), fixture.handler);
+        when(fixture.registry.find("places_near")).thenReturn(Optional.of(placesNear));
+        when(fixture.validator.validate("places_near", fixture.input)).thenReturn(List.of());
+        when(fixture.handler.handle(eq(fixture.input), any(ToolContext.class)))
+                .thenReturn(new ToolResult.Err("no_location", "Turn on location"));
+
+        DispatchOutcome outcome = fixture.dispatcher().dispatch(
+                fixture.eventId, "places_near", fixture.input, fixture.base);
+
+        assertThat(outcome.isError()).isTrue();
+        assertThat(outcome.ref()).containsEntry("error_code", "no_location");
+        JsonNode saved = JSON.readTree(outcome.resultJson());
+        assertThat(saved.get("ref").get("error_code").stringValue()).isEqualTo("no_location");
+
+        when(fixture.calls.findByEventId(fixture.eventId)).thenReturn(Optional.of(
+                storedCall("done", saved, true)));
+        DispatchOutcome replay = fixture.dispatcher().dispatch(
+                fixture.eventId, "places_near", fixture.input, fixture.base);
+        assertThat(replay.ref()).containsEntry("error_code", "no_location");
+    }
+
+    @Test
     void replaysStoredFinishedResultWithoutRunningToolAgain() {
         Fixture fixture = new Fixture();
         JsonNode savedResult = JSON.readTree("""

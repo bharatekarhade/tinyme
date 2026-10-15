@@ -1,5 +1,6 @@
 import Foundation
 import Observation
+import CoreLocation
 #if canImport(UIKit)
 import UIKit
 #endif
@@ -41,6 +42,15 @@ final class SessionModel {
     /// What the login form starts with.
     var lastServer: URL? { authStore.lastServer }
     var lastEmail: String? { authStore.lastEmail }
+
+    /// Reuses a fresh foreground fix if location access was already granted; opening Places never triggers a prompt.
+    func placeCoordinateIfAvailable() async -> CLLocationCoordinate2D? {
+        await locationProvider.currentLocation(requestPermission: false)?.coordinate
+    }
+
+    func requestLocationPermission() async -> Bool {
+        await locationProvider.requestAuthorization()
+    }
 
     func signIn(server: String, email: String, password: String) async {
         guard state == .signedOut else { return }

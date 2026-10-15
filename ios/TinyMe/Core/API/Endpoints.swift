@@ -1,4 +1,5 @@
 import Foundation
+import CoreLocation
 
 struct Endpoint: Sendable {
     let method: String
@@ -50,6 +51,29 @@ struct Endpoint: Sendable {
     static let kinds = Endpoint(method: "GET", path: "kinds")
 
     static let people = Endpoint(method: "GET", path: "people")
+
+    static func places(query: String = "", visited: Bool? = nil, near: CLLocationCoordinate2D? = nil) -> Endpoint {
+        var items: [URLQueryItem] = []
+        if !query.isEmpty { items.append(URLQueryItem(name: "q", value: query)) }
+        if let visited { items.append(URLQueryItem(name: "visited", value: String(visited))) }
+        if let near {
+            items.append(URLQueryItem(name: "near_lat", value: String(near.latitude)))
+            items.append(URLQueryItem(name: "near_lng", value: String(near.longitude)))
+        }
+        return Endpoint(method: "GET", path: "places", query: items)
+    }
+
+    static func place(_ id: String) -> Endpoint {
+        Endpoint(method: "GET", path: "places/\(id)")
+    }
+
+    static func updatePlace(_ id: String) -> Endpoint {
+        Endpoint(method: "PATCH", path: "places/\(id)")
+    }
+
+    static func deletePlace(_ id: String) -> Endpoint {
+        Endpoint(method: "DELETE", path: "places/\(id)")
+    }
 
     static func person(_ slug: String) -> Endpoint {
         Endpoint(method: "GET", path: "people/\(slug)")

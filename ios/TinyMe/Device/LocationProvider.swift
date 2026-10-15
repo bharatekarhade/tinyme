@@ -22,10 +22,11 @@ final class LocationProvider: NSObject, @preconcurrency CLLocationManagerDelegat
     func locationForChatContext() async -> OutgoingMessage.ClientContext.Location? {
         guard Self.isAuthorized(manager.authorizationStatus),
               let location = await currentLocation(requestPermission: false),
-              Self.isUsable(location, now: .now),
-              let area = await areaName(for: location), !area.isEmpty else {
+              Self.isUsable(location, now: .now) else {
             return nil
         }
+        // Coordinates remain useful even if Apple's reverse geocoder has no placemark or is offline.
+        let area = await areaName(for: location) ?? "Current location"
         return OutgoingMessage.ClientContext.Location(
             lat: location.coordinate.latitude,
             lng: location.coordinate.longitude,
@@ -33,6 +34,15 @@ final class LocationProvider: NSObject, @preconcurrency CLLocationManagerDelegat
             at: location.timestamp.formatted(Date.ISO8601FormatStyle(includingFractionalSeconds: true)),
             area: area
         )
+    }
+
+    /// Requests the system prompt on first use. If access was denied earlier, the caller can open Settings.
+    func requestAuthorization() async -> Bool {
+        var status = manager.authorizationStatus
+        if status == .notDetermined {
+            status = await requestWhenInUsePermission()
+        }
+        return Self.isAuthorized(status)
     }
 
     /// Used only when the user asks to search "here". The system prompt is then tied to that request.

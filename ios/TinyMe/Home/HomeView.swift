@@ -10,6 +10,7 @@ struct HomeView: View {
     @AppStorage("health.homeCardDismissed") private var healthCardDismissed = false
     @State private var showsHealth = false
     @State private var showsPeople = false
+    @State private var showsPlaces = false
     @State private var cardToRemove: CardDTO?
     @State private var isPeriodPickerPresented = false
     /// How far Home is scrolled, to tell whether the switcher is pinned.
@@ -37,7 +38,7 @@ struct HomeView: View {
             ScrollView {
                 LazyVStack(spacing: 0, pinnedViews: [.sectionHeaders]) {
                     HomeHeader(initial: profileInitial, subtitle: model.range.subtitle, streak: model.streak,
-                               onPeople: { showsPeople = true }) {
+                               onPeople: { showsPeople = true }, onPlaces: { showsPlaces = true }) {
                         router.showsSettings = true
                     }
                     .padding(.horizontal, Space.s4)
@@ -198,6 +199,11 @@ struct HomeView: View {
         }
         .sheet(isPresented: $showsPeople) {
             PeopleView(api: api)
+                .presentationDetents([.large])
+                .presentationDragIndicator(.visible)
+        }
+        .sheet(isPresented: $showsPlaces) {
+            PlacesView(api: api, currentCoordinate: { await environment.session.placeCoordinateIfAvailable() })
                 .presentationDetents([.large])
                 .presentationDragIndicator(.visible)
         }
@@ -418,6 +424,7 @@ private struct HomeHeader: View {
     var subtitle: String
     var streak: JournalStreak?
     var onPeople: () -> Void
+    var onPlaces: () -> Void
     var onProfile: () -> Void
 
     var body: some View {
@@ -436,6 +443,15 @@ private struct HomeHeader: View {
                         .frame(width: 44, height: 44)
                 }
                 .accessibilityLabel("People")
+                Button(action: onPlaces) {
+                    Image(systemName: "mappin.and.ellipse")
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundStyle(Palette.ink)
+                        .frame(width: 40, height: 40)
+                        .background(Palette.surfaceSunken, in: Circle())
+                        .frame(width: 44, height: 44)
+                }
+                .accessibilityLabel("Places")
                 Button(action: onProfile) {
                     Text(initial)
                         .textStyle(.label, weight: .semibold)

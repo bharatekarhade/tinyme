@@ -70,6 +70,30 @@ public class PlaceService {
                 .toList();
     }
 
+    /** App-facing list: supports all/visited/unvisited and optional distance ordering without a radius cutoff. */
+    @Transactional(readOnly = true)
+    public List<PlaceSnapshot> listForApp(String query, Boolean visited, Double nearLat, Double nearLng) {
+        String q = query == null || query.isBlank() ? null : query.strip().toLowerCase(Locale.ROOT);
+        if (q != null && q.length() > 120) throw new IllegalArgumentException("q must be at most 120 characters");
+        if ((nearLat == null) != (nearLng == null)) throw new IllegalArgumentException("near_lat and near_lng must be provided together");
+        if (nearLat != null) validateCoordinates(nearLat, nearLng);
+        var result = places.listLive(true).stream()
+                .filter(place -> visited == null || (place.getVisitedAt() != null) == visited)
+                .filter(place -> q == null || contains(place.getName(), q) || contains(place.getAddress(), q)
+                        || contains(place.getNote(), q) || contains(place.getCategory(), q))
+                .map(PlaceSnapshot::from)
+                .map(place -> nearLat == null ? place : place.withDistance(distanceMeters(nearLat, nearLng, place.lat(), place.lng())))
+                .toList();
+        if (nearLat == null) return result;
+        return result.stream().sorted(java.util.Comparator.comparing(PlaceSnapshot::distanceM)
+                .thenComparing(PlaceSnapshot::name, String.CASE_INSENSITIVE_ORDER)).toList();
+    }
+
+    @Transactional(readOnly = true)
+    public Optional<PlaceSnapshot> get(UUID id) {
+        return places.findLive(id).map(PlaceSnapshot::from);
+    }
+
     @Transactional(readOnly = true)
     public List<NearbyPlace> near(double lat, double lng, int radiusM) {
         if (radiusM < 50 || radiusM > 20_000) {
@@ -102,6 +126,21 @@ public class PlaceService {
 
     private static boolean contains(String value, String q) {
         return value != null && value.toLowerCase(Locale.ROOT).contains(q);
+    }
+
+    private static void validateCoordinates(double lat, double lng) {
+        if (!Double.isFinite(lat) || lat < -90 || lat > 90) throw new IllegalArgumentException("near_lat must be between -90 and 90");
+        if (!Double.isFinite(lng) || lng < -180 || lng > 180) throw new IllegalArgumentException("near_lng must be between -180 and 180");
+    }
+
+    private static double distanceMeters(double lat1, double lng1, double lat2, double lng2) {
+        double earthRadius = 6_371_000;
+        double latDelta = Math.toRadians(lat2 - lat1);
+        double lngDelta = Math.toRadians(lng2 - lng1);
+        double a = Math.pow(Math.sin(latDelta / 2), 2)
+                + Math.cos(Math.toRadians(lat1)) * Math.cos(Math.toRadians(lat2)) * Math.pow(Math.sin(lngDelta / 2), 2);
+        a = Math.min(1, Math.max(0, a));
+        return earthRadius * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
     }
 
     private static String cleanNote(String note) {

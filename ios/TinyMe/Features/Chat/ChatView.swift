@@ -6,6 +6,9 @@ struct ChatView: View {
     @Environment(\.scenePhase) private var scenePhase
     @State private var model: ChatModel
     @State private var speech = SpeechService()
+    @State private var selectedPlaceCandidate: PlaceCandidateDTO?
+    @State private var showsLocationPermissionPrompt = false
+    @State private var awaitingLocationSettings = false
     /// What was in the composer when the mic was pressed; spoken words are added after it.
     @State private var textBeforeVoice = ""
     @AppStorage("voice.sendOnRelease") private var sendOnRelease = false
@@ -14,6 +17,9 @@ struct ChatView: View {
     private let serverName: String
     private let api: APIClient
     private let onOpenPlan: ((String) -> Void)?
+    private let onOpenPlace: ((String) -> Void)?
+    private let onRequestLocationPermission: (() async -> Bool)?
+    private let onOpenLocationSettings: (() -> Void)?
     private let bottomID = "chat-bottom"
 
     /// - Parameters:
@@ -25,12 +31,18 @@ struct ChatView: View {
         draft: String = "",
         serverName: String,
         onOpenPlan: ((String) -> Void)? = nil,
+        onOpenPlace: ((String) -> Void)? = nil,
+        onRequestLocationPermission: (() async -> Bool)? = nil,
+        onOpenLocationSettings: (() -> Void)? = nil,
         onDataChanged: @escaping @MainActor () -> Void = {}
     ) {
         _model = State(initialValue: ChatModel(api: api, outbox: outbox, draft: draft, onDataChanged: onDataChanged))
         self.api = api
         self.serverName = serverName
         self.onOpenPlan = onOpenPlan
+        self.onOpenPlace = onOpenPlace
+        self.onRequestLocationPermission = onRequestLocationPermission
+        self.onOpenLocationSettings = onOpenLocationSettings
     }
 
     var body: some View {
@@ -59,7 +71,9 @@ struct ChatView: View {
                                 model.draftGoalChange(for: card)
                                 composerFocused = true
                             },
-                            onOpenPlan: onOpenPlan
+                            onOpenPlan: onOpenPlan,
+                            onOpenPlace: onOpenPlace,
+                            onOpenPlaceCandidate: { selectedPlaceCandidate = $0 }
                         )
                     }
                     Color.clear
@@ -137,8 +151,33 @@ struct ChatView: View {
                 model.send()
             }
         }
+        .onChange(of: model.locationPermissionPromptVersion) { _, _ in
+            showsLocationPermissionPrompt = true
+        }
+        .alert("Location access needed", isPresented: $showsLocationPermissionPrompt) {
+            Button("Not now", role: .cancel) { }
+            Button("Allow location") {
+                Task {
+                    guard let onRequestLocationPermission else { return }
+                    if await onRequestLocationPermission() {
+                        awaitingLocationSettings = false
+                        model.retryNearbySearch()
+                    } else {
+                        awaitingLocationSettings = true
+                        onOpenLocationSettings?()
+                    }
+                }
+            }
+        } message: {
+            Text("TinyMe needs your location to find saved places nearby. You can also tell TinyMe an area or station.")
+        }
         .onDisappear {
             speech.release()
+        }
+        .sheet(item: $selectedPlaceCandidate) { candidate in
+            PlaceCandidateDetailSheet(candidate: candidate)
+                .presentationDetents([.medium, .large])
+                .presentationDragIndicator(.visible)
         }
         .task {
             await model.follow()
@@ -154,6 +193,14 @@ struct ChatView: View {
             // A turn may have finished while the app was in the background.
             if phase == .active {
                 Task { await model.loadHistory() }
+                if awaitingLocationSettings {
+                    Task {
+                        guard let onRequestLocationPermission,
+                              await onRequestLocationPermission() else { return }
+                        awaitingLocationSettings = false
+                        model.retryNearbySearch()
+                    }
+                }
             }
         }
     }

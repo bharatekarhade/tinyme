@@ -110,26 +110,35 @@ struct PlacesSearchTool: DeviceTool {
     private func search(query: String, near: String?) async throws -> [PlaceSearchHit] {
         let origin: CLLocationCoordinate2D?
         let region: PlacesSearchRegion
+        let searchQuery: String
         if near?.localizedCaseInsensitiveCompare("here") == .orderedSame {
             guard let location = await locationProvider.currentLocation(requestPermission: true) else {
                 throw PlacesSearchError.locationUnavailable
             }
             origin = location.coordinate
             region = .around(location.coordinate, radiusMeters: 5_000)
+            searchQuery = query
         } else if let near, !near.isEmpty {
-            guard let coordinate = await locationProvider.coordinate(for: near) else {
-                throw PlacesSearchError.areaNotFound
+            if let coordinate = await locationProvider.coordinate(for: near) {
+                origin = coordinate
+                region = .around(coordinate, radiusMeters: 10_000)
+                searchQuery = query
+            } else {
+                // Geocoding is brittle for misspelled neighborhoods. Let MapKit interpret the
+                // complete phrase in the user's locale instead of surfacing a dead-end error.
+                origin = nil
+                region = Self.localeRegion
+                searchQuery = "\(query) near \(near)"
             }
-            origin = coordinate
-            region = .around(coordinate, radiusMeters: 10_000)
         } else {
             origin = nil
             region = Self.localeRegion
+            searchQuery = query
         }
 
-        let found = try await searchClient.search(query: query, region: region, addressesOnly: false)
+        let found = try await searchClient.search(query: searchQuery, region: region, addressesOnly: false)
         let points = found.isEmpty
-            ? try await searchClient.search(query: query, region: region, addressesOnly: true)
+            ? try await searchClient.search(query: searchQuery, region: region, addressesOnly: true)
             : found
         let results = points.prefix(5).map { hit in
             guard let origin, hit.distanceMeters == nil else { return hit }
@@ -168,14 +177,19 @@ struct PlacesSearchTool: DeviceTool {
 enum PlacesSearchError: LocalizedError {
     case invalidInput
     case locationUnavailable
-    case areaNotFound
     case timedOut
+
+    var code: String {
+        switch self {
+        case .locationUnavailable: "no_location"
+        case .invalidInput, .timedOut: "device_error"
+        }
+    }
 
     var errorDescription: String? {
         switch self {
         case .invalidInput: "Search needs a query of 1–200 characters."
         case .locationUnavailable: "Location is unavailable. Allow TinyMe to use your location, or name an area."
-        case .areaNotFound: "I couldn't find that area. Try a nearby station or neighborhood."
         case .timedOut: "Map search took too long. Try again."
         }
     }

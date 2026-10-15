@@ -16,7 +16,7 @@ import java.util.Map;
 
 @Component
 public class PlacesSearchTool implements ToolHandler {
-    private static final Duration DEVICE_TIMEOUT = Duration.ofSeconds(20);
+    private static final Duration DEVICE_TIMEOUT = Duration.ofSeconds(45);
     private final DeviceToolGateway gateway;
 
     public PlacesSearchTool(DeviceToolGateway gateway) { this.gateway = gateway; }
@@ -50,19 +50,26 @@ public class PlacesSearchTool implements ToolHandler {
             JsonNode data = result.data();
             if (!data.isArray()) return invalid("The phone returned an invalid place search result");
             List<Map<String, Object>> found = new ArrayList<>();
+            List<Map<String, Object>> references = new ArrayList<>();
             for (int i = 0; i < Math.min(5, data.size()); i++) {
                 JsonNode item = data.get(i);
                 if (!item.isObject() || item.get("name") == null || !item.get("name").isString()) continue;
                 String address = stringOrNull(item.get("address"));
                 String category = stringOrNull(item.get("category"));
                 Double distance = numberOrNull(item.get("distance_m"));
-                found.add(PlaceToolOutputs.candidate(completed.actionId() + ":" + i,
-                        item.get("name").stringValue(), address, category, distance));
+                Map<String, Object> candidate = PlaceToolOutputs.candidate(completed.actionId() + ":" + i,
+                        item.get("name").stringValue(), address, category, distance);
+                found.add(candidate);
+                references.add(PlaceToolOutputs.candidateReference(candidate, numberOrNull(item.get("lat")),
+                        numberOrNull(item.get("lng")), stringOrNull(item.get("url"))));
             }
-            return new ToolResult.Ok(Map.of("candidates", found), found.isEmpty()
-                    ? "No matching places found" : "Found " + found.size() + (found.size() == 1 ? " place" : " places"));
+            String summary = found.isEmpty() ? "No matching places found"
+                    : "Found " + found.size() + (found.size() == 1 ? " place" : " places");
+            return new ToolResult.Ok(Map.of("candidates", found), summary,
+                    references.isEmpty() ? Map.of() : Map.of("place_candidates", references,
+                            "near", near == null ? "" : near));
         } catch (DeviceToolGateway.DeviceUnavailableException unavailable) {
-            return new ToolResult.Err("device_unavailable", "Place search needs TinyMe open on your iPhone");
+            return new ToolResult.Err("device_unavailable", "Place search couldn't reach TinyMe on your iPhone. Keep TinyMe open and try again.");
         } catch (InterruptedException interrupted) {
             Thread.currentThread().interrupt();
             return new ToolResult.Err("device_unavailable", "Place search was interrupted");

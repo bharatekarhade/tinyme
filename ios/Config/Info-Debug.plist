@@ -14,6 +14,8 @@
 	<string>TinyMe reads your activity, workouts, body, sleep and heart data to fill your cards and answer your questions. It's sent only to your own TinyMe server.</string>
 	<key>NSSpeechRecognitionUsageDescription</key>
 	<string>TinyMe turns what you say into text on this phone. Your voice isn't sent anywhere.</string>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>TinyMe uses your location to find nearby places you ask about and to add the neighborhood to chat context. Your coordinates are not sent to the AI.</string>
 	<!-- Debug only: lets the phone reach the dev Mac over plain http on the LAN. Release requires HTTPS. -->
 	<key>NSAppTransportSecurity</key>
 	<dict>

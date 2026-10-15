@@ -121,9 +121,12 @@ public class ToolDispatcher {
     private DispatchOutcome finish(java.util.UUID id, String toolName, String eventId, ToolResult result) {
         boolean isError = result instanceof ToolResult.Err;
         String code = isError ? ((ToolResult.Err) result).code() : null;
+        Map<String, Object> ref = isError && List.of("places_near", "places_search").contains(toolName)
+                && "no_location".equals(code)
+                ? Map.of("error_code", "no_location") : Map.of();
         String resultJson;
         try {
-            resultJson = envelopeJson(result);
+            resultJson = envelopeJson(result, ref);
         } catch (RuntimeException serializationFailure) {
             isError = true;
             code = "internal_error";
@@ -142,10 +145,14 @@ public class ToolDispatcher {
             logError(toolName, eventId, code);
         }
         return new DispatchOutcome(resultJson, isError,
-                !isError && result instanceof ToolResult.Ok success ? success.ref() : Map.of());
+                !isError && result instanceof ToolResult.Ok success ? success.ref() : ref);
     }
 
     private static String envelopeJson(ToolResult result) {
+        return envelopeJson(result, Map.of());
+    }
+
+    private static String envelopeJson(ToolResult result, Map<String, Object> ref) {
         Map<String, Object> envelope = new LinkedHashMap<>();
         if (result instanceof ToolResult.Ok success) {
             envelope.put("ok", true);
@@ -159,6 +166,7 @@ public class ToolDispatcher {
             detail.put("code", error.code());
             detail.put("message", error.message());
             envelope.put("error", detail);
+            if (!ref.isEmpty()) envelope.put("ref", ref);
         }
         return JSON.writeValueAsString(envelope);
     }

@@ -48,6 +48,42 @@ struct ChatPhotoDTO: Decodable, Sendable, Hashable, Identifiable {
     }
 }
 
+/// A MapKit candidate returned during chat. Tapping it opens the place preview.
+struct PlaceCandidateDTO: Sendable, Hashable, Identifiable {
+    let candidateId: String
+    let name: String
+    let address: String?
+    let category: String?
+    let distanceMeters: Double?
+    let latitude: Double?
+    let longitude: Double?
+    let url: URL?
+    let searchArea: String?
+
+    var id: String { candidateId }
+
+    init?(json: JSONValue, searchArea: String?) {
+        guard case .object(let fields) = json,
+              let candidateId = fields["candidate_id"]?.stringValue,
+              let name = fields["name"]?.stringValue else { return nil }
+        self.candidateId = candidateId
+        self.name = name
+        self.address = fields["address"]?.stringValue
+        self.category = fields["category"]?.stringValue
+        self.distanceMeters = fields["distance_m"]?.numberValue
+        self.latitude = fields["lat"]?.numberValue
+        self.longitude = fields["lng"]?.numberValue
+        self.url = fields["url"]?.stringValue.flatMap(URL.init(string:))
+        self.searchArea = searchArea
+    }
+
+    var distanceLabel: String? {
+        guard let distanceMeters else { return nil }
+        if distanceMeters < 1_000 { return "\(Int(distanceMeters.rounded())) m away" }
+        return String(format: "%.1f km away", distanceMeters / 1_000)
+    }
+}
+
 /// Something TinyMe did during a reply, shown as a chip under it.
 struct ActionDTO: Decodable, Sendable, Hashable {
     let tool: String
@@ -83,6 +119,27 @@ struct ActionDTO: Decodable, Sendable, Hashable {
 
     var planId: String? {
         isError ? nil : ref?["plan_id"]?.stringValue
+    }
+
+    var placeId: String? {
+        isError ? nil : ref?["place_id"]?.stringValue
+    }
+
+    var needsLocationPermission: Bool {
+        ["places_near", "places_search"].contains(tool)
+            && isError && ref?["error_code"]?.stringValue == "no_location"
+    }
+
+    /// What the chip shows: a few words. The full summary is still read out by VoiceOver.
+    var chipText: String {
+        needsLocationPermission ? "Location is off" : summary
+    }
+
+    var placeCandidates: [PlaceCandidateDTO] {
+        guard !isError, case .array(let values)? = ref?["place_candidates"] else { return [] }
+        let near = ref?["near"]?.stringValue
+        let label = near.map { $0.caseInsensitiveCompare("here") == .orderedSame ? "Near you" : "Near \($0)" }
+        return values.compactMap { PlaceCandidateDTO(json: $0, searchArea: label) }
     }
 
     /// True when a tool changed data that appears in Home, Upcoming, or History.

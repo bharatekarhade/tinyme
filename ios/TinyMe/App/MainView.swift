@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 /// The signed-in app: Home and History under one tab bar, with chat, settings and the entry panel on top.
 struct MainView: View {
@@ -38,6 +39,15 @@ struct MainView: View {
                 }
             }
         }
+        .sheet(item: $router.placeTarget) { target in
+            PlaceDetailSheet(api: api, placeId: target.id, onChanged: {
+                home.invalidate()
+            }, onRemoved: {
+                router.placeTarget = nil
+            })
+            .presentationDetents([.medium, .large])
+            .presentationDragIndicator(.visible)
+        }
         .safeAreaInset(edge: .bottom) {
             // A drill-down is its own screen: the bar comes back when you return to Home.
             if router.tab != .home || router.homePath.isEmpty {
@@ -62,12 +72,24 @@ struct MainView: View {
                     router.chat = nil
                     router.tab = .upcoming
                     upcoming.focus(planId: planId)
+                },
+                onOpenPlace: { placeId in router.openPlaceFromChat(placeId) },
+                onRequestLocationPermission: {
+                    await environment.session.requestLocationPermission()
+                },
+                onOpenLocationSettings: {
+                    if let settings = URL(string: UIApplication.openSettingsURLString) {
+                        Task { await UIApplication.shared.open(settings) }
+                    }
                 }
             ) { [home, upcoming, router] in
                 home.invalidate()
                 upcoming.invalidate()
                 router.historyIsStale = true
             }
+        }
+        .onChange(of: router.chat?.id) { _, chatID in
+            if chatID == nil { router.presentPendingPlace() }
         }
         .overlay {
             SettingsSheet(isPresented: $router.showsSettings, session: environment.session) { [home, router] in

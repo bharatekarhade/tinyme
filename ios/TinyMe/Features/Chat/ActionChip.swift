@@ -4,6 +4,7 @@ import SwiftUI
 struct ActionChip: View {
     let action: ActionDTO
     var onOpenPlan: ((String) -> Void)?
+    var onOpenPlace: ((String) -> Void)?
 
     var body: some View {
         let content = HStack(spacing: 6) {
@@ -11,9 +12,9 @@ struct ActionChip: View {
                 .font(.system(size: 12, weight: .bold))
                 .foregroundStyle(action.isError ? Palette.danger : Palette.brandStrong)
                 .accessibilityHidden(true)
-            Text(action.summary)
+            Text(action.chipText)
                 .textStyle(.caption, weight: .semibold)
-                .lineLimit(2)
+                .lineLimit(1)
         }
         .padding(.horizontal, Space.s3)
         .frame(minHeight: 30)
@@ -29,6 +30,10 @@ struct ActionChip: View {
             Button { onOpenPlan(planId) } label: { content }
                 .buttonStyle(.plain)
                 .accessibilityHint("Open this plan in Upcoming")
+        } else if let placeId = action.placeId, let onOpenPlace {
+            Button { onOpenPlace(placeId) } label: { content }
+                .buttonStyle(.plain)
+                .accessibilityHint("Open this saved place")
         } else {
             content
         }

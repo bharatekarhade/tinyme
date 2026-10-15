@@ -44,6 +44,7 @@ final class ChatModel {
 
     private(set) var isLoadingHistory = false
     private(set) var historyError: String?
+    private(set) var locationPermissionPromptVersion = 0
 
     /// What the server has for today, plus the turns that finished on this screen since.
     private var history: [ChatItem] = []
@@ -110,6 +111,11 @@ final class ChatModel {
 
     var isTurnRunning: Bool {
         live?.status == .streaming
+    }
+
+    func retryNearbySearch() {
+        composer = "Show my saved places nearby"
+        send()
     }
 
     /// Always possible, online or not: a new message queues behind the others.
@@ -267,6 +273,9 @@ final class ChatModel {
             // TinyMe saved a card that's already on screen: show its new version.
             if let cardId = action.cardId, let shown = inlineCards[cardId] {
                 Task { await shown.load(force: true) }
+            }
+            if action.needsLocationPermission {
+                locationPermissionPromptVersion += 1
             }
             reply.actions.append(action)
         case .text(let chunk):

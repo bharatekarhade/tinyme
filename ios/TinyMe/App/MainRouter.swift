@@ -26,9 +26,15 @@ final class MainRouter {
         var key: String?
     }
 
+    struct PlaceTarget: Identifiable, Hashable {
+        let id: String
+    }
+
     var tab: Tab = .home
     var homePath: [DrillTarget] = []
     var chat: ChatDraft?
+    var placeTarget: PlaceTarget?
+    private(set) var pendingPlaceID: String?
     var showsSettings = false
 
     /// The entry in the detail panel. Kept while the panel slides away, so it doesn't empty mid-animation.
@@ -48,6 +54,22 @@ final class MainRouter {
     func show(_ entry: EntryDTO) {
         self.entry = entry
         showsEntry = true
+    }
+
+    func openPlace(_ id: String) {
+        placeTarget = PlaceTarget(id: id)
+    }
+
+    /// A chat full-screen cover must finish dismissing before the place sheet is presented.
+    func openPlaceFromChat(_ id: String) {
+        pendingPlaceID = id
+        chat = nil
+    }
+
+    func presentPendingPlace() {
+        guard let id = pendingPlaceID else { return }
+        pendingPlaceID = nil
+        openPlace(id)
     }
 
     /// A tap on a card. Journal is the whole log, so it opens History; any other card opens its entries.

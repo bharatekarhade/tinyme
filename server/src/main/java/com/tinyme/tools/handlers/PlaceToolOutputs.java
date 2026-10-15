@@ -43,6 +43,15 @@ final class PlaceToolOutputs {
         return out;
     }
 
+    static Map<String, Object> candidateReference(Map<String, Object> candidate, Double latitude, Double longitude,
+                                                  String url) {
+        Map<String, Object> out = new LinkedHashMap<>(candidate);
+        if (latitude != null) out.put("lat", latitude);
+        if (longitude != null) out.put("lng", longitude);
+        if (url != null) out.put("url", url);
+        return out;
+    }
+
     private static String area(String address) {
         if (address == null || address.isBlank()) return null;
         String[] parts = address.split(",");

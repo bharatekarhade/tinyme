@@ -28,7 +28,7 @@ class PlacesSearchToolTests {
     private static final JsonMapper JSON = JsonMapper.builder().build();
 
     @Test
-    void sendsDefaultHereAndReturnsOpaqueCandidateIdsWithoutCoordinates() throws Exception {
+    void sendsDefaultHereAndReturnsOpaqueCandidateIdsWithClientOnlyMapReferences() throws Exception {
         DeviceToolGateway gateway = mock(DeviceToolGateway.class);
         UUID actionId = UUID.randomUUID();
         when(gateway.callWithActionId(any(), eq("places_search"), any(), any()))
@@ -44,6 +44,7 @@ class PlacesSearchToolTests {
         ToolResult.Ok ok = (ToolResult.Ok) result;
         assertThat(ok.data().toString()).contains(actionId + ":0", "Blue Bottle", "Shibuya, Tokyo")
                 .doesNotContain("35.6", "139.7", "provider_place_id");
+        assertThat(ok.ref().toString()).contains("place_candidates", "near=here", actionId + ":0", "Blue Bottle", "35.6", "139.7");
         org.mockito.ArgumentCaptor<Map<String, Object>> request = org.mockito.ArgumentCaptor.forClass(Map.class);
         verify(gateway).callWithActionId(any(), eq("places_search"), request.capture(), any());
         assertThat(request.getValue()).containsEntry("query", "Blue Bottle").containsEntry("near", "here");
