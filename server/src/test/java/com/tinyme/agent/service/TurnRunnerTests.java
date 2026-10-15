@@ -163,7 +163,8 @@ class TurnRunnerTests {
         String resultJson = isError
                 ? "{\"ok\":false,\"error\":{\"message\":\"Tool had an error\"}}"
                 : "{\"ok\":true,\"summary\":\"Logged coffee\"}";
-        var expectedContext = new ToolContext(session.sessionRowId(), null, ZONE, LocalDate.of(2026, 10, 6), NOW);
+        var expectedContext = new ToolContext(session.sessionRowId(), null, ZONE, LocalDate.of(2026, 10, 6), NOW,
+                null, null, TurnListener.NONE);
         JsonNode input = JSON.readTree("{\"kind\":\"drink\"}");
         when(dispatcher.dispatch("tool1", "entries_add", input, expectedContext))
                 .thenReturn(new DispatchOutcome(resultJson, isError));

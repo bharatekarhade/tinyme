@@ -84,6 +84,7 @@ class DevChatRunner implements CommandLineRunner {
         switch (event) {
             case TurnEvent.ActionDone a -> System.out.println("✓ " + a.tool() + ": " + a.summary()
                     + (a.isError() ? " (error)" : ""));
+            case TurnEvent.ClientAction a -> System.out.println("↗ Waiting for phone action " + a.tool());
             case TurnEvent.Text t -> System.out.println("💬 " + t.text());
             case TurnEvent.Failed f -> System.out.println("✗ " + f.code() + ": " + f.message());
         }

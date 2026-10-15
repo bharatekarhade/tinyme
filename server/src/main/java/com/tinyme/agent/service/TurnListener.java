@@ -7,5 +7,8 @@ import com.tinyme.agent.model.TurnEvent;
 public interface TurnListener {
     TurnListener NONE = event -> { };
 
+    /** Whether this turn can deliver an action to a live phone over its SSE connection. */
+    default boolean supportsDeviceActions() { return false; }
+
     void on(TurnEvent event);
 }

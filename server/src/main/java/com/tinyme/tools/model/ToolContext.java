@@ -8,6 +8,7 @@ import java.time.LocalDate;
 import java.time.ZoneId;
 import java.util.UUID;
 import com.tinyme.agent.model.TurnLocation;
+import com.tinyme.agent.service.TurnListener;
 
 public record ToolContext(
         UUID sessionRowId,
@@ -16,18 +17,24 @@ public record ToolContext(
         LocalDate localDate,
         Instant now,
         UUID attachedPhotoId,
-        TurnLocation location
+        TurnLocation location,
+        TurnListener turnListener
 ) {
     public ToolContext(UUID sessionRowId, UUID toolCallId, ZoneId zone, LocalDate localDate, Instant now) {
-        this(sessionRowId, toolCallId, zone, localDate, now, null, null);
+        this(sessionRowId, toolCallId, zone, localDate, now, null, null, TurnListener.NONE);
     }
 
     public ToolContext(UUID sessionRowId, UUID toolCallId, ZoneId zone, LocalDate localDate, Instant now,
                        UUID attachedPhotoId) {
-        this(sessionRowId, toolCallId, zone, localDate, now, attachedPhotoId, null);
+        this(sessionRowId, toolCallId, zone, localDate, now, attachedPhotoId, null, TurnListener.NONE);
+    }
+
+    public ToolContext(UUID sessionRowId, UUID toolCallId, ZoneId zone, LocalDate localDate, Instant now,
+                       UUID attachedPhotoId, TurnLocation location) {
+        this(sessionRowId, toolCallId, zone, localDate, now, attachedPhotoId, location, TurnListener.NONE);
     }
 
     public ToolContext withToolCallId(UUID id) {
-        return new ToolContext(sessionRowId, id, zone, localDate, now, attachedPhotoId, location);
+        return new ToolContext(sessionRowId, id, zone, localDate, now, attachedPhotoId, location, turnListener);
     }
 }

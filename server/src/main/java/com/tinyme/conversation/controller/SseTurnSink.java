@@ -35,6 +35,11 @@ public final class SseTurnSink implements TurnListener {
         this.emitter = emitter;
     }
 
+    @Override
+    public boolean supportsDeviceActions() {
+        return true;
+    }
+
     public synchronized void start(UUID userMessageId) {
         if (closed) return;
         sendJson(Map.of("type", "turn_started", "user_message_id", userMessageId));
@@ -56,6 +61,9 @@ public final class SseTurnSink implements TurnListener {
                 if (!action.ref().isEmpty()) payload.put("ref", action.ref());
                 sendJson(payload);
             }
+            case TurnEvent.ClientAction action -> sendJson(Map.of(
+                    "type", "client_action", "action_id", action.actionId().toString(),
+                    "tool", action.tool(), "input", action.input()));
             case TurnEvent.Text text -> sendJson(Map.of("type", "text", "text", text.text()));
             case TurnEvent.Failed failure -> {
                 failed = true;

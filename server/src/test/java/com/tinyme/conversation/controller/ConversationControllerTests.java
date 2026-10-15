@@ -124,6 +124,23 @@ class ConversationControllerTests {
     }
 
     @Test
+    void emitsAClientActionSseEventWithActionIdToolAndInput() throws Exception {
+        service.emitClientAction = true;
+        MvcResult response = mvc.perform(post("/conversations/today/messages").contentType("application/json").content("""
+                {"client_msg_id":"%s","text":"find Blue Bottle"}
+                """.formatted(UUID.randomUUID())))
+                .andExpect(status().isOk())
+                .andExpect(request().asyncStarted())
+                .andReturn();
+
+        String sse = mvc.perform(asyncDispatch(response)).andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+        assertThat(sse).contains("\"type\":\"client_action\"", "\"action_id\":\"00000000-0000-0000-0000-000000000123\"",
+                "\"tool\":\"places_search\"", "\"query\":\"Blue Bottle Shibuya\"");
+        assertThat(sse.indexOf("\"type\":\"client_action\"")).isLessThan(sse.indexOf("\"type\":\"action_done\""));
+    }
+
+    @Test
     void emitsDoneAfterAnErrorWithoutAssistantMessageId() throws Exception {
         service.failure = new IllegalStateException("test failure");
         service.emitFailure = true;
@@ -251,6 +268,7 @@ class ConversationControllerTests {
         private TurnResult result = new TurnResult("Logged coffee.", 1);
         private Throwable failure;
         private boolean emitFailure;
+        private boolean emitClientAction;
         private UUID failureAssistantId;
         private UUID duplicateClientMessageId;
         private UUID duplicateMessageId;
@@ -274,6 +292,7 @@ class ConversationControllerTests {
             result = new TurnResult("Logged coffee.", 1);
             failure = null;
             emitFailure = false;
+            emitClientAction = false;
             failureAssistantId = null;
             duplicateClientMessageId = null;
             duplicateMessageId = null;
@@ -302,6 +321,9 @@ class ConversationControllerTests {
             runCalled = true;
             runCount++;
             if (persistEffects) entryCreated = true;
+            if (emitClientAction) listener.on(new TurnEvent.ClientAction(
+                    UUID.fromString("00000000-0000-0000-0000-000000000123"), "places_search",
+                    java.util.Map.of("query", "Blue Bottle Shibuya")));
             listener.on(new TurnEvent.ActionDone("entries_add", "Logged drink", false,
                     java.util.Map.of("card_id", "card-1")));
             listener.on(new TurnEvent.Text("Logged coffee."));
