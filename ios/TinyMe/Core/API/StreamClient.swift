@@ -8,14 +8,16 @@ actor StreamClient {
     private let api: APIClient
     private let session: URLSession
     private let locationProvider: LocationProvider?
-    private let deviceTools: DeviceToolRegistry?
+    private let deviceTools: DeviceToolRegistry
 
     init(api: APIClient, session: URLSession = .shared, locationProvider: LocationProvider? = nil,
          deviceTools: [any DeviceTool] = []) {
         self.api = api
         self.session = session
         self.locationProvider = locationProvider
-        self.deviceTools = deviceTools.isEmpty ? nil : DeviceToolRegistry(api: api, tools: deviceTools)
+        // Even a stream with no local tools must answer client_action events. Otherwise the server
+        // waits for a result that this app will never send, holding the turn until its timeout.
+        self.deviceTools = DeviceToolRegistry(api: api, tools: deviceTools)
     }
 
     nonisolated func send(_ message: OutgoingMessage) -> AsyncThrowingStream<StreamEvent, Error> {
@@ -86,7 +88,6 @@ actor StreamClient {
     }
 
     private func executeDeviceAction(actionId: String, tool: String, input: JSONValue) async {
-        guard let deviceTools else { return }
         await deviceTools.execute(actionId: actionId, tool: tool, input: input)
     }
 

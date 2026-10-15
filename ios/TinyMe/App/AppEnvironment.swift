@@ -8,6 +8,7 @@ import Observation
 final class AppEnvironment {
     let authStore: AuthStore
     let session: SessionModel
+    let intentRuntime: IntentRuntime
     /// Messages waiting to be sent. Outlives a sign-out, so nothing queued is lost.
     let outbox: OutboxWorker
     /// The Apple Health switches; cleared on sign-out and Delete all.
@@ -21,6 +22,7 @@ final class AppEnvironment {
         self.health = health
         let session = SessionModel(authStore: authStore, outbox: outbox, health: health)
         self.session = session
+        self.intentRuntime = IntentRuntime(outbox: outbox)
         self.nearbyPlaceAlerts = NearbyPlacesAlerts()
         // Created at launch, so background delivery is set up before anything else (guide §3.2).
         self.healthSync = HealthSync(settings: health, api: { session.api })

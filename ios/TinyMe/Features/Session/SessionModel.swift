@@ -18,6 +18,7 @@ final class SessionModel {
     private(set) var state: State = .signedOut
     private(set) var loginError: String?
     private(set) var api: APIClient?
+    private(set) var stream: StreamClient?
 
     private let authStore: AuthStore
     private let outbox: OutboxWorker?
@@ -138,6 +139,7 @@ final class SessionModel {
         let stream = StreamClient(api: client, session: urlSession, locationProvider: locationProvider,
                                   deviceTools: [placesSearch])
         api = client
+        self.stream = stream
         Task { [outbox] in await outbox?.connect(stream) }
     }
 
@@ -145,6 +147,7 @@ final class SessionModel {
         await authStore.clear()
         WidgetSnapshot.clearAndReload()   // the widget shouldn't keep showing this account's numbers
         api = nil
+        stream = nil
         await outbox?.connect(nil)   // queued messages wait for the next sign-in
         health?.reset()   // the switches belong to this account's server
         state = .signedOut
