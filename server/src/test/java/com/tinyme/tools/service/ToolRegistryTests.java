@@ -21,6 +21,14 @@ import static org.mockito.Mockito.when;
 class ToolRegistryTests {
 
     @Test
+    void defaultSpecsIncludeGmailDraftAndSendTools() {
+        var specs = new ToolSpecLoader().specs();
+        assertThat(specs).containsKeys("gmail_draft", "gmail_send");
+        assertThat(specs.get("gmail_draft").inputSchema().toString()).contains("to", "subject", "body", "draft_id");
+        assertThat(specs.get("gmail_send").inputSchema().toString()).contains("draft_id");
+    }
+
+    @Test
     void findsRegisteredToolByName() throws Exception {
         ToolSpec spec = spec("entries_add");
         ToolHandler handler = handler("entries_add");

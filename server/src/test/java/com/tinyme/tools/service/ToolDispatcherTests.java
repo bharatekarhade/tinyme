@@ -123,6 +123,33 @@ class ToolDispatcherTests {
     }
 
     @Test
+    void gmailDraftBodyIsNotPersistedAsToolInput() {
+        Fixture fixture = new Fixture();
+        fixture.startNewCall("gmail_draft");
+        when(fixture.handler.name()).thenReturn("gmail_draft");
+        JsonNode input = JSON.readTree("""
+                {"to":"aiko@example.test","subject":"Friday","body":"Private draft text"}
+                """);
+        when(fixture.calls.insertRunning(eq(fixture.base.sessionRowId()), eq(fixture.eventId),
+                eq("gmail_draft"), any(JsonNode.class), eq("tinyme-chat"), eq(null))).thenReturn(fixture.callId);
+        var registration = new RegisteredTool(
+                new ToolSpec("gmail_draft", JSON.readTree("{\"type\":\"object\"}")), fixture.handler);
+        when(fixture.registry.find("gmail_draft")).thenReturn(Optional.of(registration));
+        when(fixture.validator.validate("gmail_draft", input)).thenReturn(List.of());
+        when(fixture.handler.handle(eq(input), any(ToolContext.class)))
+                .thenReturn(new ToolResult.Ok(Map.of("draft_id", "draft-1"), "Draft saved"));
+
+        fixture.dispatcher().dispatch(fixture.eventId, "gmail_draft", input, fixture.base);
+
+        var storedInput = org.mockito.ArgumentCaptor.forClass(JsonNode.class);
+        verify(fixture.calls).insertRunning(eq(fixture.base.sessionRowId()), eq(fixture.eventId),
+                eq("gmail_draft"), storedInput.capture(), eq("tinyme-chat"), eq(null));
+        assertThat(storedInput.getValue().has("body")).isFalse();
+        assertThat(storedInput.getValue().toString()).doesNotContain("Private draft text");
+        verify(fixture.validator).validate("gmail_draft", input);
+    }
+
+    @Test
     void coordinatorGmailCallIsRejectedAndStillLogged() {
         Fixture fixture = new Fixture();
         fixture.startNewCall("gmail_search");

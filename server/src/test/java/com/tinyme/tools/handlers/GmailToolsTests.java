@@ -1,6 +1,7 @@
 package com.tinyme.tools.handlers;
 
 import com.tinyme.integrations.google.service.GmailClient;
+import com.tinyme.integrations.google.service.GmailConfirmationService;
 import com.tinyme.integrations.google.service.GoogleMessageFormat;
 import com.tinyme.tools.model.ToolContext;
 import com.tinyme.tools.model.ToolResult;
@@ -9,6 +10,11 @@ import tools.jackson.databind.json.JsonMapper;
 
 import java.nio.charset.StandardCharsets;
 import java.util.Base64;
+import java.time.Instant;
+import java.time.LocalDate;
+import java.time.ZoneId;
+import java.util.UUID;
+import com.tinyme.agent.service.TurnListener;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
@@ -18,6 +24,11 @@ import static org.mockito.Mockito.when;
 class GmailToolsTests {
     private static final JsonMapper JSON = JsonMapper.builder().build();
     private final ToolContext context = new ToolContext(null, null, null, null, null);
+    private final UUID sessionId = UUID.randomUUID();
+    private final UUID toolCallId = UUID.randomUUID();
+    private final ToolContext sendContext = new ToolContext(sessionId, toolCallId, ZoneId.of("Asia/Tokyo"),
+            LocalDate.of(2026, 10, 15), Instant.parse("2026-10-15T00:00:00Z"), null, null,
+            TurnListener.NONE, "tinyme-gmail", "gmail-thread-1");
 
     @Test
     void searchReturnsBoundedMetadataSummaries() throws Exception {
@@ -87,5 +98,48 @@ class GmailToolsTests {
         assertThat(result.data().toString()).contains("Aiko", "Re: Friday", "We can meet Friday.")
                 .doesNotContain("attachmentId");
         verify(gmail).getThread("t1", GoogleMessageFormat.FULL);
+    }
+
+    @Test
+    void draftCreatesOrUpdatesDraftAndDoesNotReturnOrStoreItsBody() throws Exception {
+        GmailClient gmail = mock(GmailClient.class);
+        when(gmail.saveDraft("aiko@example.test", null, "Dinner", "Let's meet at seven.", null))
+                .thenReturn(JSON.readTree("{\"id\":\"draft-1\"}"));
+
+        ToolResult.Ok result = (ToolResult.Ok) new GmailDraftTool(gmail).handle(JSON.readTree("""
+                {"to":"aiko@example.test","subject":"Dinner","body":"Let's meet at seven."}
+                """), context);
+
+        assertThat(result.data().toString()).contains("draft-1", "aiko@example.test", "Dinner")
+                .doesNotContain("Let's meet at seven.");
+        assertThat(result.stored().toString()).doesNotContain("Let's meet at seven.");
+        verify(gmail).saveDraft("aiko@example.test", null, "Dinner", "Let's meet at seven.", null);
+    }
+
+    @Test
+    void sendToolOnlyCreatesConfirmationAndNeverSendsDirectly() throws Exception {
+        GmailClient gmail = mock(GmailClient.class);
+        GmailConfirmationService confirmations = mock(GmailConfirmationService.class);
+        UUID confirmationId = UUID.randomUUID();
+        String encoded = Base64.getUrlEncoder().withoutPadding().encodeToString(
+                "Hello Aiko, see you Friday.".getBytes(StandardCharsets.UTF_8));
+        when(gmail.getDraft("draft-1")).thenReturn(JSON.readTree("""
+                {"id":"draft-1","message":{"id":"message-1","threadId":"thread-1",
+                 "payload":{"mimeType":"text/plain","headers":[
+                   {"name":"To","value":"aiko@example.test"},{"name":"Subject","value":"Friday"}],
+                   "body":{"data":"%s"}}}}
+                """.formatted(encoded)));
+        when(confirmations.request(sessionId, "gmail-thread-1", toolCallId, "draft-1",
+                "aiko@example.test", "Friday", "Hello Aiko, see you Friday.")).thenReturn(confirmationId);
+
+        ToolResult.Ok result = (ToolResult.Ok) new GmailSendTool(gmail, confirmations)
+                .handle(JSON.readTree("{\"draft_id\":\"draft-1\"}"), sendContext);
+
+        assertThat(result.ref()).containsOnlyKeys("confirmation_id")
+                .containsEntry("confirmation_id", confirmationId.toString());
+        assertThat(result.data().toString()).contains("pending").doesNotContain("Hello Aiko");
+        verify(gmail, org.mockito.Mockito.never()).sendDraft("draft-1");
+        verify(confirmations).request(sessionId, "gmail-thread-1", toolCallId, "draft-1",
+                "aiko@example.test", "Friday", "Hello Aiko, see you Friday.");
     }
 }

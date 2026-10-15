@@ -45,6 +45,11 @@ final class ChatModel {
     private(set) var isLoadingHistory = false
     private(set) var historyError: String?
     private(set) var locationPermissionPromptVersion = 0
+    private(set) var pendingEmailConfirmations: Set<String> = []
+    private(set) var emailConfirmationDetails: [String: GmailSendConfirmationDTO] = [:]
+    private(set) var emailConfirmationErrors: [String: String] = [:]
+    private(set) var sendingEmailConfirmations: Set<String> = []
+    private(set) var emailConfirmationStatuses: [String: String] = [:]
 
     /// What the server has for today, plus the turns that finished on this screen since.
     private var history: [ChatItem] = []
@@ -154,11 +159,42 @@ final class ChatModel {
                 guard version == historyVersion else { continue }   // a turn ended meanwhile: ask again
                 history = day.messages.compactMap(Self.item(from:))
                 historyError = nil
+                await refreshEmailConfirmations()
             } catch {
                 historyError = Self.message(for: error)
                 return
             }
         } while version != historyVersion
+    }
+
+    private func refreshEmailConfirmations() async {
+        do {
+            let pending: [GmailPendingConfirmationDTO] = try await api.get(.pendingConfirmations)
+            pendingEmailConfirmations = Set(pending.map(\.id))
+            emailConfirmationDetails = Dictionary(uniqueKeysWithValues: pending.map { item in
+                (item.id, GmailSendConfirmationDTO(id: item.id, to: item.to,
+                                                   subject: item.subject, preview: item.preview))
+            })
+        } catch {
+            // Keep the current conversation usable if the pending-send lookup is unavailable.
+        }
+    }
+
+    func decideEmailConfirmation(_ id: String, send: Bool) {
+        guard !sendingEmailConfirmations.contains(id) else { return }
+        sendingEmailConfirmations.insert(id)
+        Task {
+            defer { sendingEmailConfirmations.remove(id) }
+            do {
+                let result: GmailConfirmationDecisionDTO = try await api.send(
+                    .decideConfirmation(id), body: GmailConfirmationDecisionRequest(decision: send ? "send" : "cancel"))
+                pendingEmailConfirmations.remove(id)
+                emailConfirmationErrors.removeValue(forKey: id)
+                emailConfirmationStatuses[id] = result.status
+            } catch {
+                emailConfirmationErrors[id] = send ? "Gmail couldn't confirm the result. Check Sent before trying again." : "Couldn't cancel this confirmation. Try again."
+            }
+        }
     }
 
     private static func item(from message: MessageDTO) -> ChatItem? {
@@ -270,6 +306,11 @@ final class ChatModel {
         switch event {
         case .actionDone(let tool, let summary, let isError, let ref):
             let action = ActionDTO(tool: tool, summary: summary, isError: isError, ref: ref)
+            if let confirmation = action.gmailConfirmation {
+                pendingEmailConfirmations.insert(confirmation.id)
+                emailConfirmationStatuses.removeValue(forKey: confirmation.id)
+                Task { await refreshEmailConfirmations() }
+            }
             // TinyMe saved a card that's already on screen: show its new version.
             if let cardId = action.cardId, let shown = inlineCards[cardId] {
                 Task { await shown.load(force: true) }

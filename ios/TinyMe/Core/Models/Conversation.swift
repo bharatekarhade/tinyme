@@ -150,6 +150,14 @@ struct ActionDTO: Decodable, Sendable, Hashable {
         isError ? nil : ref?["place_id"]?.stringValue
     }
 
+    var gmailConfirmation: GmailSendConfirmationDTO? {
+        guard !isError, tool == "gmail_send", let id = ref?["confirmation_id"]?.stringValue else { return nil }
+        return GmailSendConfirmationDTO(id: id,
+                                        to: ref?["to"]?.stringValue ?? "",
+                                        subject: ref?["subject"]?.stringValue ?? "Email",
+                                        preview: ref?["preview"]?.stringValue ?? "")
+    }
+
     var needsLocationPermission: Bool {
         ["places_near", "places_search"].contains(tool)
             && isError && ref?["error_code"]?.stringValue == "no_location"
@@ -186,4 +194,39 @@ struct ActionDTO: Decodable, Sendable, Hashable {
     private static let readOnlyTools: Set<String> = [
         "entries_query", "entries_aggregate", "cards_list", "plans_query", "people_get"
     ]
+}
+
+struct GmailSendConfirmationDTO: Decodable, Sendable, Hashable, Identifiable {
+    let id: String
+    let to: String
+    let subject: String
+    let preview: String
+}
+
+struct GmailPendingConfirmationDTO: Decodable, Sendable, Identifiable {
+    let id: String
+    let to: String
+    let subject: String
+    let preview: String
+    let expiresAt: Date
+
+    enum CodingKeys: String, CodingKey {
+        case id, to, subject, preview
+        case expiresAt = "expires_at"
+    }
+}
+
+struct GmailConfirmationDecisionRequest: Encodable, Sendable {
+    let decision: String
+}
+
+struct GmailConfirmationDecisionDTO: Decodable, Sendable {
+    let id: String
+    let status: String
+    let messageId: String?
+
+    enum CodingKeys: String, CodingKey {
+        case id, status
+        case messageId = "message_id"
+    }
 }

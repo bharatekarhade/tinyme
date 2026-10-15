@@ -51,6 +51,12 @@ struct Endpoint: Sendable {
         Endpoint(method: "GET", path: "conversations", query: day.map { [URLQueryItem(name: "day", value: $0.description)] } ?? [])
     }
 
+    static let pendingConfirmations = Endpoint(method: "GET", path: "conversations/confirmations")
+
+    static func decideConfirmation(_ id: String) -> Endpoint {
+        Endpoint(method: "POST", path: "conversations/confirmations/\(id)")
+    }
+
     static let kinds = Endpoint(method: "GET", path: "kinds")
 
     static let people = Endpoint(method: "GET", path: "people")

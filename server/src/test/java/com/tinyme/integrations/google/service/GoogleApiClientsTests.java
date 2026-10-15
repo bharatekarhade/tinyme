@@ -173,6 +173,49 @@ class GoogleApiClientsTests {
     }
 
     @Test
+    void nonIdempotentPostDoesNotRetryServerFailure() throws Exception {
+        AtomicInteger attempts = new AtomicInteger();
+        HttpServer server = server(exchange -> {
+            attempts.incrementAndGet();
+            respond(exchange, 503, "{\"error\":{}}", null);
+        });
+        try {
+            GoogleTokenService tokens = mock(GoogleTokenService.class);
+            when(tokens.accessToken()).thenReturn("access-token");
+            GoogleApiHttpClient client = client(tokens, new ArrayList<>());
+            var body = tools.jackson.databind.json.JsonMapper.builder().build()
+                    .readTree("{\"message\":{\"raw\":\"encoded\"}}");
+
+            org.assertj.core.api.Assertions.assertThatThrownBy(() -> client.sendJson("POST", uri(server), body))
+                    .isInstanceOf(GoogleApiHttpClient.GoogleApiException.class);
+            assertThat(attempts).hasValue(1);
+        } finally {
+            server.stop(0);
+        }
+    }
+
+    @Test
+    void nonIdempotentPostMayRetryOnceAfterRejectedUnauthorizedToken() throws Exception {
+        AtomicInteger attempts = new AtomicInteger();
+        HttpServer server = server(exchange -> {
+            if (attempts.incrementAndGet() == 1) respond(exchange, 401, "{\"error\":{}}", null);
+            else respond(exchange, 200, "{\"id\":\"draft-1\"}", null);
+        });
+        try {
+            GoogleTokenService tokens = mock(GoogleTokenService.class);
+            when(tokens.accessToken()).thenReturn("expired-token", "fresh-token");
+            GoogleApiHttpClient client = client(tokens, new ArrayList<>());
+            var body = tools.jackson.databind.json.JsonMapper.builder().build().createObjectNode();
+
+            assertThat(client.sendJson("POST", uri(server), body).path("id").asString()).isEqualTo("draft-1");
+            assertThat(attempts).hasValue(2);
+            org.mockito.Mockito.verify(tokens).clearCache();
+        } finally {
+            server.stop(0);
+        }
+    }
+
+    @Test
     void insufficientPermissionsMapsToScopeMissingWithoutRetrying() throws Exception {
         AtomicInteger attempts = new AtomicInteger();
         HttpServer server = server(exchange -> {
@@ -190,6 +233,48 @@ class GoogleApiClientsTests {
                     .satisfies(error -> assertThat(((GoogleApiHttpClient.GoogleApiException) error).reason())
                             .isEqualTo("scope_missing"));
             assertThat(attempts).hasValue(1);
+        } finally {
+            server.stop(0);
+        }
+    }
+
+    @Test
+    void modernGoogleScopeErrorDetailsMapToScopeMissing() throws Exception {
+        AtomicInteger attempts = new AtomicInteger();
+        HttpServer server = server(exchange -> {
+            attempts.incrementAndGet();
+            respond(exchange, 403,
+                    "{\"error\":{\"code\":403,\"status\":\"PERMISSION_DENIED\","
+                            + "\"details\":[{\"reason\":\"ACCESS_TOKEN_SCOPE_INSUFFICIENT\"}]}}", null);
+        });
+        try {
+            GoogleTokenService tokens = mock(GoogleTokenService.class);
+            when(tokens.accessToken()).thenReturn("access-token");
+            GoogleApiHttpClient client = client(tokens, new ArrayList<>());
+
+            org.assertj.core.api.Assertions.assertThatThrownBy(() -> client.get(uri(server)))
+                    .isInstanceOf(GoogleApiHttpClient.GoogleApiException.class)
+                    .satisfies(error -> assertThat(((GoogleApiHttpClient.GoogleApiException) error).reason())
+                            .isEqualTo("scope_missing"));
+            assertThat(attempts).hasValue(1);
+        } finally {
+            server.stop(0);
+        }
+    }
+
+    @Test
+    void disabledGoogleApiMapsToApiNotEnabled() throws Exception {
+        HttpServer server = server(exchange -> respond(exchange, 403,
+                "{\"error\":{\"errors\":[{\"reason\":\"accessNotConfigured\"}]}}", null));
+        try {
+            GoogleTokenService tokens = mock(GoogleTokenService.class);
+            when(tokens.accessToken()).thenReturn("access-token");
+            GoogleApiHttpClient client = client(tokens, new ArrayList<>());
+
+            org.assertj.core.api.Assertions.assertThatThrownBy(() -> client.get(uri(server)))
+                    .isInstanceOf(GoogleApiHttpClient.GoogleApiException.class)
+                    .satisfies(error -> assertThat(((GoogleApiHttpClient.GoogleApiException) error).reason())
+                            .isEqualTo("api_not_enabled"));
         } finally {
             server.stop(0);
         }

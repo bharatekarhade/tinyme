@@ -71,6 +71,8 @@ tinyme:
         - gmail_search
         - gmail_read
         - gmail_thread
+        - gmail_draft
+        - gmail_send
     setup-enabled: ${TINYME_AGENT_SETUP_ENABLED:true}
     api-key: ${ANTHROPIC_API_KEY:}
     environment-id: ${ANTHROPIC_ENVIRONMENT_ID:}

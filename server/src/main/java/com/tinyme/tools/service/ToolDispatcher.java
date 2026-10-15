@@ -63,7 +63,7 @@ public class ToolDispatcher {
 
         final java.util.UUID toolCallId;
         try {
-            toolCallId = calls.insertRunning(base.sessionRowId(), eventId, toolName, input,
+            toolCallId = calls.insertRunning(base.sessionRowId(), eventId, toolName, storedInput(toolName, input),
                     base.agent(), base.threadId());
         } catch (DuplicateKeyException duplicate) {
             return calls.findByEventId(eventId)
@@ -107,6 +107,14 @@ public class ToolDispatcher {
         }
 
         return finish(toolCallId, toolName, eventId, result);
+    }
+
+    /** Draft bodies are needed for the live Gmail request, but never belong in the permanent tool audit row. */
+    private static JsonNode storedInput(String toolName, JsonNode input) {
+        if (!"gmail_draft".equals(toolName) || !input.isObject()) return input;
+        ObjectNode redacted = ((ObjectNode) input).deepCopy();
+        redacted.remove("body");
+        return redacted;
     }
 
     private DispatchOutcome replayOrAlreadyRunning(StoredCall stored, String toolName, String eventId) {

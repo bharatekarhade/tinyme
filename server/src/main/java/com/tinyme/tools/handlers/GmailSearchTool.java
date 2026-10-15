@@ -7,6 +7,8 @@ import com.tinyme.integrations.google.service.GoogleOAuthException;
 import com.tinyme.tools.model.ToolContext;
 import com.tinyme.tools.model.ToolHandler;
 import com.tinyme.tools.model.ToolResult;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 import tools.jackson.databind.JsonNode;
 
@@ -18,6 +20,7 @@ import java.util.Map;
 
 @Component
 public class GmailSearchTool implements ToolHandler {
+    private static final Logger log = LoggerFactory.getLogger(GmailSearchTool.class);
     private final GmailClient gmail;
     private final GmailMessageParser parser = new GmailMessageParser();
 
@@ -63,12 +66,18 @@ public class GmailSearchTool implements ToolHandler {
         } catch (IllegalArgumentException failure) {
             return invalid(failure.getMessage());
         } catch (GoogleOAuthException failure) {
+            log.warn("gmail_search OAuth failure reason={}", failure.reason());
             return googleError(failure.reason());
         } catch (IOException failure) {
-            return googleError(failure instanceof com.tinyme.integrations.google.service.GoogleApiHttpClient.GoogleApiException api
-                    ? api.reason() : "google_unavailable");
+            if (failure instanceof com.tinyme.integrations.google.service.GoogleApiHttpClient.GoogleApiException api) {
+                log.warn("gmail_search Google API failure status={} reason={}", api.statusCode(), api.reason());
+                return googleError(api.reason());
+            }
+            log.warn("gmail_search transport failure type={}", failure.getClass().getSimpleName());
+            return googleError("google_unavailable");
         } catch (InterruptedException failure) {
             Thread.currentThread().interrupt();
+            log.warn("gmail_search interrupted");
             return googleError("google_unavailable");
         }
     }
@@ -77,6 +86,7 @@ public class GmailSearchTool implements ToolHandler {
         return switch (reason == null ? "" : reason) {
             case "google_not_connected" -> new ToolResult.Err("google_not_connected", "Connect Google to search Gmail.");
             case "google_reauth_required" -> new ToolResult.Err("google_reauth_required", "Reconnect your Google account to use Gmail.");
+            case "api_not_enabled" -> new ToolResult.Err("api_not_enabled", "The Gmail API is disabled for TinyMe's Google Cloud project. Enable Gmail API in Google Cloud Console, then try again.");
             case "scope_missing" -> new ToolResult.Err("scope_missing", "Gmail access is not allowed. Reconnect Google and allow Gmail.");
             default -> new ToolResult.Err("google_unavailable", "Gmail is unavailable right now. Try again shortly.");
         };

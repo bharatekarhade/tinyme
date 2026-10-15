@@ -10,10 +10,10 @@ public final class UserDataTables {
             "entries", "entry_kinds", "people", "entry_people", "cards", "messages", "agent_sessions",
             "tool_calls", "photos", "photo_people", "blobs", "places", "pending_actions",
             "plans", "plan_people", "plan_occurrences", "health_settings", "health_sync_log", "nudge_log",
-            "google_account", "oauth_states");
+            "google_account", "oauth_states", "confirmations");
 
     /** Secret-bearing tables are cleared by Delete all but never included in an export archive. */
-    public static final List<String> SECRETS = List.of("google_account", "oauth_states");
+    public static final List<String> SECRETS = List.of("google_account", "oauth_states", "confirmations");
 
     public static final List<String> EXPORTABLE = ALL.stream()
             .filter(table -> !SECRETS.contains(table))

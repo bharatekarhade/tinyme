@@ -19,7 +19,8 @@ class ToolSpecLoaderTests {
                 "entries_add", "entries_query", "entries_aggregate", "entries_update",
                 "entries_delete", "people_get", "people_upsert", "people_photo_add", "plans_add", "plans_query", "plans_update",
                 "cards_list", "cards_save", "cards_delete", "places_search", "places_save", "places_list",
-                "places_near", "places_update", "places_remove", "gmail_search", "gmail_read", "gmail_thread");
+                "places_near", "places_update", "places_remove", "gmail_search", "gmail_read", "gmail_thread",
+                "gmail_draft", "gmail_send");
         assertThat(specs.values()).allSatisfy(spec ->
                 assertThat(spec.inputSchema().get("type").stringValue()).isEqualTo("object"));
         assertThat(strings(specs.get("entries_add").inputSchema().get("required")))

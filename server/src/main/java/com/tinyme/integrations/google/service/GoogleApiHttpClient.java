@@ -87,6 +87,33 @@ public class GoogleApiHttpClient {
         }
     }
 
+    /** Sends a single non-idempotent request. POST/PUT calls deliberately have no automatic retry. */
+    public JsonNode sendJson(String method, URI uri, JsonNode body) throws IOException, InterruptedException {
+        String jsonBody = JSON.writeValueAsString(body);
+        for (int attempt = 0; ; attempt++) {
+            HttpRequest request = HttpRequest.newBuilder(uri).timeout(Duration.ofSeconds(30))
+                    .header("Authorization", "Bearer " + tokens.accessToken())
+                    .header("Accept", "application/json")
+                    .header("Content-Type", "application/json")
+                    .method(method, HttpRequest.BodyPublishers.ofString(jsonBody)).build();
+            HttpResponse<String> response = http.send(request, HttpResponse.BodyHandlers.ofString());
+            if (response.statusCode() >= 200 && response.statusCode() < 300) {
+                try {
+                    return response.body().isBlank() ? JSON.createObjectNode() : JSON.readTree(response.body());
+                } catch (RuntimeException failure) {
+                    throw new IOException("Google API returned invalid JSON", failure);
+                }
+            }
+            ApiError error = parseError(response.body());
+            // A 401 means Google rejected the request before processing it, so one refreshed-token retry is safe.
+            if (response.statusCode() == 401 && attempt == 0) {
+                tokens.clearCache();
+                continue;
+            }
+            throw new GoogleApiException(response.statusCode(), responseReason(response.statusCode(), error));
+        }
+    }
+
     public void requireScope(String scope) throws GoogleApiException {
         try {
             tokens.requireScope(scope);
@@ -103,7 +130,9 @@ public class GoogleApiHttpClient {
     }
 
     private String responseReason(int status, ApiError error) {
-        if (status == 403 && "insufficientPermissions".equals(error.reason())) return "scope_missing";
+        if (status == 403 && "accessNotConfigured".equals(error.reason())) return "api_not_enabled";
+        if (status == 403 && ("insufficientPermissions".equals(error.reason())
+                || "ACCESS_TOKEN_SCOPE_INSUFFICIENT".equals(error.reason()))) return "scope_missing";
         if (status == 401) return "unauthorized";
         return error.reason() != null ? error.reason() : error.status();
     }
@@ -139,6 +168,15 @@ public class GoogleApiHttpClient {
             JsonNode first = errors != null && errors.isArray() && !errors.isEmpty() ? errors.get(0) : null;
             String reason = text(first, "reason");
             if (reason == null) reason = text(error, "reason");
+            if (reason == null) {
+                JsonNode details = error.get("details");
+                if (details != null && details.isArray()) {
+                    for (JsonNode detail : details) {
+                        reason = text(detail, "reason");
+                        if (reason != null) break;
+                    }
+                }
+            }
             return new ApiError(reason, text(error, "status"));
         } catch (RuntimeException invalidJson) {
             return new ApiError(null, null);
