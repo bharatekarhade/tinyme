@@ -4,6 +4,7 @@ import com.tinyme.agent.support.AgentDatabaseConfiguration;
 import com.tinyme.domain.places.entity.PlaceEntity;
 import com.tinyme.domain.places.model.PlaceSource;
 import jakarta.persistence.EntityManager;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -29,6 +30,13 @@ class PlaceRepositoryTests {
     @Autowired PlaceRepository places;
     @Autowired EntityManager entityManager;
     @Autowired JdbcTemplate jdbc;
+
+    // Other tests share this Spring context and database and leave their places behind (PlaceServiceTests saves
+    // one at this same origin). Clearing inside the test transaction keeps this test independent of run order.
+    @BeforeEach
+    void clearPlaces() {
+        jdbc.update("DELETE FROM places");
+    }
 
     @Test
     @Transactional
