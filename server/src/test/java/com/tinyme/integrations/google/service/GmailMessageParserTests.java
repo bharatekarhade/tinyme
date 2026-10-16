@@ -39,6 +39,31 @@ class GmailMessageParserTests {
     }
 
     @Test
+    void readsTheBodyOfARealGmailMessageWhosePartsHaveEmptyFilenames() throws Exception {
+        // Gmail's format=full: every part carries "filename": "", attachments a real name.
+        String plain = "利用加盟店：ローソン 渋谷店\n利用金額：1,280円";
+        String html = "<p>HTML version</p>";
+        String fixture = """
+                {"id":"m2","payload":{"partId":"","mimeType":"multipart/mixed","filename":"","headers":[
+                   {"name":"Subject","value":"【ゆうちょデビット】ご利用のお知らせ"}],"body":{"size":0},
+                   "parts":[
+                     {"partId":"0","mimeType":"multipart/alternative","filename":"","body":{"size":0},"parts":[
+                       {"partId":"0.0","mimeType":"text/plain","filename":"","headers":[
+                         {"name":"Content-Type","value":"text/plain; charset=UTF-8"}],"body":{"size":40,"data":"%s"}},
+                       {"partId":"0.1","mimeType":"text/html","filename":"","body":{"size":20,"data":"%s"}}]},
+                     {"partId":"1","mimeType":"text/plain","filename":"notes.txt",
+                      "body":{"attachmentId":"att2","size":10}}]}}
+                """.formatted(Base64.getUrlEncoder().withoutPadding().encodeToString(plain.getBytes(StandardCharsets.UTF_8)),
+                Base64.getUrlEncoder().withoutPadding().encodeToString(html.getBytes(StandardCharsets.UTF_8)));
+
+        var message = new GmailMessageParser().parse(JSON.readTree(fixture), true, 8_000);
+
+        assertThat(message.body()).isEqualTo(plain);
+        assertThat(message.attachments()).containsExactly(
+                new GmailMessageParser.Attachment("notes.txt", "text/plain", "att2"));
+    }
+
+    @Test
     void boundsBodiesAndFallsBackToHtmlWithoutQuotedReply() throws Exception {
         String fixture = """
                 {"payload":{"mimeType":"text/html","body":{"data":"%s"}}}

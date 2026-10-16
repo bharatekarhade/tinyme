@@ -183,6 +183,43 @@ class MailScanServiceTests {
         assertThat(MailScanService.prefiltered(json(headers), newsletter)).isTrue();
     }
 
+    @Test
+    void cardNoticesFiledUnderPromotionsOrSocialReachTheScannerButTheRestThereDoesNot() {
+        String promotions = "{\"labelIds\":[\"INBOX\",\"CATEGORY_PROMOTIONS\"],\"payload\":{\"headers\":[]}}";
+        String social = "{\"labelIds\":[\"CATEGORY_SOCIAL\"],\"payload\":{\"headers\":[]}}";
+        String spam = "{\"labelIds\":[\"SPAM\",\"CATEGORY_PROMOTIONS\"],\"payload\":{\"headers\":[]}}";
+        var paypay = new GmailMessageParser.Message("m", "t", "PayPay Card <info@example-card.test>", null, null, null,
+                "PayPayカード ご利用のお知らせ", null, null, null, List.of());
+        var sale = new GmailMessageParser.Message("m", "t", "Shop <news@shop.test>", null, null, null,
+                "Autumn sale starts now", null, null, null, List.of());
+
+        assertThat(MailScanService.prefiltered(json(promotions), paypay)).isFalse();
+        assertThat(MailScanService.prefiltered(json(social), paypay)).isFalse();
+        assertThat(MailScanService.prefiltered(json(promotions), sale)).isTrue();
+        assertThat(MailScanService.prefiltered(json(spam), paypay)).as("spam is never read").isTrue();
+    }
+
+    @Test
+    void evidenceSpanningLinesStillCountsAsAQuoteFromTheEmail() {
+        var notice = new MailScanAgentRunner.MailInput("gmail-card-03", "ゆうちょ銀行 <debit@example-bank.test>",
+                "2026-10-16T12:15:00+09:00", "【ゆうちょデビット】ご利用のお知らせ", """
+                利用日時：2026/10/16 12:10
+                利用加盟店：ローソン 渋谷店
+                利用金額：1,280円
+                承認番号：123456""");
+
+        // What the scanner returned for this notice: two lines of the email joined with a space.
+        var result = MailScanService.validate(json("""
+                {"type":"payment","title":"ローソン 渋谷店","day":"2026-10-16","time":"12:10","time_zone":"Asia/Tokyo",
+                 "amount":1280,"currency":"JPY","direction":"purchase","card":"ゆうちょデビット","reference":"123456",
+                 "confidence":0.95,"evidence":"利用加盟店：ローソン 渋谷店 利用金額：1,280円","gmail_message_id":"gmail-card-03"}
+                """), notice, TODAY, ZoneId.of("Asia/Tokyo"));
+
+        assertThat(result).isNotNull();
+        assertThat(result.payload()).containsEntry("amount", "1280").containsEntry("card", "ゆうちょデビット");
+        assertThat(MailScanService.quotes(notice.body(), "利用金額：9,999円")).as("words not in the email").isFalse();
+    }
+
     private static final MailScanAgentRunner.MailInput JOB_ALERT = new MailScanAgentRunner.MailInput(
             "gmail-jobs-01", "LinkedIn Job Alerts <jobalerts-noreply@linkedin.com>", "2026-10-16T08:00:00+09:00",
             "“software engineer”: Acme and 9 more new jobs", """

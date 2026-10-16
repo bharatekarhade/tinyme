@@ -61,7 +61,9 @@ public final class GmailMessageParser {
     }
 
     private static String firstBody(JsonNode part, String mimeType) {
-        if (mimeType.equalsIgnoreCase(text(part, "mimeType")) && text(part, "filename") == null) {
+        // Gmail sends "filename": "" on every body part; only a named part is an attachment.
+        String filename = text(part, "filename");
+        if (mimeType.equalsIgnoreCase(text(part, "mimeType")) && (filename == null || filename.isBlank())) {
             String data = text(part.path("body"), "data");
             if (data != null) {
                 try {
