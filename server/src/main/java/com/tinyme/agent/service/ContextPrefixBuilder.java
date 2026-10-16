@@ -4,6 +4,7 @@ import com.tinyme.domain.entries.model.aggregate.TodayTotal;
 import com.tinyme.domain.entries.repository.EntryKindRepository;
 import com.tinyme.domain.entries.repository.EntryRepository;
 import com.tinyme.domain.health.service.HealthContext;
+import com.tinyme.settings.UserCurrency;
 import com.tinyme.domain.health.service.HealthNudges;
 import com.tinyme.domain.plans.service.PlanService;
 import com.tinyme.integrations.google.service.GmailConfirmationService;
@@ -41,11 +42,12 @@ public class ContextPrefixBuilder {
     private final HealthContext health;
     private final HealthNudges nudges;
     private final GmailConfirmationService confirmations;
+    private final UserCurrency currency;
 
     @Autowired
     public ContextPrefixBuilder(EntryKindRepository entryKinds, EntryRepository entries, PlanService plans,
                                 HealthContext health, HealthNudges nudges, Clock clock,
-                                GmailConfirmationService confirmations) {
+                                GmailConfirmationService confirmations, UserCurrency currency) {
         this.entryKinds = entryKinds;
         this.entries = entries;
         this.plans = plans;
@@ -53,12 +55,13 @@ public class ContextPrefixBuilder {
         this.nudges = nudges;
         this.clock = clock;
         this.confirmations = confirmations;
+        this.currency = currency;
     }
 
     /** Compatibility constructor for focused context tests without confirmation state. */
     public ContextPrefixBuilder(EntryKindRepository entryKinds, EntryRepository entries, PlanService plans,
                                 HealthContext health, HealthNudges nudges, Clock clock) {
-        this(entryKinds, entries, plans, health, nudges, clock, null);
+        this(entryKinds, entries, plans, health, nudges, clock, null, null);
     }
 
     /**
@@ -91,6 +94,7 @@ public class ContextPrefixBuilder {
         lines.add("[context]");
         lines.add("now: " + ZonedDateTime.ofInstant(referenceTime, zone).format(LOCAL_TIME));
         lines.add("tz: " + zone.getId());
+        if (currency != null) lines.add("currency: " + currency.current());
         if (sessionId != null && confirmations != null) {
             try {
                 lines.addAll(confirmations.consumeRecentContext(sessionId, referenceTime));

@@ -32,6 +32,16 @@ class ContextPrefixBuilderTests {
     private final ContextPrefixBuilder builder = new ContextPrefixBuilder(kinds, entries, plans, health, nudges, clock);
 
     @Test
+    void tellsTheAgentWhichCurrencySpendingIsKeptIn() {
+        var currency = mock(com.tinyme.settings.UserCurrency.class);
+        when(currency.current()).thenReturn("USD");
+        var withCurrency = new ContextPrefixBuilder(kinds, entries, plans, health, nudges, clock, null, currency);
+
+        assertThat(withCurrency.build(ZoneId.of("Asia/Tokyo")))
+                .contains("tz: Asia/Tokyo\ncurrency: USD\n");
+    }
+
+    @Test
     void theHealthLineComesLastAndAFailureOnlyLeavesItOut() {
         when(health.line(org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any()))
                 .thenReturn("health: connected sleep_heart · slept 8.2 h last night");

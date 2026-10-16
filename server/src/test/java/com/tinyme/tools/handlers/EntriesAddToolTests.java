@@ -36,7 +36,7 @@ class EntriesAddToolTests {
     private static final ToolContext CTX = new ToolContext(UUID.randomUUID(), UUID.randomUUID(), TOKYO, TODAY, NOW);
 
     private final EntryService service = mock(EntryService.class);
-    private final EntriesAddTool tool = new EntriesAddTool(service);
+    private final EntriesAddTool tool = new EntriesAddTool(service, yenOwner());
 
     @Test
     void normalizesKindAndSuppliesDefaultsFromContext() {
@@ -147,5 +147,13 @@ class EntriesAddToolTests {
         ArgumentCaptor<AddCommand> captor = ArgumentCaptor.forClass(AddCommand.class);
         verify(service).add(captor.capture());
         return captor.getValue();
+    }
+
+    /** The owner keeps yen; no exchange rates are looked up unless a test says a currency. */
+    private static com.tinyme.domain.money.ExpenseCurrency yenOwner() {
+        var currency = org.mockito.Mockito.mock(com.tinyme.settings.UserCurrency.class);
+        org.mockito.Mockito.when(currency.current()).thenReturn("JPY");
+        return new com.tinyme.domain.money.ExpenseCurrency(
+                org.mockito.Mockito.mock(com.tinyme.domain.money.ExchangeRates.class), currency);
     }
 }
