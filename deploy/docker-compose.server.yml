@@ -10,6 +10,9 @@ services:
   api:
     ports: !override
       - "127.0.0.1:8080:8080"
+    # Every setting in .env (owner login, Google, …), as the Mac reads it. The values under environment,
+    # here and in docker-compose.yml, still win, so the database address and photo path stay Docker's.
+    env_file: ../.env
     environment:
       TINYME_BLOBS_PATH: /app/blobs
       JAVA_TOOL_OPTIONS: -XX:MaxRAMPercentage=40

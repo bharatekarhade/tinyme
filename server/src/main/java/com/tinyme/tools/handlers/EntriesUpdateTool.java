@@ -1,5 +1,7 @@
 package com.tinyme.tools.handlers;
 
+import com.tinyme.domain.money.ExpenseCurrency;
+import java.time.LocalDate;
 import com.tinyme.domain.entries.model.EntryWriteResult;
 import com.tinyme.domain.entries.model.EntrySnapshot;
 import com.tinyme.domain.entries.model.update.EntryPatch;
@@ -22,9 +24,11 @@ public class EntriesUpdateTool implements ToolHandler {
     private static final DateTimeFormatter SHORT_DATE = DateTimeFormatter.ofPattern("d MMM", Locale.ENGLISH);
 
     private final EntryService entries;
+    private final ExpenseCurrency money;
 
-    public EntriesUpdateTool(EntryService entries) {
+    public EntriesUpdateTool(EntryService entries, ExpenseCurrency money) {
         this.entries = entries;
+        this.money = money;
     }
 
     @Override
@@ -39,12 +43,18 @@ public class EntriesUpdateTool implements ToolHandler {
         try {
             Instant ts = ToolInputs.optionalInstant(input, "ts");
             if (ts != null) ToolInputs.notFarInFuture(ts, ctx.now(), "ts");
+            String kind = ToolInputs.optionalString(input, "kind");
+            var data = ToolInputs.optionalObject(input, "data");
+            // Money data (an amount with a currency) is kept in the owner's currency, as when it was added.
+            if (data != null && (kind == null || "expense".equalsIgnoreCase(kind.strip()))) {
+                data = money.inOwnersCurrency(data, LocalDate.ofInstant(ts == null ? ctx.now() : ts, ctx.zone()));
+            }
             EntryPatch patch = new EntryPatch(
                     ToolInputs.requiredUuid(input, "id"),
-                    ToolInputs.optionalString(input, "kind"),
+                    kind,
                     ToolInputs.optionalDecimal(input, "quantity"),
                     ToolInputs.optionalString(input, "text"),
-                    ToolInputs.optionalObject(input, "data"),
+                    data,
                     ts);
 
             Optional<EntryWriteResult> updated = entries.update(patch, ctx.zone());

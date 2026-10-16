@@ -2,6 +2,15 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>com.tinyme.oauth</string>
+			<key>CFBundleURLSchemes</key>
+			<array><string>tinyme</string></array>
+		</dict>
+	</array>
 	<key>TINYME_DEFAULT_SERVER_URL</key>
 	<string>$(TINYME_DEFAULT_SERVER_URL)</string>
 	<key>TINYME_PUSH_ENABLED</key>

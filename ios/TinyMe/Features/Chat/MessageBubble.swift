@@ -13,6 +13,12 @@ struct MessageBubble: View {
     var onOpenPlan: ((String) -> Void)?
     var onOpenPlace: ((String) -> Void)?
     var onOpenPlaceCandidate: ((PlaceCandidateDTO) -> Void)?
+    var pendingEmailConfirmations: Set<String> = []
+    var emailConfirmationDetails: [String: GooglePendingConfirmationDTO] = [:]
+    var emailConfirmationErrors: [String: String] = [:]
+    var sendingEmailConfirmations: Set<String> = []
+    var emailConfirmationStatuses: [String: String] = [:]
+    var onDecideEmailConfirmation: ((String, Bool) -> Void)?
 
     var body: some View {
         switch item {
@@ -112,7 +118,9 @@ struct MessageBubble: View {
                 .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: Space.s2) {
                 // Place searches and saved-place lookups show as cards below, not chips.
-                let visibleActions = actions.filter { $0.tool != "places_search" && $0.savedPlaces.isEmpty }
+                let visibleActions = actions.filter {
+                    $0.tool != "places_search" && $0.savedPlaces.isEmpty && $0.googleConfirmation == nil
+                }
                 if !visibleActions.isEmpty {
                     FlowLayout(spacing: 6) {
                         ForEach(Array(visibleActions.enumerated()), id: \.offset) { _, action in
@@ -143,6 +151,18 @@ struct MessageBubble: View {
                                 .cardShadow()
                         }
                         .accessibilityLabel("TinyMe is thinking")
+                }
+                ForEach(actions.compactMap(\.googleConfirmation)) { confirmation in
+                    if let details = emailConfirmationDetails[confirmation.id],
+                       pendingEmailConfirmations.contains(confirmation.id)
+                        || emailConfirmationStatuses[confirmation.id] != nil {
+                        GoogleConfirmationCard(confirmation: details,
+                                      isSending: sendingEmailConfirmations.contains(confirmation.id),
+                                      error: emailConfirmationErrors[confirmation.id],
+                                      status: emailConfirmationStatuses[confirmation.id],
+                                      onSend: { onDecideEmailConfirmation?(confirmation.id, true) },
+                                      onCancel: { onDecideEmailConfirmation?(confirmation.id, false) })
+                    }
                 }
                 if !candidateGroups.isEmpty {
                     VStack(alignment: .leading, spacing: Space.s3) {

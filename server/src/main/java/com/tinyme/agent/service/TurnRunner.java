@@ -8,6 +8,7 @@ import com.tinyme.agent.model.TurnEvent;
 import com.tinyme.agent.model.TurnRequest;
 import com.tinyme.agent.model.TurnResult;
 import com.tinyme.agent.repository.MessageRepository;
+import com.tinyme.agent.repository.AgentSettingsRepository;
 import com.tinyme.tools.model.DispatchOutcome;
 import com.tinyme.tools.model.ToolContext;
 import com.tinyme.tools.service.ToolDispatcher;
@@ -28,6 +29,7 @@ import java.util.Map;
 import java.util.ArrayList;
 import java.util.Objects;
 import java.util.UUID;
+import java.util.function.Supplier;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
 
@@ -36,10 +38,16 @@ import java.util.concurrent.FutureTask;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.function.Consumer;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 @Service
 public class TurnRunner {
     private static final JsonMapper JSON = JsonMapper.builder().build();
+    private static final Pattern WAITING_ON = Pattern.compile("waiting on responses to events \\[([^\\]]*)\\]");
+    private static final Pattern EVENT_ID = Pattern.compile("sevt_[A-Za-z0-9]+");
+    /** How many events of an abandoned turn to skip while it winds down before giving up and sending anyway. */
+    private static final int MAX_ABANDONED_EVENTS = 200;
     private final ContextPrefixBuilder contextPrefix;
     private final ManagedAgents api;
     private final ToolDispatcher dispatcher;
@@ -48,17 +56,69 @@ public class TurnRunner {
     private final Clock clock;
     private final Duration timeout;
     private final ResilientEventSource.Sleeper reconnectSleeper;
+    private final String coordinatorAgent;
+    private final Supplier<String> coordinatorAgentId;
+    private final Supplier<String> gmailAgentId;
+    /** Gives a fresh session when today's was deleted on Anthropic's side; null means none (tests). */
+    private GoneSessionReplacer goneSessions = (gone, zone) -> null;
+
+    @FunctionalInterface
+    interface GoneSessionReplacer {
+        SessionRef replace(SessionRef gone, java.time.ZoneId zone) throws IOException, InterruptedException;
+    }
+
+    @Autowired
+    void useSessionManager(SessionManager sessionManager) {
+        goneSessions = sessionManager::replaceGone;
+    }
+
+    void useGoneSessionReplacer(GoneSessionReplacer replacer) {
+        goneSessions = Objects.requireNonNull(replacer, "replacer");
+    }
 
     @Autowired
     TurnRunner(ContextPrefixBuilder contextPrefix, ManagedAgents api,
                ToolDispatcher dispatcher, SessionTurnLock sessionTurnLock, MessageRepository messages, Clock clock,
-               @Value("${tinyme.agent.turn-timeout:120s}") Duration timeout) {
-        this(contextPrefix, api, dispatcher, sessionTurnLock, messages, clock, timeout, Thread::sleep);
+               @Value("${tinyme.agent.turn-timeout:120s}") Duration timeout,
+               @Value("${tinyme.agent.name:tinyme-chat}") String coordinatorAgent,
+               AgentSettingsRepository settings) {
+        this(contextPrefix, api, dispatcher, sessionTurnLock, messages, clock, timeout, Thread::sleep,
+                coordinatorAgent, () -> settings.chatAgentId().orElse(null),
+                () -> settings.gmailAgentId().orElse(null));
+    }
+
+    TurnRunner(ContextPrefixBuilder contextPrefix, ManagedAgents api,
+               ToolDispatcher dispatcher, SessionTurnLock sessionTurnLock, MessageRepository messages, Clock clock,
+               Duration timeout) {
+        this(contextPrefix, api, dispatcher, sessionTurnLock, messages, clock, timeout, Thread::sleep, "tinyme-chat");
     }
 
     TurnRunner(ContextPrefixBuilder contextPrefix, ManagedAgents api,
                ToolDispatcher dispatcher, SessionTurnLock sessionTurnLock, MessageRepository messages, Clock clock,
                Duration timeout, ResilientEventSource.Sleeper reconnectSleeper) {
+        this(contextPrefix, api, dispatcher, sessionTurnLock, messages, clock, timeout, reconnectSleeper,
+                "tinyme-chat");
+    }
+
+    TurnRunner(ContextPrefixBuilder contextPrefix, ManagedAgents api,
+               ToolDispatcher dispatcher, SessionTurnLock sessionTurnLock, MessageRepository messages, Clock clock,
+               Duration timeout, ResilientEventSource.Sleeper reconnectSleeper, String coordinatorAgent) {
+        this(contextPrefix, api, dispatcher, sessionTurnLock, messages, clock, timeout, reconnectSleeper,
+                coordinatorAgent, () -> null, () -> null);
+    }
+
+    TurnRunner(ContextPrefixBuilder contextPrefix, ManagedAgents api,
+               ToolDispatcher dispatcher, SessionTurnLock sessionTurnLock, MessageRepository messages, Clock clock,
+               Duration timeout, ResilientEventSource.Sleeper reconnectSleeper, String coordinatorAgent,
+               String gmailAgentId) {
+        this(contextPrefix, api, dispatcher, sessionTurnLock, messages, clock, timeout, reconnectSleeper,
+                coordinatorAgent, () -> null, () -> gmailAgentId);
+    }
+
+    private TurnRunner(ContextPrefixBuilder contextPrefix, ManagedAgents api,
+               ToolDispatcher dispatcher, SessionTurnLock sessionTurnLock, MessageRepository messages, Clock clock,
+               Duration timeout, ResilientEventSource.Sleeper reconnectSleeper, String coordinatorAgent,
+               Supplier<String> coordinatorAgentId, Supplier<String> gmailAgentId) {
         this.contextPrefix = contextPrefix;
         this.api = api;
         this.dispatcher = dispatcher;
@@ -66,6 +126,9 @@ public class TurnRunner {
         this.messages = messages;
         this.clock = clock;
         this.reconnectSleeper = Objects.requireNonNull(reconnectSleeper, "reconnectSleeper");
+        this.coordinatorAgent = Objects.requireNonNull(coordinatorAgent, "coordinatorAgent");
+        this.coordinatorAgentId = Objects.requireNonNull(coordinatorAgentId, "coordinatorAgentId");
+        this.gmailAgentId = Objects.requireNonNull(gmailAgentId, "gmailAgentId");
         if (timeout.isZero() || timeout.isNegative()) {
             throw new IllegalArgumentException("Turn timeout must be positive");
         }
@@ -147,7 +210,18 @@ public class TurnRunner {
             throw new TurnFailure("busy", "Another message is still being answered", true);
         }
         try {
-            return executeLocked(request, listener, rawEventObserver, state);
+            try {
+                return executeLocked(request, listener, rawEventObserver, state);
+            } catch (ManagedAgentApi.ApiException gone) {
+                // 404 before the message got in: today's session was deleted on Anthropic's side. Answer in a new one.
+                if (gone.status() != 404 || state.userMessageSent) throw gone;
+                SessionRef fresh = goneSessions.replace(request.session(), request.zone());
+                if (fresh == null || fresh.sessionRowId().equals(sessionRowId)) throw gone;
+                var retry = new TurnRequest(fresh, request.userMessageId(), request.text(), request.zone(),
+                        request.sentAt(), request.imageBlocks(), request.attachedPhotoId(), request.location());
+                state.session = fresh;
+                return executeLocked(retry, listener, rawEventObserver, state);
+            }
         } finally {
             sessionTurnLock.release(sessionRowId);
         }
@@ -165,9 +239,12 @@ public class TurnRunner {
         var context = new ToolContext(session.sessionRowId(), null, zone,
                 LocalDate.ofInstant(referenceTime, zone), referenceTime, request.attachedPhotoId(), request.location(),
                 listener);
-        String prefix = request.location() == null
-                ? contextPrefix.build(zone, referenceTime)
-                : contextPrefix.build(zone, referenceTime, request.location());
+        var threads = new ThreadRegistry(coordinatorAgent, coordinatorAgentId.get(), gmailAgentId.get());
+        String prefix = contextPrefix.build(zone, referenceTime, request.location(), session.sessionRowId());
+        // Keep older builder implementations and focused test doubles usable while the session-aware
+        // overload is adopted everywhere. The production builder always returns a non-null prefix.
+        if (prefix == null) prefix = contextPrefix.build(zone, referenceTime, request.location());
+        if (prefix == null) prefix = contextPrefix.build(zone, referenceTime);
         state.checkCancelled();
         try (var source = new ResilientEventSource(api, session.anthropicSessionId(), reconnectSleeper, rawEventObserver)) {
             state.source = source;
@@ -177,8 +254,16 @@ public class TurnRunner {
             userContent.add(new java.util.LinkedHashMap<>(textBlock(prefix)));
             userContent.add(new java.util.LinkedHashMap<>(textBlock(text)));
             userContent.addAll(request.imageBlocks());
-            api.sendEvents(session.anthropicSessionId(), List.of(Map.of(
-                    "type", "user.message", "content", userContent)));
+            var userMessage = List.of(Map.of("type", "user.message", "content", userContent));
+            try {
+                api.sendEvents(session.anthropicSessionId(), userMessage);
+            } catch (ManagedAgentApi.ApiException rejected) {
+                List<String> abandoned = abandonedEventIds(rejected);
+                if (abandoned.isEmpty()) throw rejected;
+                clearAbandonedTurn(session.anthropicSessionId(), source, abandoned);
+                api.sendEvents(session.anthropicSessionId(), userMessage);
+            }
+            state.userMessageSent = true;
 
             var reply = new StringBuilder();
             var actions = new ArrayList<Map<String, Object>>();
@@ -191,6 +276,10 @@ public class TurnRunner {
                     state.checkCancelled();
                     if (event == null) throw new IOException("Managed Agents stream ended before end_turn");
                     String type = requiredText(event, "type");
+                    threads.observe(event);
+                    if (type.startsWith("session.thread_")) {
+                        continue;
+                    }
                     // Ignore built-in tool activity, usage, thread status and any preview events.
                     if (!List.of("agent.custom_tool_use", "agent.message", "session.status_idle", "session.error")
                             .contains(type)) continue;
@@ -201,7 +290,14 @@ public class TurnRunner {
                             JsonNode input = event.get("input");
                             if (input == null) throw new IOException("Custom tool event is missing input");
                             // EventStream already supplies Jackson 3 nodes, matching the dispatcher.
-                            var result = dispatcher.dispatch(id, name, input, context);
+                            String threadId = optionalText(event, "session_thread_id");
+                            if (threadId == null) threadId = optionalText(event, "thread_id");
+                            String announcedAgent = optionalText(event, "agent_name");
+                            if (threadId != null && announcedAgent != null) {
+                                threads.register(threadId, announcedAgent);
+                            }
+                            var result = dispatcher.dispatch(id, name, input,
+                                    context.withAgent(threads.agentFor(threadId), threadId));
                             toolCalls++;
                             String summary = actionSummary(result);
                             var action = new LinkedHashMap<String, Object>();
@@ -212,11 +308,18 @@ public class TurnRunner {
                             actions.add(action);
                             listener.on(new TurnEvent.ActionDone(name, summary, result.isError(), result.ref()));
                             state.checkCancelled();
-                            api.sendEvents(session.anthropicSessionId(), List.of(Map.of(
-                                    "type", "user.custom_tool_result", "custom_tool_use_id", id,
-                                    "content", List.of(textBlock(result.resultJson())), "is_error", result.isError())));
+                            var toolResultEvent = new LinkedHashMap<String, Object>();
+                            toolResultEvent.put("type", "user.custom_tool_result");
+                            toolResultEvent.put("custom_tool_use_id", id);
+                            toolResultEvent.put("content", List.of(textBlock(result.resultJson())));
+                            toolResultEvent.put("is_error", result.isError());
+                            if (threadId != null) toolResultEvent.put("session_thread_id", threadId);
+                            api.sendEvents(session.anthropicSessionId(), List.of(toolResultEvent));
                         }
                         case "agent.message" -> {
+                            String threadId = optionalText(event, "session_thread_id");
+                            if (threadId == null) threadId = optionalText(event, "thread_id");
+                            if (threadId != null && !coordinatorAgent.equals(threads.agentFor(threadId))) continue;
                             String textEvent = messageText(event);
                             reply.append(textEvent);
                             if (!textEvent.isEmpty()) listener.on(new TurnEvent.Text(textEvent));
@@ -285,6 +388,59 @@ public class TurnRunner {
         return Map.of("type", "text", "text", text);
     }
 
+    /** The tool calls a 400 says the session is still waiting on ("waiting on responses to events [sevt_…]"). */
+    static List<String> abandonedEventIds(ManagedAgentApi.ApiException rejected) {
+        String message = rejected.getMessage();
+        if (rejected.status() != 400 || message == null) return List.of();
+        Matcher waiting = WAITING_ON.matcher(message);
+        if (!waiting.find()) return List.of();
+        var ids = new ArrayList<String>();
+        Matcher id = EVENT_ID.matcher(waiting.group(1));
+        while (id.find()) ids.add(id.group());
+        return ids;
+    }
+
+    /**
+     * The session still waits on tool calls from a turn TinyMe lost track of (it restarted mid-tool), and refuses
+     * new messages until they're answered. Answers them (stored result, or an "interrupted" error), stops that
+     * old turn and waits for it to go idle, so the new message starts clean. Nothing from the old turn reaches
+     * the user; a tool it starts meanwhile is answered with the same error rather than run.
+     */
+    private void clearAbandonedTurn(String sessionId, ResilientEventSource source, List<String> eventIds)
+            throws IOException, InterruptedException {
+        for (String eventId : eventIds) answerAbandoned(sessionId, eventId, null);
+        try {
+            api.sendEvents(sessionId, List.of(Map.of("type", "user.interrupt")));
+        } catch (ManagedAgentApi.ApiException alreadyIdle) {
+            // The old turn may already have ended once its tools were answered.
+        }
+        for (int seen = 0; seen < MAX_ABANDONED_EVENTS; seen++) {
+            JsonNode event = source.next();
+            if (event == null) return;
+            String type = event.path("type").asString("");
+            if (type.equals("agent.custom_tool_use")) {
+                String threadId = optionalText(event, "session_thread_id");
+                answerAbandoned(sessionId, requiredText(event, "id"),
+                        threadId != null ? threadId : optionalText(event, "thread_id"));
+            } else if (type.equals("session.status_idle")
+                    && !"requires_action".equals(event.path("stop_reason").path("type").asString(""))) {
+                return;
+            }
+        }
+    }
+
+    private void answerAbandoned(String sessionId, String eventId, String threadIdHint)
+            throws IOException, InterruptedException {
+        var recovered = dispatcher.recoverAbandoned(eventId, threadIdHint);
+        var result = new LinkedHashMap<String, Object>();
+        result.put("type", "user.custom_tool_result");
+        result.put("custom_tool_use_id", eventId);
+        result.put("content", List.of(textBlock(recovered.resultJson())));
+        result.put("is_error", recovered.isError());
+        if (recovered.threadId() != null) result.put("session_thread_id", recovered.threadId());
+        api.sendEvents(sessionId, List.of(result));
+    }
+
     private static String actionSummary(DispatchOutcome result) {
         try {
             JsonNode envelope = JSON.readTree(result.resultJson());
@@ -347,6 +503,12 @@ public class TurnRunner {
         return value.stringValue();
     }
 
+    private static String optionalText(JsonNode node, String field) {
+        JsonNode value = node.get(field);
+        return value != null && value.isString() && !value.stringValue().isBlank()
+                ? value.stringValue() : null;
+    }
+
     private static void cancel(FutureTask<?> task, TurnState state, Exception failure) {
         state.cancelled = true;
         task.cancel(true);
@@ -377,6 +539,8 @@ public class TurnRunner {
         volatile boolean cancelled;
         volatile boolean lockAcquired;
         volatile TurnResult partialResult;
+        /** Set once the session took the user's message; after that a failure is never retried elsewhere. */
+        volatile boolean userMessageSent;
         final CompletableFuture<Boolean> lockAcquiredSignal = new CompletableFuture<>();
         final CountDownLatch workerFinished = new CountDownLatch(1);
 

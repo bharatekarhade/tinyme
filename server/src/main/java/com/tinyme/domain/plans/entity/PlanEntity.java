@@ -101,6 +101,15 @@ public class PlanEntity {
     @Column(name = "external_id")
     private String externalId;
 
+    @Column(name = "google_event_id")
+    private String googleEventId;
+
+    @Column(name = "google_etag")
+    private String googleEtag;
+
+    @Column(name = "google_sync_at")
+    private Instant googleSyncAt;
+
     @Generated(event = EventType.INSERT)
     @Column(name = "created_at", nullable = false, insertable = false, updatable = false)
     private Instant createdAt;
@@ -158,6 +167,9 @@ public class PlanEntity {
     public Instant getCompletedAt() { return completedAt; }
     public PlanSource getSource() { return source; }
     public String getExternalId() { return externalId; }
+    public String getGoogleEventId() { return googleEventId; }
+    public String getGoogleEtag() { return googleEtag; }
+    public Instant getGoogleSyncAt() { return googleSyncAt; }
     public Instant getCreatedAt() { return createdAt; }
     public Instant getUpdatedAt() { return updatedAt; }
     public Instant getDeletedAt() { return deletedAt; }
@@ -234,6 +246,54 @@ public class PlanEntity {
 
     public void restore() {
         if (deletedAt != null) deletedAt = null;
+    }
+
+    /** Applies a Google edit to a TinyMe-authored event without changing its source identity. */
+    public void applyGoogleEdit(String title, String notes, String place, LocalDate startDay,
+                                LocalTime startTime, LocalTime endTime, LocalDate endDay) {
+        applyGoogleEdit(title, notes, place, startDay, startTime, endTime, endDay, getRepeat());
+    }
+
+    public void applyGoogleEdit(String title, String notes, String place, LocalDate startDay,
+                                LocalTime startTime, LocalTime endTime, LocalDate endDay, Repeat repeat) {
+        if (source == PlanSource.GOOGLE) throw new IllegalStateException("Google-imported plans do not have a TinyMe mirror");
+        restore();
+        if (status == PlanStatus.CANCELLED) {
+            status = PlanStatus.ACTIVE;
+            completedAt = null;
+        }
+        edit(kind, title, notes, place, habitKind, remindMinutes, repeat, startDay,
+                startTime, endTime, endDay);
+    }
+
+    public void setGoogleMirror(String eventId, String etag) {
+        if (source == PlanSource.GOOGLE) throw new IllegalStateException("Google-imported plans are not mirrored");
+        googleEventId = eventId;
+        googleEtag = etag;
+    }
+
+    public void setGoogleEtag(String etag) {
+        googleEtag = etag;
+    }
+
+    public void markRemoteDeleted(Instant now) {
+        softDelete(now);
+    }
+
+    /** Synchronizes content owned by Google, preserving the stable external identity. */
+    public void applyImportedGoogleEvent(PlanKind kind, String title, String notes, String place,
+                                         ZoneId zone, LocalDate startDay, LocalTime startTime,
+                                         LocalTime endTime, LocalDate endDay, Repeat repeat, boolean cancelled) {
+        if (source != PlanSource.GOOGLE) throw new IllegalStateException("Only imported Google plans can be updated here");
+        if (status == PlanStatus.CANCELLED && !cancelled) status = PlanStatus.ACTIVE;
+        if (cancelled) {
+            status = PlanStatus.CANCELLED;
+            completedAt = null;
+            return;
+        }
+        edit(kind, title, notes, place, habitKind, remindMinutes, repeat, startDay,
+                startTime, endTime, endDay);
+        this.zone = Objects.requireNonNull(zone, "zone").getId();
     }
 
     public void replacePeople(Set<PersonEntity> people) {

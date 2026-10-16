@@ -35,6 +35,7 @@ The iPhone app currently includes:
 | **People and photos** | Keep people profiles and memory, attach an image from chat to a person when you identify them, and browse a person's saved photos. |
 | **Places** | Search and save places from chat, browse them in a list or map, add notes, mark them visited, and remove them. Optional nearby alerts use on-device location monitoring and local notifications. |
 | **Upcoming** | View plans in a day calendar, including timed events, all-day items, tasks, and repeating plans. Create and change plans in chat and use calendar actions for occurrences. |
+| **G Scan** | Everything found in your Gmail, waiting for your tap: card and bank payments to confirm into spending (any card; other currencies converted at the day's rate), plans found in email, job postings from LinkedIn alerts with a status you set, and emails or invite replies the agent drafted. |
 | **Apple Health** | Select supported Health data types and sync their entries to your TinyMe server. Health access and syncing are controlled in Settings. |
 | **Quick access** | A Home Screen widget and a Journal shortcut for Shortcuts, Siri, and Back Tap. |
 | **Account and data** | Email-and-password sign-in, per-device revocable tokens, ZIP export, and delete-all controls. |
@@ -56,6 +57,10 @@ flowchart LR
 The agent interprets a request and calls a tool. The server validates and executes that tool, stores the result, and streams the reply to the app. Entry totals, trends, and card values are computed by the backend from PostgreSQL.
 
 TinyMe stores account data in PostgreSQL and uploaded image content in the server's configured local blob directory. Agent requests and responses are processed through Anthropic using the API key configured on the server. Speech recognition is performed on the iPhone before the transcript is sent.
+
+## Set it up
+
+**[HOW_TO_RUN.md](HOW_TO_RUN.md)** walks through everything end to end, with the reasons behind each step: the server on your Mac, installing the iPhone app (free or paid Apple account), reaching it from anywhere with Tailscale, connecting Google, moving to an always-on server, backups, every setting, and troubleshooting. The sections below are the short version.
 
 ## Requirements
 

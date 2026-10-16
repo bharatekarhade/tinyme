@@ -1,0 +1,12 @@
+[
+  {"id":"thread-running","type":"session.thread_status_running","session_thread_id":"sthr_gmail_test",
+   "agent_name":"tinyme-chat","agent_id":"agent_gmail_provisioned"},
+  {"id":"subagent-preview","type":"agent.message","session_thread_id":"sthr_gmail_test",
+   "content":[{"type":"text","text":"Internal email-search planning"}]},
+  {"id":"gmail-search","type":"agent.custom_tool_use","session_thread_id":"sthr_gmail_test",
+   "name":"gmail_search","input":{"query":"newer_than:1d"}},
+  {"id":"thread-idle","type":"session.thread_status_idle","session_thread_id":"sthr_gmail_test",
+   "stop_reason":{"type":"end_turn"}},
+  {"id":"chat-reply","type":"agent.message","content":[{"type":"text","text":"Here are the recent emails."}]},
+  {"id":"turn-idle","type":"session.status_idle","stop_reason":{"type":"end_turn"}}
+]

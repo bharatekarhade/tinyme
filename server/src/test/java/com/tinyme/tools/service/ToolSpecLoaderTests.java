@@ -19,7 +19,8 @@ class ToolSpecLoaderTests {
                 "entries_add", "entries_query", "entries_aggregate", "entries_update",
                 "entries_delete", "people_get", "people_upsert", "people_photo_add", "plans_add", "plans_query", "plans_update",
                 "cards_list", "cards_save", "cards_delete", "places_search", "places_save", "places_list",
-                "places_near", "places_update", "places_remove");
+                "places_near", "places_update", "places_remove", "gmail_search", "gmail_read", "gmail_thread",
+                "gmail_draft", "gmail_send", "calendar_events", "calendar_free_time", "calendar_respond");
         assertThat(specs.values()).allSatisfy(spec ->
                 assertThat(spec.inputSchema().get("type").stringValue()).isEqualTo("object"));
         assertThat(strings(specs.get("entries_add").inputSchema().get("required")))
@@ -51,6 +52,11 @@ class ToolSpecLoaderTests {
         assertThat(specs.get("places_save").inputSchema().get("required").toString()).contains("candidate_id");
         assertThat(specs.get("places_near").inputSchema().get("properties").has("lat")).isFalse();
         assertThat(specs.get("places_update").inputSchema().get("properties").has("visited")).isTrue();
+        assertThat(strings(specs.get("gmail_search").inputSchema().get("required"))).containsExactly("query");
+        assertThat(specs.get("gmail_search").inputSchema().get("properties").get("max_results").get("maximum").intValue())
+                .isEqualTo(20);
+        assertThat(strings(specs.get("gmail_read").inputSchema().get("required"))).containsExactly("message_id");
+        assertThat(strings(specs.get("gmail_thread").inputSchema().get("required"))).containsExactly("thread_id");
     }
 
     @Test

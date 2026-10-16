@@ -14,6 +14,7 @@ import com.tinyme.domain.plans.model.PlanSource;
 import com.tinyme.domain.plans.model.Repeat;
 import com.tinyme.domain.plans.model.RepeatFrequency;
 import com.tinyme.domain.plans.service.PlanService;
+import com.tinyme.integrations.google.service.CalendarSyncRepository;
 import com.tinyme.domain.people.model.Birthday;
 import jakarta.persistence.EntityManager;
 import org.junit.jupiter.api.Test;
@@ -50,6 +51,7 @@ class PlanRepositoryTests {
     @Autowired EntityManager entityManager;
     @Autowired PlanService planService;
     @Autowired EntryRepository entries;
+    @Autowired CalendarSyncRepository calendarSync;
 
     private static final ZoneId TOKYO = ZoneId.of("Asia/Tokyo");
     private static final Instant NOW = Instant.parse("2026-10-13T01:00:00Z");
@@ -101,6 +103,55 @@ class PlanRepositoryTests {
         assertThat(moved.getId()).isEqualTo(new PlanOccurrenceId(plan.getId(), occurrenceDay));
         assertThat(jdbc.queryForObject("SELECT status FROM plan_occurrences WHERE plan_id = ? AND day = ?",
                 String.class, plan.getId(), occurrenceDay)).isEqualTo("moved");
+    }
+
+    @Test
+    @Transactional
+    void completedFullCalendarSnapshotCancelsOnlyImportedEventsNotSeen() {
+        String suffix = UUID.randomUUID().toString();
+        String kept = "snapshot-calendar:kept-" + suffix;
+        String removed = "snapshot-calendar:removed-" + suffix;
+        UUID keptId = jdbc.queryForObject("""
+                INSERT INTO plans (kind, title, zone, start_day, source, external_id)
+                VALUES ('event', 'Keep', 'Asia/Tokyo', '2026-10-20', 'google', ?) RETURNING id
+                """, UUID.class, kept);
+        UUID removedId = jdbc.queryForObject("""
+                INSERT INTO plans (kind, title, zone, start_day, source, external_id)
+                VALUES ('event', 'Remove', 'Asia/Tokyo', '2026-10-21', 'google', ?) RETURNING id
+                """, UUID.class, removed);
+
+        calendarSync.cancelImportedCalendarSnapshotExcept("snapshot-calendar", Set.of(kept));
+
+        assertThat(jdbc.queryForObject("SELECT status FROM plans WHERE id=?", String.class, keptId))
+                .isEqualTo("active");
+        assertThat(jdbc.queryForObject("SELECT status FROM plans WHERE id=?", String.class, removedId))
+                .isEqualTo("cancelled");
+    }
+
+    @Test
+    @Transactional
+    void mirrorCandidatesIncludeChangedOrUnmirroredOnlyAndKeepOngoingOldRepeats() {
+        LocalDate cutoff = LocalDate.of(2026, 9, 16);
+        PlanEntity oldOneOff = plans.save(new PlanEntity(PlanKind.EVENT, "Old one-off", null, null,
+                TOKYO, cutoff.minusDays(31), LocalTime.NOON, LocalTime.of(13, 0), null,
+                null, null, null, PlanSource.APP, null, Set.of()));
+        PlanEntity ongoingRepeat = new PlanEntity(PlanKind.EVENT, "Weekly class", null, null,
+                TOKYO, LocalDate.of(2020, 1, 1), LocalTime.NOON, LocalTime.of(13, 0), null,
+                new Repeat(RepeatFrequency.WEEKLY, 1, Set.of(DayOfWeek.MONDAY), null),
+                null, null, PlanSource.APP, null, Set.of());
+        ongoingRepeat.setGoogleMirror("remote-event", "etag-1");
+        ongoingRepeat = plans.saveMirror(ongoingRepeat);
+        entityManager.flush();
+        entityManager.clear();
+
+        assertThat(plans.findMirrorCandidates(cutoff)).extracting(PlanEntity::getId)
+                .doesNotContain(oldOneOff.getId(), ongoingRepeat.getId());
+
+        jdbc.update("UPDATE plans SET google_sync_at=statement_timestamp() - interval '1 day' WHERE id=?",
+                ongoingRepeat.getId());
+        entityManager.clear();
+        assertThat(plans.findMirrorCandidates(cutoff)).extracting(PlanEntity::getId)
+                .contains(ongoingRepeat.getId()).doesNotContain(oldOneOff.getId());
     }
 
     @Test

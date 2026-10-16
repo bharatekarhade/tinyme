@@ -55,26 +55,7 @@ struct ChatView: View {
                         emptyState
                     }
                     ForEach(Array(model.items.enumerated()), id: \.element.id) { index, item in
-                        if startsNewRun(at: index) {
-                            Text(Self.timeLabel(item.createdAt))
-                                .textStyle(.caption)
-                                .foregroundStyle(Palette.inkMuted)
-                                .padding(.top, index == 0 ? 0 : Space.s2)
-                        }
-                        MessageBubble(
-                            item: item,
-                            api: api,
-                            onRetry: { model.retry(item.id) },
-                            onDelete: { model.delete(item.id) },
-                            inlineCard: model.inlineCard(for:),
-                            onChangeGoal: { card in
-                                model.draftGoalChange(for: card)
-                                composerFocused = true
-                            },
-                            onOpenPlan: onOpenPlan,
-                            onOpenPlace: onOpenPlace,
-                            onOpenPlaceCandidate: { selectedPlaceCandidate = $0 }
-                        )
+                        messageRow(item: item, index: index)
                     }
                     Color.clear
                         .frame(height: 1)
@@ -203,6 +184,36 @@ struct ChatView: View {
                 }
             }
         }
+    }
+
+    @ViewBuilder
+    private func messageRow(item: ChatItem, index: Int) -> some View {
+        if startsNewRun(at: index) {
+            Text(Self.timeLabel(item.createdAt))
+                .textStyle(.caption)
+                .foregroundStyle(Palette.inkMuted)
+                .padding(.top, index == 0 ? 0 : Space.s2)
+        }
+        MessageBubble(
+            item: item,
+            api: api,
+            onRetry: { model.retry(item.id) },
+            onDelete: { model.delete(item.id) },
+            inlineCard: model.inlineCard(for:),
+            onChangeGoal: { card in
+                model.draftGoalChange(for: card)
+                composerFocused = true
+            },
+            onOpenPlan: onOpenPlan,
+            onOpenPlace: onOpenPlace,
+            onOpenPlaceCandidate: { selectedPlaceCandidate = $0 },
+            pendingEmailConfirmations: model.pendingEmailConfirmations,
+            emailConfirmationDetails: model.emailConfirmationDetails,
+            emailConfirmationErrors: model.emailConfirmationErrors,
+            sendingEmailConfirmations: model.sendingEmailConfirmations,
+            emailConfirmationStatuses: model.emailConfirmationStatuses,
+            onDecideEmailConfirmation: { id, send in model.decideEmailConfirmation(id, send: send) }
+        )
     }
 
     // MARK: - Pieces

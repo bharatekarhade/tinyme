@@ -28,7 +28,8 @@ public record OccurrenceResponse(String id,
                                  String status,
                                  @JsonProperty("repeat_label") String repeatLabel,
                                  String habit,
-                                 boolean editable) {
+                                 boolean editable,
+                                 @JsonProperty("gmail_message_id") String gmailMessageId) {
     private static final DateTimeFormatter TIME = DateTimeFormatter.ofPattern("HH:mm", Locale.ROOT);
 
     public OccurrenceResponse {
@@ -52,7 +53,10 @@ public record OccurrenceResponse(String id,
                 occurrence.notes(), occurrence.place(), occurrence.people().stream().map(OccurrenceResponse::person).toList(),
                 occurrence.status().name().toLowerCase(Locale.ROOT),
                 RepeatLabel.format(occurrence.repeat(), occurrence.repeatStartDay()),
-                occurrence.habitKind(), !"people".equals(occurrence.source()));
+                occurrence.habitKind(), !"people".equals(occurrence.source()),
+                "chat".equals(occurrence.source()) && occurrence.externalId() != null
+                        && occurrence.externalId().startsWith("gmail:")
+                        ? occurrence.externalId().substring("gmail:".length()) : null);
     }
 
     private static PersonResponse person(PersonSnapshot person) {

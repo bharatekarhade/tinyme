@@ -117,6 +117,69 @@ class TurnRunnerTests {
     }
 
     @Test
+    void aSessionStillWaitingOnAToolFromBeforeARestartIsClearedAndTheMessageResent() throws Exception {
+        var runner = runner(Duration.ofSeconds(5));
+        // The old turn: once its tool is answered and it's interrupted, it says something and goes idle.
+        // None of that may reach the user; the reply is only what follows the resent message.
+        var body = events("""
+                {"type":"agent.message","id":"old-msg","content":[{"type":"text","text":"The search was cut off."}]}
+                """, """
+                {"type":"session.status_idle","id":"old-idle","stop_reason":{"type":"end_turn"}}
+                """, """
+                {"type":"agent.message","id":"new-msg","content":[{"type":"text","text":"Here you go."}]}
+                """, END);
+        when(api.openStream("sesn_test")).thenReturn(new EventStream(body));
+        var rejected = new com.tinyme.agent.client.ManagedAgentApi.ApiException(400, "invalid_request_error",
+                "POST /v1/sessions/sesn_test/events: Invalid user.message event at events[0]: waiting on responses "
+                        + "to events [sevt_01Stuck]; only `user.custom_tool_result` or `user.interrupt` may be sent");
+        doThrow(rejected).doNothing().when(api).sendEvents(eq("sesn_test"),
+                argThat(events -> "user.message".equals(events.getFirst().get("type"))));
+        when(dispatcher.recoverAbandoned("sevt_01Stuck", null)).thenReturn(new ToolDispatcher.RecoveredResult(
+                "{\"ok\":false,\"error\":{\"code\":\"interrupted\"}}", true, "sthr_gmail"));
+
+        assertThat(runner.run(request("check once again"), TurnListener.NONE).replyText()).isEqualTo("Here you go.");
+
+        var order = inOrder(api);
+        order.verify(api).sendEvents(eq("sesn_test"), argThat(events -> "user.message".equals(events.getFirst().get("type"))));
+        order.verify(api).sendEvents("sesn_test", List.of(Map.of("type", "user.custom_tool_result",
+                "custom_tool_use_id", "sevt_01Stuck",
+                "content", List.of(Map.of("type", "text", "text", "{\"ok\":false,\"error\":{\"code\":\"interrupted\"}}")),
+                "is_error", true, "session_thread_id", "sthr_gmail")));
+        order.verify(api).sendEvents("sesn_test", List.of(Map.of("type", "user.interrupt")));
+        order.verify(api).sendEvents(eq("sesn_test"), argThat(events -> "user.message".equals(events.getFirst().get("type"))));
+    }
+
+    @Test
+    void aSessionDeletedOnAnthropicsSideIsReplacedAndTheMessageAnsweredThere() throws Exception {
+        var runner = runner(Duration.ofSeconds(5));
+        var fresh = new SessionRef(UUID.randomUUID(), "sesn_fresh", 1);
+        when(api.openStream("sesn_test")).thenThrow(
+                new com.tinyme.agent.client.ManagedAgentApi.ApiException(404, "not_found_error", "session not found"));
+        when(api.openStream("sesn_fresh")).thenReturn(new EventStream(events("""
+                {"type":"agent.message","id":"m1","content":[{"type":"text","text":"Fresh start."}]}
+                """, END)));
+        var replaced = new ArrayList<SessionRef>();
+        runner.useGoneSessionReplacer((gone, zone) -> { replaced.add(gone); return fresh; });
+        var observed = new ArrayList<TurnEvent>();
+
+        assertThat(runner.run(request("hello"), observed::add).replyText()).isEqualTo("Fresh start.");
+
+        assertThat(replaced).containsExactly(session);
+        assertThat(observed).noneMatch(TurnEvent.Failed.class::isInstance);
+        verify(api).sendEvents(eq("sesn_fresh"), argThat(events -> "user.message".equals(events.getFirst().get("type"))));
+        verify(messages).insert(fresh.sessionRowId(), MessageRole.ASSISTANT, "Fresh start.", List.of());
+    }
+
+    @Test
+    void otherRejectionsOfTheMessageStillFailTheTurn() {
+        var plain = new com.tinyme.agent.client.ManagedAgentApi.ApiException(400, "invalid_request_error", "bad content");
+        assertThat(TurnRunner.abandonedEventIds(plain)).isEmpty();
+        var two = new com.tinyme.agent.client.ManagedAgentApi.ApiException(400, "invalid_request_error",
+                "waiting on responses to events [sevt_A1, sevt_B2]; only …");
+        assertThat(TurnRunner.abandonedEventIds(two)).containsExactly("sevt_A1", "sevt_B2");
+    }
+
+    @Test
     void includesAnAttachedImageInTheManagedAgentsUserMessage() throws Exception {
         var runner = runner(Duration.ofSeconds(5));
         var body = events(END);
@@ -190,6 +253,79 @@ class TurnRunnerTests {
                         "summary", isError ? "Tool had an error" : "Logged coffee", "is_error", isError)));
         verifyNoMoreInteractions(api, dispatcher);
         verify(body).close();
+    }
+
+    @Test
+    void routesSubagentToolCallsBackToTheirThreadAndSuppressesItsPreview() throws Exception {
+        var body = events(
+                "{\"type\":\"session.thread_started\",\"id\":\"thread-event\",\"session_thread_id\":\"th-gmail\",\"agent_name\":\"tinyme-gmail\"}",
+                "{\"type\":\"agent.message\",\"id\":\"gmail-preview\",\"session_thread_id\":\"th-gmail\",\"content\":[{\"type\":\"text\",\"text\":\"Private Gmail preview\"}]}",
+                "{\"type\":\"agent.custom_tool_use\",\"id\":\"gmail-search\",\"session_thread_id\":\"th-gmail\",\"name\":\"gmail_search\",\"input\":{\"query\":\"newer_than:1d\"}}",
+                "{\"type\":\"session.thread_status_idle\",\"id\":\"thread-idle\",\"session_thread_id\":\"th-gmail\",\"stop_reason\":{\"type\":\"end_turn\"}}",
+                "{\"type\":\"agent.message\",\"id\":\"chat-reply\",\"content\":[{\"type\":\"text\",\"text\":\"Here are your messages.\"}]}",
+                END);
+        when(api.openStream("sesn_test")).thenReturn(new EventStream(body));
+        when(dispatcher.dispatch(anyString(), anyString(), any(), any()))
+                .thenReturn(new DispatchOutcome("{\"ok\":true,\"summary\":\"Found mail\"}", false));
+        when(messages.insert(eq(session.sessionRowId()), eq(MessageRole.ASSISTANT), anyString(), anyList()))
+                .thenReturn(UUID.randomUUID());
+        var runner = runner(Duration.ofSeconds(5));
+        var observed = new ArrayList<TurnEvent>();
+
+        var result = runner.run(request("search my email"), observed::add);
+
+        assertThat(result.replyText()).isEqualTo("Here are your messages.");
+        assertThat(observed).contains(new TurnEvent.Text("Here are your messages."))
+                .noneMatch(event -> event.toString().contains("Private Gmail preview"));
+        var context = org.mockito.ArgumentCaptor.forClass(ToolContext.class);
+        verify(dispatcher).dispatch(eq("gmail-search"), eq("gmail_search"), any(), context.capture());
+        assertThat(context.getValue().agent()).isEqualTo("tinyme-gmail");
+        assertThat(context.getValue().threadId()).isEqualTo("th-gmail");
+        var resultEvents = org.mockito.ArgumentCaptor.forClass(List.class);
+        verify(api, atLeastOnce()).sendEvents(eq("sesn_test"), resultEvents.capture());
+        var sentResults = new ArrayList<Map<?, ?>>();
+        for (Object batch : resultEvents.getAllValues()) {
+            for (Object event : (List<?>) batch) {
+                if (event instanceof Map<?, ?> map && "user.custom_tool_result".equals(map.get("type"))) {
+                    sentResults.add(map);
+                }
+            }
+        }
+        assertThat(sentResults).hasSize(1);
+        Map<?, ?> sentResult = sentResults.getFirst();
+        assertThat(sentResult.get("custom_tool_use_id")).isEqualTo("gmail-search");
+        assertThat(sentResult.get("session_thread_id")).isEqualTo("th-gmail");
+    }
+
+    @Test
+    void routesRecordedGmailThreadByProvisionedAgentId() throws Exception {
+        JsonNode recording;
+        try (var resource = getClass().getResourceAsStream("/streams/gmail-subagent-search.json")) {
+            recording = JSON.readTree(resource);
+        }
+        var frames = new ArrayList<String>();
+        for (JsonNode event : recording) frames.add(JSON.writeValueAsString(event));
+        var fake = new FakeManagedAgents(frames);
+        when(prefix.build(eq(ZONE), any(Instant.class))).thenReturn("[context]");
+        when(dispatcher.dispatch(eq("gmail-search"), eq("gmail_search"), any(), any()))
+                .thenReturn(new DispatchOutcome("{\"ok\":true,\"summary\":\"1 email found\"}", false));
+        when(messages.insert(eq(session.sessionRowId()), eq(MessageRole.ASSISTANT), anyString(), anyList()))
+                .thenReturn(UUID.randomUUID());
+        var runner = new TurnRunner(prefix, fake, dispatcher, sessionTurnLock, messages,
+                Clock.fixed(NOW, ZoneOffset.UTC), Duration.ofSeconds(5), Thread::sleep,
+                "tinyme-chat", "agent_gmail_provisioned");
+
+        TurnResult result = runner.run(request("what did they email me about?"), ignored -> { });
+
+        assertThat(result.replyText()).isEqualTo("Here are the recent emails.");
+        var context = org.mockito.ArgumentCaptor.forClass(ToolContext.class);
+        verify(dispatcher).dispatch(eq("gmail-search"), eq("gmail_search"), any(), context.capture());
+        assertThat(context.getValue().agent()).isEqualTo("tinyme-gmail");
+        assertThat(context.getValue().threadId()).isEqualTo("sthr_gmail_test");
+        assertThat(fake.sentEvents()).anySatisfy(batch -> assertThat(batch).anySatisfy(event -> {
+            assertThat(event.get("type")).isEqualTo("user.custom_tool_result");
+            assertThat(event.get("session_thread_id")).isEqualTo("sthr_gmail_test");
+        }));
     }
 
     @Test

@@ -54,7 +54,7 @@ system: |
     Set status to active only when the user explicitly asks to add it.
   - Use 2–3 blocks, and pick them by what the data is, so cards don't all look alike:
     money (expense) → stat of the sum (goal = the budget, if given) + breakdown by
-    category, style segmented, unit JPY;
+    category, style segmented, unit = the currency in [context];
     did-it-or-not habits (workout, meditation, reading) → checkins + latest, tone ink;
     food and drink totals → progress with style gauge + goals for protein, carbs, fat;
     a count or amount over time with no categories → stat + chart;
@@ -84,8 +84,11 @@ system: |
   Data used by cards:
   - meal / drink: always store data.kcal; when estimating, also store protein_g,
     carbs_g, fat_g and kcal_estimated: true.
-  - expense: store amount in yen as a number, category as a short lowercase word, and
-    merchant when the user said it.
+  - expense: store amount as a number in the currency in [context], category as a short
+    lowercase word, and merchant when the user said it. If they name another currency
+    ("spent $20"), store amount as said with currency set to its ISO code (USD); TinyMe
+    converts it to their currency and keeps the original. Card payments found in email
+    reach spending only after the user confirms them in G Scan; don't log those yourself.
   - workout: store type (for example "push day") and minutes.
 
   Apple Health:
@@ -446,7 +449,8 @@ tools:
       "field":"amount"},"period":"range","unit":"JPY","compare":"previous_period",
       "better":"lower"},{"type":"breakdown",
       "label":"by category","metric":{"kinds":["expense"],"op":"sum","field":"amount"},
-      "period":"range","by":"category","top":3,"style":"segmented","unit":"JPY"}].
+      "period":"range","by":"category","top":3,"style":"segmented","unit":"JPY"}] (use the
+      currency in [context] as unit).
       Example Gym blocks (tone ink): [{"type":"checkins","label":"visits",
       "metric":{"kinds":["workout"],"op":"count"},"period":"range","goal":5,
       "goal_period":"week"},

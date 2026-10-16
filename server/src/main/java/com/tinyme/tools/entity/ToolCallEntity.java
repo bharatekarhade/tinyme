@@ -32,6 +32,12 @@ public class ToolCallEntity {
     @Column(nullable = false)
     private String tool;
 
+    @Column(name = "agent")
+    private String agent;
+
+    @Column(name = "thread_id")
+    private String threadId;
+
     @JdbcTypeCode(SqlTypes.JSON)
     @Column(name = "input", nullable = false, columnDefinition = "jsonb")
     private Map<String, Object> input;
@@ -55,10 +61,17 @@ public class ToolCallEntity {
     protected ToolCallEntity() {}
 
     public static ToolCallEntity running(UUID sessionId, String eventId, String tool, Map<String, Object> input) {
+        return running(sessionId, eventId, tool, input, "tinyme-chat", null);
+    }
+
+    public static ToolCallEntity running(UUID sessionId, String eventId, String tool, Map<String, Object> input,
+                                         String agent, String threadId) {
         ToolCallEntity entity = new ToolCallEntity();
         entity.sessionId = sessionId;
         entity.anthropicEventId = eventId;
         entity.tool = tool;
+        entity.agent = agent;
+        entity.threadId = threadId;
         entity.input = input;
         entity.status = "running";
         return entity;
@@ -68,6 +81,8 @@ public class ToolCallEntity {
     public UUID sessionId() { return sessionId; }
     public String eventId() { return anthropicEventId; }
     public String tool() { return tool; }
+    public String agent() { return agent; }
+    public String threadId() { return threadId; }
     public Map<String, Object> input() { return input; }
     public Map<String, Object> result() { return result; }
     public boolean isError() { return error; }

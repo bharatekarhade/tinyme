@@ -9,6 +9,7 @@ import com.tinyme.auth.service.DeviceTokenService;
 import com.tinyme.maintenance.MaintenanceGate;
 import com.tinyme.agent.support.AgentDatabaseConfiguration;
 import com.tinyme.domain.admin.UserDataTables;
+import com.tinyme.integrations.google.service.GoogleConnection;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -50,6 +51,7 @@ class AdminDeleteAllTests {
     @Autowired MaintenanceGate gate;
     @Autowired com.tinyme.domain.health.repository.HealthSyncEpochRepository healthSyncEpoch;
     @MockitoBean ManagedAgents agents;
+    @MockitoBean GoogleConnection googleConnection;
     private final AtomicInteger ips = new AtomicInteger(1);
     private String retainedToken;
 
@@ -98,6 +100,7 @@ class AdminDeleteAllTests {
         mvc.perform(get("/people").header("Authorization", "Bearer " + retainedToken))
                 .andExpect(status().isOk());
         verify(agents).deleteSession("sesn_delete_test");
+        verify(googleConnection).disconnect();
         verify(agents).deleteMemory("memstore_saved", "mem_old");
         for (var seed : new com.tinyme.agent.bootstrap.MemorySeedFiles().load().entrySet()) {
             verify(agents).createMemory("memstore_saved", seed.getKey(), seed.getValue());
@@ -108,10 +111,25 @@ class AdminDeleteAllTests {
     }
 
     @Test
+    void failedGoogleRevocationDoesNotBlockDeleteAll() throws Exception {
+        seedRows();
+        when(agents.listMemories("memstore_saved", "/", null)).thenReturn(new MemoryPage(List.of(), null));
+        org.mockito.Mockito.doThrow(new IOException("Google is unreachable"))
+                .when(googleConnection).disconnect();
+
+        mvc.perform(deleteRequest("DELETE EVERYTHING", "test-only-owner-password"))
+                .andExpect(status().isOk());
+
+        assertThat(count("entries")).isZero();
+        verify(googleConnection).disconnect();
+    }
+
+    @Test
     void wrongPasswordAndConfirmationLeaveEverythingUntouched() throws Exception {
         seedRows();
         mvc.perform(deleteRequest("DELETE EVERYTHING", "wrong-password"))
-                .andExpect(status().isUnauthorized());
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.detail").value("Wrong password"));
         mvc.perform(deleteRequest("delete everything", "test-only-owner-password"))
                 .andExpect(status().isBadRequest());
         mvc.perform(post("/admin/delete-all").with(request -> {

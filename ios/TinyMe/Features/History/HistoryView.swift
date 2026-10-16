@@ -4,6 +4,8 @@ import SwiftUI
 struct HistoryView: View {
     let model: EntryListModel
     let api: APIClient
+    /// History opens over the tabs; this takes you back.
+    var onBack: (() -> Void)? = nil
 
     @Environment(MainRouter.self) private var router
     @State private var kinds: [KindDTO] = []
@@ -17,6 +19,16 @@ struct HistoryView: View {
     var body: some View {
         EntryListView(model: model) {
             VStack(alignment: .leading, spacing: Space.s4) {
+                if let onBack {
+                    Button(action: onBack) {
+                        Label("Back", systemImage: "chevron.left")
+                            .textStyle(.label, weight: .semibold)
+                            .foregroundStyle(Palette.brandStrong)
+                            .frame(minHeight: 44)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                }
                 Text("History")
                     .textStyle(.display)
                     .padding(.top, Space.s2)

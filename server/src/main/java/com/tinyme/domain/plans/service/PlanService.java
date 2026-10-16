@@ -24,6 +24,8 @@ import com.tinyme.domain.plans.repository.PlanOccurrenceRepository;
 import com.tinyme.domain.plans.repository.PlanRepository;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.context.ApplicationEventPublisher;
+import org.springframework.beans.factory.annotation.Autowired;
 
 import java.time.Instant;
 import java.time.LocalDate;
@@ -53,20 +55,34 @@ public class PlanService {
     private final EntryRepository entries;
     private final EntryKindRepository kinds;
     private final PlanCalendar calendar;
+    private final ApplicationEventPublisher events;
 
+    @Autowired
     public PlanService(PlanRepository plans, PlanOccurrenceRepository occurrences,
                        PersonRepository people, EntryRepository entries,
-                       EntryKindRepository kinds) {
+                       EntryKindRepository kinds, ApplicationEventPublisher events) {
         this.plans = Objects.requireNonNull(plans, "plans");
         this.occurrences = Objects.requireNonNull(occurrences, "occurrences");
         this.people = Objects.requireNonNull(people, "people");
         this.entries = Objects.requireNonNull(entries, "entries");
         this.kinds = Objects.requireNonNull(kinds, "kinds");
         this.calendar = new PlanCalendar();
+        this.events = Objects.requireNonNull(events, "events");
+    }
+
+    /** Compatibility constructor for focused domain tests that do not exercise app events. */
+    public PlanService(PlanRepository plans, PlanOccurrenceRepository occurrences,
+                       PersonRepository people, EntryRepository entries, EntryKindRepository kinds) {
+        this(plans, occurrences, people, entries, kinds, ignored -> { });
     }
 
     @Transactional
     public PlanWriteResult add(PlanAddCommand command, ZoneId zone, Instant now) {
+        return add(command, zone, now, null);
+    }
+
+    @Transactional
+    public PlanWriteResult add(PlanAddCommand command, ZoneId zone, Instant now, String externalId) {
         Objects.requireNonNull(command, "command");
         Objects.requireNonNull(zone, "zone");
         Objects.requireNonNull(now, "now");
@@ -77,8 +93,9 @@ public class PlanService {
         String habitKind = resolveHabitKind(command.habitKind());
         PlanEntity plan = new PlanEntity(command.kind(), command.title(), command.notes(), command.place(), zone,
                 command.day(), command.time(), command.endTime(), command.endDay(), command.repeat(),
-                habitKind, command.remindMinutes(), PlanSource.CHAT, null, Set.of());
+                habitKind, command.remindMinutes(), PlanSource.CHAT, externalId, Set.of());
         plan = plans.save(plan, Set.copyOf(command.people()));
+        changed();
         UUID createdId = plan.getId();
 
         List<PlanOccurrence> calendarItems = calendar(command.day(), command.day().plusDays(PlanCalendar.MAX_DAYS - 1),
@@ -183,6 +200,7 @@ public class PlanService {
         Objects.requireNonNull(now, "now");
         PlanEntity plan = plans.findLive(id).orElse(null);
         if (plan == null) return Optional.empty();
+        rejectGoogleOwned(plan);
         if (plan.getStatus() == PlanStatus.CANCELLED && !(change instanceof PlanChange.Cancel)) {
             throw new IllegalArgumentException("a cancelled plan cannot be changed");
         }
@@ -190,6 +208,7 @@ public class PlanService {
         applyChange(plan, id, change, zone, now);
 
         PlanEntity updated = plans.save(plan);
+        changed();
         LocalDate from = resultAnchor(change, plan, LocalDate.ofInstant(now, zone));
         LocalDate to = from.plusDays(PlanCalendar.MAX_DAYS - 1);
         List<PlanOccurrence> next = calendar(from, to, zone, now, true).stream()
@@ -208,6 +227,7 @@ public class PlanService {
         Objects.requireNonNull(now, "now");
         PlanEntity plan = plans.findLive(id).orElse(null);
         if (plan == null) return Optional.empty();
+        rejectGoogleOwned(plan);
         if (plan.getStatus() == PlanStatus.CANCELLED) {
             throw new PlanStateConflictException("a cancelled plan cannot be changed");
         }
@@ -259,6 +279,7 @@ public class PlanService {
         Objects.requireNonNull(now, "now");
         PlanEntity plan = plans.findLive(id).orElse(null);
         if (plan == null) return false;
+        rejectGoogleOwned(plan);
         if (plan.getRepeat() == null) throw new IllegalArgumentException("only a repeating plan has individual occurrences");
         PlanOccurrenceId occurrenceId = new PlanOccurrenceId(id, occurrenceDay);
         if (occurrences.find(occurrenceId).filter(row -> row.getStatus() == OccurrenceExceptionStatus.DELETED).isPresent()) {
@@ -270,6 +291,7 @@ public class PlanService {
                 .anyMatch(item -> id.equals(item.planId()) && occurrenceDay.equals(item.originalDay()));
         if (!scheduled) throw new IllegalArgumentException("day is not an occurrence of this plan");
         occurrences.save(PlanOccurrenceEntity.deleted(plan, occurrenceDay));
+        changed();
         return true;
     }
 
@@ -292,8 +314,10 @@ public class PlanService {
         Objects.requireNonNull(now, "now");
         PlanEntity plan = plans.findLive(id).orElse(null);
         if (plan == null) return false;
+        rejectGoogleOwned(plan);
         plan.softDelete(now);
         plans.save(plan);
+        changed();
         return true;
     }
 
@@ -301,8 +325,10 @@ public class PlanService {
     public boolean restore(UUID id) {
         PlanEntity plan = plans.findAny(Objects.requireNonNull(id, "id")).orElse(null);
         if (plan == null) return false;
+        rejectGoogleOwned(plan);
         plan.restore();
         plans.save(plan);
+        changed();
         return true;
     }
 
@@ -359,6 +385,12 @@ public class PlanService {
         }
     }
 
+    private static void rejectGoogleOwned(PlanEntity plan) {
+        if (plan.getSource() == com.tinyme.domain.plans.model.PlanSource.GOOGLE) {
+            throw new IllegalArgumentException("This event is from Google Calendar; change it there");
+        }
+    }
+
     private void edit(PlanEntity plan, PlanChange.Edit edit, ZoneId zone, Instant now) {
         if (edit.fields().contains("occurrence_day")) {
             throw new IllegalArgumentException("To change only one day, use action: move or skip");
@@ -395,6 +427,11 @@ public class PlanService {
                 ? Set.copyOf(edit.people())
                 : plan.getPeople().stream().map(PersonEntity::getSlug).collect(Collectors.toSet());
         plans.save(plan, personSlugs);
+        changed();
+    }
+
+    private void changed() {
+        events.publishEvent(new PlanChangedEvent());
     }
 
     /** The one "not into the past" rule for the app and the agent: timed plans by the minute, untimed by the day. */
@@ -475,7 +512,8 @@ public class PlanService {
                 : kindResolutions.getOrDefault(plan.getHabitKind(), plan.getHabitKind());
         return new PlanCalendar.PlanInput(plan.getId(), plan.getKind(), plan.getTitle(), plan.getNotes(), plan.getPlace(),
                 plan.getZone(), plan.getStartDay(), plan.getStartTime(), plan.getEndTime(), plan.getEndDay(),
-                plan.getRepeat(), habitKind, plan.getStatus(), plan.getCompletedAt(), plan.getSource(), personSnapshots);
+                plan.getRepeat(), habitKind, plan.getStatus(), plan.getCompletedAt(), plan.getSource(), personSnapshots,
+                plan.getExternalId());
     }
 
     private static LocalDate requireOccurrenceDay(LocalDate day) {

@@ -4,8 +4,10 @@ import com.tinyme.domain.entries.model.aggregate.TodayTotal;
 import com.tinyme.domain.entries.repository.EntryKindRepository;
 import com.tinyme.domain.entries.repository.EntryRepository;
 import com.tinyme.domain.health.service.HealthContext;
+import com.tinyme.settings.UserCurrency;
 import com.tinyme.domain.health.service.HealthNudges;
 import com.tinyme.domain.plans.service.PlanService;
+import com.tinyme.integrations.google.service.GmailConfirmationService;
 import com.tinyme.agent.model.TurnLocation;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -23,6 +25,8 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.Objects;
+import java.util.UUID;
+import org.springframework.beans.factory.annotation.Autowired;
 
 @Component
 public class ContextPrefixBuilder {
@@ -37,15 +41,27 @@ public class ContextPrefixBuilder {
     private final PlanService plans;
     private final HealthContext health;
     private final HealthNudges nudges;
+    private final GmailConfirmationService confirmations;
+    private final UserCurrency currency;
 
+    @Autowired
     public ContextPrefixBuilder(EntryKindRepository entryKinds, EntryRepository entries, PlanService plans,
-                                HealthContext health, HealthNudges nudges, Clock clock) {
+                                HealthContext health, HealthNudges nudges, Clock clock,
+                                GmailConfirmationService confirmations, UserCurrency currency) {
         this.entryKinds = entryKinds;
         this.entries = entries;
         this.plans = plans;
         this.health = health;
         this.nudges = nudges;
         this.clock = clock;
+        this.confirmations = confirmations;
+        this.currency = currency;
+    }
+
+    /** Compatibility constructor for focused context tests without confirmation state. */
+    public ContextPrefixBuilder(EntryKindRepository entryKinds, EntryRepository entries, PlanService plans,
+                                HealthContext health, HealthNudges nudges, Clock clock) {
+        this(entryKinds, entries, plans, health, nudges, clock, null, null);
     }
 
     /**
@@ -68,12 +84,24 @@ public class ContextPrefixBuilder {
     }
 
     public String build(ZoneId zone, Instant referenceTime, TurnLocation location) {
+        return build(zone, referenceTime, location, null);
+    }
+
+    public String build(ZoneId zone, Instant referenceTime, TurnLocation location, UUID sessionId) {
         Objects.requireNonNull(zone, "zone");
         Objects.requireNonNull(referenceTime, "referenceTime");
         var lines = new ArrayList<String>();
         lines.add("[context]");
         lines.add("now: " + ZonedDateTime.ofInstant(referenceTime, zone).format(LOCAL_TIME));
         lines.add("tz: " + zone.getId());
+        if (currency != null) lines.add("currency: " + currency.current());
+        if (sessionId != null && confirmations != null) {
+            try {
+                lines.addAll(confirmations.consumeRecentContext(sessionId, referenceTime));
+            } catch (RuntimeException error) {
+                LOG.warn("Unable to add recent confirmation context", error);
+            }
+        }
         if (location != null && location.area() != null) {
             long minutesAgo = Math.max(0, Duration.between(location.at(), referenceTime).toMinutes());
             String age = minutesAgo < 1 ? "just now" : minutesAgo + " min ago";

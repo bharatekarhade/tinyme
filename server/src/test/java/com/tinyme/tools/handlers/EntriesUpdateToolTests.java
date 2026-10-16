@@ -34,7 +34,7 @@ class EntriesUpdateToolTests {
             LocalDate.of(2026, 10, 9), Instant.parse("2026-10-09T00:00:00Z"));
 
     private final EntryService service = mock(EntryService.class);
-    private final EntriesUpdateTool tool = new EntriesUpdateTool(service);
+    private final EntriesUpdateTool tool = new EntriesUpdateTool(service, yenOwner());
 
     @Test
     void omittedDataMeansUnchanged() {
@@ -86,5 +86,13 @@ class EntriesUpdateToolTests {
         assertThat(result.summary()).isEqualTo("Updated drink · tea: 1 on 9 Oct");
         var entryJson = JSON.valueToTree(result.data()).get("entry");
         assertThat(entryJson.get("ts").stringValue()).isEqualTo("2026-10-09T09:30:00+09:00");
+    }
+
+    /** The owner keeps yen; no exchange rates are looked up unless a test says a currency. */
+    private static com.tinyme.domain.money.ExpenseCurrency yenOwner() {
+        var currency = org.mockito.Mockito.mock(com.tinyme.settings.UserCurrency.class);
+        org.mockito.Mockito.when(currency.current()).thenReturn("JPY");
+        return new com.tinyme.domain.money.ExpenseCurrency(
+                org.mockito.Mockito.mock(com.tinyme.domain.money.ExchangeRates.class), currency);
     }
 }

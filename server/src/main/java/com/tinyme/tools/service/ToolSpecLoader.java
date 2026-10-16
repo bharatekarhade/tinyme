@@ -18,12 +18,14 @@ import java.util.Objects;
 @Component
 public class ToolSpecLoader {
     private static final String DEFAULT_SEED_PATH = "seed/agents/chat.yaml";
+    private static final String GMAIL_SEED_PATH = "seed/agents/gmail.yaml";
+    private static final String CALENDAR_SEED_PATH = "seed/agents/calendar.yaml";
 
     private final Map<String, ToolSpec> specs;
 
     @Autowired
     public ToolSpecLoader(){
-        this(DEFAULT_SEED_PATH);
+        this.specs = loadDefaults();
     }
 
     ToolSpecLoader(String yamlPath) {
@@ -35,6 +37,32 @@ public class ToolSpecLoader {
             this.specs = load(YAMLMapper.builder().build().readTree(input), yamlPath);
         } catch (IOException exception) {
             throw new IllegalStateException("Failed to read tool seed YAML '" + yamlPath + "': "
+                    + exception.getMessage(), exception);
+        }
+    }
+
+    private static Map<String, ToolSpec> loadDefaults() {
+        Map<String, ToolSpec> result = new LinkedHashMap<>();
+        result.putAll(loadResource(DEFAULT_SEED_PATH));
+        for (var entry : loadResource(GMAIL_SEED_PATH).entrySet()) {
+            if (result.putIfAbsent(entry.getKey(), entry.getValue()) != null) {
+                throw new IllegalStateException("Duplicate custom tool name '" + entry.getKey() + "'");
+            }
+        }
+        for (var entry : loadResource(CALENDAR_SEED_PATH).entrySet()) {
+            if (result.putIfAbsent(entry.getKey(), entry.getValue()) != null) {
+                throw new IllegalStateException("Duplicate custom tool name '" + entry.getKey() + "'");
+            }
+        }
+        return Collections.unmodifiableMap(result);
+    }
+
+    private static Map<String, ToolSpec> loadResource(String path) {
+        try (InputStream input = Thread.currentThread().getContextClassLoader().getResourceAsStream(path)) {
+            if (input == null) throw new IllegalStateException("Tool seed YAML not found on the classpath: " + path);
+            return load(YAMLMapper.builder().build().readTree(input), path);
+        } catch (IOException exception) {
+            throw new IllegalStateException("Failed to read tool seed YAML '" + path + "': "
                     + exception.getMessage(), exception);
         }
     }

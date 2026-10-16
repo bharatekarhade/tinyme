@@ -13,6 +13,12 @@ struct Endpoint: Sendable {
     static let health = Endpoint(method: "GET", path: "actuator/health", requiresAuth: false)
     static let login = Endpoint(method: "POST", path: "auth/login", requiresAuth: false)
     static let logout = Endpoint(method: "POST", path: "auth/logout")
+    static let googleStatus = Endpoint(method: "GET", path: "integrations/google")
+    static let googleStart = Endpoint(method: "POST", path: "integrations/google/start")
+    static let googleSync = Endpoint(method: "POST", path: "integrations/google/sync")
+    static let googleMailScan = Endpoint(method: "POST", path: "integrations/google/scan")
+    static let mailSuggestions = Endpoint(method: "GET", path: "integrations/google/suggestions")
+    static let googleDisconnect = Endpoint(method: "DELETE", path: "integrations/google", signsOutOnUnauthorized: false)
     static let dataExport = Endpoint(method: "GET", path: "admin/export")
     static let deleteAll = Endpoint(method: "POST", path: "admin/delete-all", signsOutOnUnauthorized: false)
     static let postMessage = Endpoint(method: "POST", path: "conversations/today/messages")
@@ -46,6 +52,12 @@ struct Endpoint: Sendable {
 
     static func conversation(day: LocalDay? = nil) -> Endpoint {
         Endpoint(method: "GET", path: "conversations", query: day.map { [URLQueryItem(name: "day", value: $0.description)] } ?? [])
+    }
+
+    static let pendingConfirmations = Endpoint(method: "GET", path: "conversations/confirmations")
+
+    static func decideConfirmation(_ id: String) -> Endpoint {
+        Endpoint(method: "POST", path: "conversations/confirmations/\(id)")
     }
 
     static let kinds = Endpoint(method: "GET", path: "kinds")
@@ -107,6 +119,26 @@ struct Endpoint: Sendable {
             URLQueryItem(name: "from", value: from.description),
             URLQueryItem(name: "to", value: to.description)
         ])
+    }
+
+    static let mailPayments = Endpoint(method: "GET", path: "integrations/google/payments")
+    static let currency = Endpoint(method: "GET", path: "settings/currency")
+    static let setCurrency = Endpoint(method: "PUT", path: "settings/currency")
+
+    static func confirmPayment(_ id: String) -> Endpoint {
+        Endpoint(method: "POST", path: "integrations/google/payments/\(id)/confirm")
+    }
+
+    static func dismissPayment(_ id: String) -> Endpoint {
+        Endpoint(method: "POST", path: "integrations/google/payments/\(id)/dismiss")
+    }
+
+    static func acceptMailSuggestion(_ id: String) -> Endpoint {
+        Endpoint(method: "POST", path: "integrations/google/suggestions/\(id)/accept")
+    }
+
+    static func dismissMailSuggestion(_ id: String) -> Endpoint {
+        Endpoint(method: "POST", path: "integrations/google/suggestions/\(id)/dismiss")
     }
 
     static func planDone(_ id: String, day: LocalDay) -> Endpoint {

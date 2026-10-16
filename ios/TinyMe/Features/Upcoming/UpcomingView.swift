@@ -522,6 +522,10 @@ private struct PlanEventDetailSheet: View {
                     .frame(width: 40, height: 44)
             }
             PlanSheetRows(rows: rows)
+            if let url = item.emailURL {
+                Link(destination: url) { Label("View email", systemImage: "envelope") }
+                    .buttonStyle(PlanSheetButtonStyle(kind: .quiet))
+            }
             if item.editable {
                 VStack(spacing: Space.s2) {
                     if item.isTask {
@@ -763,6 +767,7 @@ private struct PlanTaskDetailSheet: View {
     let onSkip: () -> Void
     let onDelete: () -> Void
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.openURL) private var openURL
 
     var body: some View {
         VStack(alignment: .leading, spacing: Space.s4) {
@@ -773,6 +778,10 @@ private struct PlanTaskDetailSheet: View {
                     .frame(width: 40, height: 44)
             }
             PlanSheetRows(rows: rows)
+            if let url = item.emailURL {
+                Button { openURL(url) } label: { Label("View email", systemImage: "envelope") }
+                    .buttonStyle(PlanSheetButtonStyle(kind: .quiet))
+            }
             if item.editable {
                 VStack(spacing: Space.s2) {
                     Button(action: onDone) {

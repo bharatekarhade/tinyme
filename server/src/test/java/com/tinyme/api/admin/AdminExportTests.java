@@ -58,6 +58,8 @@ class AdminExportTests {
 
     @BeforeEach
     void resetDatabaseAndStubs() {
+        jdbc.update("DELETE FROM oauth_states");
+        jdbc.update("DELETE FROM google_account");
         jdbc.update("DELETE FROM pending_actions");
         jdbc.update("DELETE FROM photo_people");
         jdbc.update("DELETE FROM photos");
@@ -82,6 +84,11 @@ class AdminExportTests {
     @Test
     void exportStreamsDatabaseRowsAndAllPagedMemoryDocumentsIntoZip() throws Exception {
         seedExportRows();
+        jdbc.update("""
+                INSERT INTO google_account (email, scopes, refresh_token_enc, status, connected_at)
+                VALUES ('owner@example.test', ARRAY['gmail.readonly'], decode('deadbeef', 'hex'), 'connected', now())
+                """);
+        jdbc.update("INSERT INTO oauth_states (state, code_verifier, expires_at) VALUES ('state-secret', 'verifier-secret', now() + interval '10 minutes')");
         when(agents.listMemories("memstore_saved", "/", null)).thenReturn(new MemoryPage(List.of(
                 new MemoryRef("mem_profile", "/me/profile.md"),
                 new MemoryRef("mem_rules", "/me/rules.md")), "page-2"));
@@ -104,7 +111,8 @@ class AdminExportTests {
         assertThat(new String(files.get(root + "memory/people/kenji.md"), StandardCharsets.UTF_8))
                 .isEqualTo("Kenji notes");
         assertThat(files.keySet()).noneMatch(path -> path.contains("account") || path.contains("refresh_tokens")
-                || path.endsWith("/db/settings.jsonl"));
+                || path.endsWith("/db/settings.jsonl") || path.endsWith("/db/google_account.jsonl")
+                || path.endsWith("/db/oauth_states.jsonl"));
 
         List<JsonNode> entries = jsonLines(files.get(root + "db/entries.jsonl"));
         assertThat(entries).hasSize(2);
@@ -123,7 +131,10 @@ class AdminExportTests {
 
         JsonNode manifest = JSON.readTree(files.get(root + "manifest.json"));
         assertThat(manifest.path("format").asString()).isEqualTo("tinyme-export");
-        assertThat(manifest.path("schema_version").asString()).isEqualTo("1.7");
+        // The newest migration this database ran, so a new migration doesn't need this test edited.
+        assertThat(manifest.path("schema_version").asString()).isEqualTo(jdbc.queryForObject(
+                "SELECT version FROM flyway_schema_history WHERE success ORDER BY installed_rank DESC LIMIT 1",
+                String.class));
         assertThat(manifest.path("user_zone").asString()).isEqualTo("Asia/Tokyo");
         assertThat(manifest.path("counts").path("entries").asLong()).isEqualTo(2);
         assertThat(manifest.path("counts").path("people").asLong()).isEqualTo(1);
@@ -132,6 +143,22 @@ class AdminExportTests {
         assertThat(manifest.path("memory").path("documents").asInt()).isEqualTo(3);
         assertThat(manifest.path("memory").path("error").isNull()).isTrue();
         verify(agents).listMemories("memstore_saved", "/", "page-2");
+    }
+
+    @Test
+    void googleAccountUpdateRefreshesUpdatedAt() {
+        jdbc.update("""
+                INSERT INTO google_account (email, scopes, refresh_token_enc, status, connected_at)
+                VALUES ('owner@example.test', ARRAY['gmail.readonly'], decode('deadbeef', 'hex'), 'connected', now())
+                """);
+        var before = jdbc.queryForObject("SELECT updated_at FROM google_account WHERE id = 1", java.time.OffsetDateTime.class);
+
+        jdbc.update("UPDATE google_account SET email = ?, updated_at = '2000-01-01T00:00:00Z' WHERE id = 1",
+                "owner+changed@example.test");
+
+        var after = jdbc.queryForObject("SELECT updated_at FROM google_account WHERE id = 1", java.time.OffsetDateTime.class);
+        assertThat(after).isAfter(before);
+        assertThat(after).isAfter(java.time.OffsetDateTime.parse("2000-01-01T00:00:00Z"));
     }
 
     @Test

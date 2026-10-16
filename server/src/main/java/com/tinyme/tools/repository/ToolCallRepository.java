@@ -41,12 +41,18 @@ public class ToolCallRepository {
      */
     @Transactional
     public UUID insertRunning(UUID sessionRowId, String eventId, String tool, JsonNode input) {
+        return insertRunning(sessionRowId, eventId, tool, input, "tinyme-chat", null);
+    }
+
+    @Transactional
+    public UUID insertRunning(UUID sessionRowId, String eventId, String tool, JsonNode input,
+                              String agent, String threadId) {
         Objects.requireNonNull(sessionRowId, "sessionRowId");
         Objects.requireNonNull(eventId, "eventId");
         Objects.requireNonNull(tool, "tool");
         Objects.requireNonNull(input, "input");
 
-        ToolCallEntity entity = ToolCallEntity.running(sessionRowId, eventId, tool, asMap(input));
+        ToolCallEntity entity = ToolCallEntity.running(sessionRowId, eventId, tool, asMap(input), agent, threadId);
         try {
             return repository.saveAndFlush(entity).id();
         } catch (DataIntegrityViolationException exception) {
@@ -74,6 +80,7 @@ public class ToolCallRepository {
 
     private static StoredCall toStoredCall(ToolCallEntity entity) {
         return new StoredCall(entity.id(), entity.sessionId(), entity.eventId(), entity.tool(),
+                entity.agent(), entity.threadId(),
                 JSON.valueToTree(entity.input()),
                 entity.result() == null ? null : JSON.valueToTree(entity.result()),
                 entity.isError(), entity.status(), entity.startedAt(), entity.finishedAt());

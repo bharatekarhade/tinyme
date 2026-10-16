@@ -1,5 +1,7 @@
 package com.tinyme.tools.handlers;
 
+import com.tinyme.domain.money.ExpenseCurrency;
+import java.time.LocalDate;
 import com.tinyme.domain.entries.model.add.AddCommand;
 import com.tinyme.domain.entries.model.add.AddResult;
 import com.tinyme.domain.entries.service.EntryService;
@@ -18,9 +20,11 @@ import java.util.Map;
 @Component
 public class EntriesAddTool implements ToolHandler {
     private final EntryService entries;
+    private final ExpenseCurrency money;
 
-    public EntriesAddTool(EntryService entries) {
+    public EntriesAddTool(EntryService entries, ExpenseCurrency money) {
         this.entries = entries;
+        this.money = money;
     }
 
     @Override
@@ -49,6 +53,8 @@ public class EntriesAddTool implements ToolHandler {
 
             Map<String, Object> data = ToolInputs.optionalObject(input, "data");
             data = data == null ? Map.of() : data;
+            // "spent $20": stored in the owner's currency, the dollars kept as the original.
+            if ("expense".equals(kind)) data = money.inOwnersCurrency(data, LocalDate.ofInstant(ts, ctx.zone()));
             String text = ToolInputs.optionalString(input, "text");
 
             // EntryService derives local_day from ts and this zone.
