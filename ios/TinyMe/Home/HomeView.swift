@@ -220,6 +220,10 @@ struct HomeView: View {
         .tint(Palette.brandStrong)
         .task {
             model.show()
+            #if DEBUG
+            if ScreenshotMode.screen == .people { showsPeople = true }
+            if ScreenshotMode.screen == .places { showsPlaces = true }
+            #endif
         }
         .onChange(of: model.range) {
             model.show()

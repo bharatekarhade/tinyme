@@ -13,9 +13,16 @@ A self-hosted personal assistant for iPhone, backed by your own server.
 
 <br/>
 
-<img src="docs/images/app-home.png" alt="TinyMe Home with a Journal card" width="31%"/>&nbsp;
-<img src="docs/images/app-chat.png" alt="TinyMe chat with streamed replies and actions" width="31%"/>&nbsp;
-<img src="docs/images/app-history.png" alt="TinyMe History with logged entries" width="31%"/>
+<img src="docs/images/app-home.png" alt="Home with the Journal card, a streak and the week's entries" width="24%"/>&nbsp;
+<img src="docs/images/app-chat.png" alt="Chat that logged entries, added a plan and drafted a Reading card" width="24%"/>&nbsp;
+<img src="docs/images/app-gscan.png" alt="G Scan with card payments found in Gmail, waiting to be confirmed" width="24%"/>&nbsp;
+<img src="docs/images/app-upcoming.png" alt="Upcoming with the week strip, next plan, tasks and the day timeline" width="24%"/>
+
+<img src="docs/images/app-history.png" alt="History with search, filters by kind and today's entries" width="24%"/>&nbsp;
+<img src="docs/images/app-places.png" alt="Places to go, with distances and nearby alerts" width="24%"/>&nbsp;
+<img src="docs/images/app-settings.png" alt="Settings with the server, currency and appearance" width="24%"/>
+
+<sub>Screenshots use sample data on a local demo server.</sub>
 
 </div>
 
@@ -23,40 +30,83 @@ A self-hosted personal assistant for iPhone, backed by your own server.
 
 ## What TinyMe does
 
-Talk or type naturally, and TinyMe files the request using the right feature. For example, it can log something that happened, remember a fact about a person, save a place, or add a plan. Ask questions about your logs later, or build cards that summarize them.
+Talk or type naturally, and TinyMe files it in the right place. "Flat white and a salmon onigiri" becomes two entries with calories. "Lunch with Kenji at 12:30, remind me" becomes a plan. "How much did I spend on coffee this month?" gets an answer worked out from your own data. Cards on Home keep the numbers you care about in view, and G Scan brings in what your Gmail already knows.
 
-The iPhone app currently includes:
+### Chat
 
-| Area | Available features |
-|---|---|
-| **Chat** | Streamed text replies, on-device speech transcription, photo attachments, and an offline message queue that sends when connectivity returns. |
-| **Journal and History** | Add, search, aggregate, update, and delete entries. Browse entries by kind and open entry details. |
-| **Home cards** | A seeded Journal card plus cards created in chat. Cards support statistics, progress, charts, goals, check-ins, breakdowns, and latest-entry blocks. Day, week, month, and year ranges are supported. |
-| **People and photos** | Keep people profiles and memory, attach an image from chat to a person when you identify them, and browse a person's saved photos. |
-| **Places** | Search and save places from chat, browse them in a list or map, add notes, mark them visited, and remove them. Optional nearby alerts use on-device location monitoring and local notifications. |
-| **Upcoming** | View plans in a day calendar, including timed events, all-day items, tasks, and repeating plans. Create and change plans in chat and use calendar actions for occurrences. |
-| **G Scan** | Everything found in your Gmail, waiting for your tap: card and bank payments to confirm into spending (any card; other currencies converted at the day's rate), plans found in email, job postings from LinkedIn alerts with a status you set, and emails or invite replies the agent drafted. |
-| **Apple Health** | Select supported Health data types and sync their entries to your TinyMe server. Health access and syncing are controlled in Settings. |
-| **Quick access** | A Home Screen widget and a Journal shortcut for Shortcuts, Siri, and Back Tap. |
-| **Account and data** | Email-and-password sign-in, per-device revocable tokens, ZIP export, and delete-all controls. |
+- Streamed replies, with a chip under each reply for everything it did ("Logged meal · Salmon onigiri", "Added event · Lunch with Kenji").
+- Voice input, transcribed on the iPhone before anything is sent.
+- Photos: attach one, and when you say who is in it, it is saved to that person.
+- Cards made in chat show a live preview with **Add to Home** and **Change goal**.
+- Place searches come back as cards you can pick from and save.
+- Emails and calendar replies the agent writes wait for your tap before anything is sent.
+- Messages written offline are queued and sent when the connection returns.
+
+### Home and cards
+
+- A Journal card plus any card you ask for in chat: Calories, Gym, Spending, Reading, or anything else you log.
+- Block types: statistics with comparisons, bar charts, progress gauges, goal lists, weekly check-ins, category breakdowns, and the latest entry.
+- Day, week, month and year ranges, any past period, and a daily streak.
+- Tap a card, a bar or a category to see the entries behind it.
+- A Home Screen widget, and Siri, Shortcuts and Back Tap for logging without opening the app.
+
+### History
+
+- Your whole log in one place: search it, filter it by kind (meals, spending, drinks, workouts, and so on), and open any entry for details.
+- Fix or remove an entry from chat, in your own words.
+
+### Upcoming and Google Calendar
+
+- A week strip, the next thing coming up, tasks and all-day items, and a timeline of the day that opens at the current hour.
+- Events, tasks, repeating plans, habits that check themselves off from your log, and reminders.
+- Drag an event to move it.
+- With Google connected, your Google Calendar events appear here, and plans made in TinyMe go to a TinyMe calendar in Google.
+
+### G Scan (Gmail)
+
+- **Payments:** card and bank notices from any card become spending once you confirm them. Edit the amount or category first, or dismiss. Refunds count as money back. A charge in another currency is converted to yours at that day's rate, and a charge you already logged in chat is offered as a link instead of being added twice.
+- **Found in email:** reservations, bookings and bills become plans with one tap.
+- **Waiting for you:** emails and invite replies the agent drafted, sent only when you say so.
+- The scan runs on the server through the day and skips newsletters and promotions. LinkedIn job alerts are collected too; their screen in the app is still to come.
+
+### People and places
+
+- People: who someone is to you, birthdays, what TinyMe remembers about them, and their photos.
+- Places: save places from chat, browse them as a list or on a map, add notes, and mark them visited. Optional nearby alerts nudge you when you pass a saved place, using on-device location and local notifications.
+
+### Apple Health
+
+- Choose which Health data types to sync, such as steps, sleep, workouts and weight. They show up on your cards and in your log.
+- TinyMe only reads from Apple Health and never changes or deletes anything there.
+
+### Your data
+
+- Everything lives on your own server: PostgreSQL for data, a local folder for photos.
+- Email-and-password sign-in, with a token per device that you can revoke.
+- Your currency of choice for spending.
+- A ZIP export of everything, and a delete-all.
 
 ## How it works
 
 ```mermaid
 flowchart LR
-    Phone["iPhone app<br/>SwiftUI · HealthKit · MapKit"]
+    Phone["iPhone app<br/>SwiftUI · HealthKit · MapKit · Widget"]
     Server["TinyMe server<br/>Spring Boot API · local file storage"]
     DB[("PostgreSQL")]
     Agent["Claude Managed Agents<br/>your Anthropic API key"]
+    Google["Gmail and Google Calendar<br/>optional"]
 
     Phone <--> Server
     Server <--> DB
     Server <--> Agent
+    Server <--> Google
 ```
 
-The agent interprets a request and calls a tool. The server validates and executes that tool, stores the result, and streams the reply to the app. Entry totals, trends, and card values are computed by the backend from PostgreSQL.
+The agent interprets a request and calls a tool. The server validates and runs that tool, stores the result, and streams the reply to the app. Totals, trends and card values are worked out by the server from PostgreSQL, not by the model.
 
-TinyMe stores account data in PostgreSQL and uploaded image content in the server's configured local blob directory. Agent requests and responses are processed through Anthropic using the API key configured on the server. Speech recognition is performed on the iPhone before the transcript is sent.
+Gmail and Calendar work through separate agents with their own tools. The mail scan reads new email on a schedule and only ever proposes payments and plans; nothing is added, sent or answered until you tap.
+
+Agent requests go to Anthropic with the API key configured on your server. Speech is transcribed on the iPhone. Google tokens are stored encrypted, and Disconnect revokes them.
 
 ## Set it up
 
@@ -117,9 +167,10 @@ Location alerts need location access and notification permission. Apple Health s
 ```text
 tinyme/
 ├── server/       Spring Boot API, agent tools, domain code, migrations, and tests
-├── ios/          SwiftUI app, HealthKit sync, device tools, and widget
+├── ios/          SwiftUI app, HealthKit sync, device tools, Siri intent, and widget
 ├── deploy/       Docker Compose deployment files
-└── docs/images/  Screenshots used in this README
+├── docs/         Google setup guide and the screenshots used here
+└── scripts/      README screenshots from sample data (scripts/screenshots/capture.sh)
 ```
 
 TinyMe is MIT licensed. It is an independent project and is not affiliated with Anthropic or Apple.
