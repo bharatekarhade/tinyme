@@ -117,6 +117,27 @@ public class ToolDispatcher {
         return redacted;
     }
 
+    /**
+     * The model-facing result for a call the session still waits on after TinyMe lost track of it, e.g. it
+     * restarted mid-tool: the stored result if the call finished, otherwise an error. A row still marked running
+     * is closed as failed, so a replay won't think it's still going.
+     */
+    public RecoveredResult recoverAbandoned(String eventId, String threadIdHint) {
+        Objects.requireNonNull(eventId, "eventId");
+        Optional<StoredCall> stored = calls.findByEventId(eventId);
+        String threadId = stored.map(StoredCall::threadId).filter(id -> !id.isBlank()).orElse(threadIdHint);
+        if (stored.isPresent() && stored.get().result() != null
+                && ("done".equals(stored.get().status()) || "failed".equals(stored.get().status()))) {
+            return new RecoveredResult(modelJson(stored.get().result()), stored.get().isError(), threadId);
+        }
+        String json = errorJson("interrupted", "TinyMe restarted before this finished. Run it again if it's still needed.");
+        stored.ifPresent(call -> calls.finish(call.id(), JSON.readTree(json), true, "failed"));
+        logError(stored.map(StoredCall::tool).orElse("unknown"), eventId, "interrupted");
+        return new RecoveredResult(json, true, threadId);
+    }
+
+    public record RecoveredResult(String resultJson, boolean isError, String threadId) { }
+
     private DispatchOutcome replayOrAlreadyRunning(StoredCall stored, String toolName, String eventId) {
         if ("done".equals(stored.status()) || "failed".equals(stored.status())) {
             if (stored.result() != null) {

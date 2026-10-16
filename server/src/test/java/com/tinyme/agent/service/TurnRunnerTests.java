@@ -117,6 +117,69 @@ class TurnRunnerTests {
     }
 
     @Test
+    void aSessionStillWaitingOnAToolFromBeforeARestartIsClearedAndTheMessageResent() throws Exception {
+        var runner = runner(Duration.ofSeconds(5));
+        // The old turn: once its tool is answered and it's interrupted, it says something and goes idle.
+        // None of that may reach the user; the reply is only what follows the resent message.
+        var body = events("""
+                {"type":"agent.message","id":"old-msg","content":[{"type":"text","text":"The search was cut off."}]}
+                """, """
+                {"type":"session.status_idle","id":"old-idle","stop_reason":{"type":"end_turn"}}
+                """, """
+                {"type":"agent.message","id":"new-msg","content":[{"type":"text","text":"Here you go."}]}
+                """, END);
+        when(api.openStream("sesn_test")).thenReturn(new EventStream(body));
+        var rejected = new com.tinyme.agent.client.ManagedAgentApi.ApiException(400, "invalid_request_error",
+                "POST /v1/sessions/sesn_test/events: Invalid user.message event at events[0]: waiting on responses "
+                        + "to events [sevt_01Stuck]; only `user.custom_tool_result` or `user.interrupt` may be sent");
+        doThrow(rejected).doNothing().when(api).sendEvents(eq("sesn_test"),
+                argThat(events -> "user.message".equals(events.getFirst().get("type"))));
+        when(dispatcher.recoverAbandoned("sevt_01Stuck", null)).thenReturn(new ToolDispatcher.RecoveredResult(
+                "{\"ok\":false,\"error\":{\"code\":\"interrupted\"}}", true, "sthr_gmail"));
+
+        assertThat(runner.run(request("check once again"), TurnListener.NONE).replyText()).isEqualTo("Here you go.");
+
+        var order = inOrder(api);
+        order.verify(api).sendEvents(eq("sesn_test"), argThat(events -> "user.message".equals(events.getFirst().get("type"))));
+        order.verify(api).sendEvents("sesn_test", List.of(Map.of("type", "user.custom_tool_result",
+                "custom_tool_use_id", "sevt_01Stuck",
+                "content", List.of(Map.of("type", "text", "text", "{\"ok\":false,\"error\":{\"code\":\"interrupted\"}}")),
+                "is_error", true, "session_thread_id", "sthr_gmail")));
+        order.verify(api).sendEvents("sesn_test", List.of(Map.of("type", "user.interrupt")));
+        order.verify(api).sendEvents(eq("sesn_test"), argThat(events -> "user.message".equals(events.getFirst().get("type"))));
+    }
+
+    @Test
+    void aSessionDeletedOnAnthropicsSideIsReplacedAndTheMessageAnsweredThere() throws Exception {
+        var runner = runner(Duration.ofSeconds(5));
+        var fresh = new SessionRef(UUID.randomUUID(), "sesn_fresh", 1);
+        when(api.openStream("sesn_test")).thenThrow(
+                new com.tinyme.agent.client.ManagedAgentApi.ApiException(404, "not_found_error", "session not found"));
+        when(api.openStream("sesn_fresh")).thenReturn(new EventStream(events("""
+                {"type":"agent.message","id":"m1","content":[{"type":"text","text":"Fresh start."}]}
+                """, END)));
+        var replaced = new ArrayList<SessionRef>();
+        runner.useGoneSessionReplacer((gone, zone) -> { replaced.add(gone); return fresh; });
+        var observed = new ArrayList<TurnEvent>();
+
+        assertThat(runner.run(request("hello"), observed::add).replyText()).isEqualTo("Fresh start.");
+
+        assertThat(replaced).containsExactly(session);
+        assertThat(observed).noneMatch(TurnEvent.Failed.class::isInstance);
+        verify(api).sendEvents(eq("sesn_fresh"), argThat(events -> "user.message".equals(events.getFirst().get("type"))));
+        verify(messages).insert(fresh.sessionRowId(), MessageRole.ASSISTANT, "Fresh start.", List.of());
+    }
+
+    @Test
+    void otherRejectionsOfTheMessageStillFailTheTurn() {
+        var plain = new com.tinyme.agent.client.ManagedAgentApi.ApiException(400, "invalid_request_error", "bad content");
+        assertThat(TurnRunner.abandonedEventIds(plain)).isEmpty();
+        var two = new com.tinyme.agent.client.ManagedAgentApi.ApiException(400, "invalid_request_error",
+                "waiting on responses to events [sevt_A1, sevt_B2]; only …");
+        assertThat(TurnRunner.abandonedEventIds(two)).containsExactly("sevt_A1", "sevt_B2");
+    }
+
+    @Test
     void includesAnAttachedImageInTheManagedAgentsUserMessage() throws Exception {
         var runner = runner(Duration.ofSeconds(5));
         var body = events(END);

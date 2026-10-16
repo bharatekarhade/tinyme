@@ -62,6 +62,14 @@ public class SessionManager {
         }
     }
 
+    /** Today's session was deleted on Anthropic's side (it answers 404): end it here and start a new one. */
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
+    public SessionRef replaceGone(SessionRef gone, ZoneId zone) throws IOException, InterruptedException {
+        Objects.requireNonNull(gone, "gone");
+        sessions.endChat(gone.sessionRowId(), clock.instant());
+        return todaySession(zone);
+    }
+
     private static boolean isDailySessionConflict(Throwable error) {
         for (Throwable cause = error; cause != null; cause = cause.getCause()) {
             if (cause instanceof ConstraintViolationException violation

@@ -32,6 +32,7 @@ import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -406,6 +407,37 @@ class ToolDispatcherTests {
 
     private static ToolSpec spec() {
         return new ToolSpec("entries_add", JSON.readTree("{\"type\":\"object\"}"));
+    }
+
+    @Test
+    void anAbandonedCallStillMarkedRunningIsClosedAsInterruptedForItsThread() {
+        Fixture fixture = new Fixture();
+        UUID id = UUID.randomUUID();
+        when(fixture.calls.findByEventId("sevt_stuck")).thenReturn(Optional.of(new StoredCall(id, UUID.randomUUID(),
+                "sevt_stuck", "gmail_search", "tinyme-gmail", "sthr_gmail", JSON.readTree("{}"), null, false,
+                "running", Instant.now(), null)));
+
+        var recovered = fixture.dispatcher().recoverAbandoned("sevt_stuck", null);
+
+        assertThat(recovered.isError()).isTrue();
+        assertThat(recovered.threadId()).isEqualTo("sthr_gmail");
+        assertThat(JSON.readTree(recovered.resultJson()).path("error").path("code").stringValue()).isEqualTo("interrupted");
+        verify(fixture.calls).finish(eq(id), any(JsonNode.class), eq(true), eq("failed"));
+    }
+
+    @Test
+    void anAbandonedCallThatFinishedIsReplayedWithoutItsRef() {
+        Fixture fixture = new Fixture();
+        when(fixture.calls.findByEventId("sevt_done")).thenReturn(Optional.of(storedCall("done", JSON.readTree("""
+                {"ok":true,"data":{"id":"p1"},"summary":"Saved","ref":{"place_id":"p1"}}
+                """), false)));
+
+        var recovered = fixture.dispatcher().recoverAbandoned("sevt_done", "sthr_hint");
+
+        assertThat(recovered.isError()).isFalse();
+        assertThat(JSON.readTree(recovered.resultJson()).has("ref")).isFalse();
+        assertThat(recovered.threadId()).isEqualTo("sthr_hint");
+        verify(fixture.calls, never()).finish(any(), any(), anyBoolean(), any());
     }
 
     private static StoredCall storedCall(String status, JsonNode result, boolean isError) {

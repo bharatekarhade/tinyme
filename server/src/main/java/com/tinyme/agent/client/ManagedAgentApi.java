@@ -336,7 +336,7 @@ public final class ManagedAgentApi implements ManagedAgents {
             this(status, type, "");
         }
 
-        ApiException(int status, String type, String detail) {
+        public ApiException(int status, String type, String detail) {
             super("Managed Agents API returned HTTP " + status + " (" + type + ")"
                     + (detail.isEmpty() ? "" : ": " + detail));
             this.status = status;

@@ -47,6 +47,17 @@ public class AgentSessionRepository {
         }
     }
 
+    /** Ends a chat session that no longer exists on Anthropic's side, so today's next one is created fresh. */
+    @Transactional
+    public void endChat(UUID sessionRowId, Instant now) {
+        sessions.findById(sessionRowId)
+                .filter(session -> "active".equals(session.getStatus()))
+                .ifPresent(session -> {
+                    session.end(now);
+                    sessions.saveAndFlush(session);
+                });
+    }
+
     // A duplicate insert must finish rolling back before the caller reads the winning row.
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     public SessionRef insertChat(String anthropicSessionId, int agentVersion, LocalDate day) {
