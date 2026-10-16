@@ -34,8 +34,8 @@ import java.util.regex.Pattern;
 @Service
 public class MailScanService {
     private static final Logger log = LoggerFactory.getLogger(MailScanService.class);
-    private static final String INITIAL_QUERY = "newer_than:7d -in:sent -in:drafts -in:spam -in:trash "
-            + "-category:promotions -category:social";
+    // Promotions and Social are listed too: card notices often land there. The pre-filter skips the rest.
+    private static final String INITIAL_QUERY = "newer_than:7d -in:sent -in:drafts -in:spam -in:trash";
     private static final Pattern BOOKING_SUBJECT = Pattern.compile(
             "(?i)\\b(flight|itinerary|booking|reservation|check.?in|ticket|confirmation|eventbrite|hotel)\\b");
     private static final Pattern BOOKING_SENDER = Pattern.compile(
@@ -313,6 +313,10 @@ public class MailScanService {
             if (has) counts.suggested++;
         }
         counts.rejected += rejected;
+        // Counts only, never content: makes "the scanner never finds anything" visible.
+        log.info("Mail scan batch emails={} empty_bodies={} proposals={} suggested={} rejected={}", batch.size(),
+                batch.stream().filter(email -> email.body() == null || email.body().isBlank()).count(),
+                proposals.size(), suggestedIds.size(), rejected);
         return batch.size();
     }
 
@@ -336,7 +340,7 @@ public class MailScanService {
         LocalDate day;
         try { day = LocalDate.parse(dayText); } catch (RuntimeException invalid) { return null; }
         String haystack = (source.subject() == null ? "" : source.subject()) + "\n" + source.body();
-        if (!haystack.contains(evidence)) return null;
+        if (!quotes(haystack, evidence)) return null;
         if ("payment".equals(type)) {
             return payment(proposal, haystack, title.strip(), day, evidence, confidenceNode.doubleValue(), today, userZone);
         }
@@ -507,7 +511,7 @@ public class MailScanService {
                 || confidence == null || !confidence.isNumber() || confidence.doubleValue() < 0.6) return null;
         String haystack = (source.subject() == null ? "" : source.subject()) + "\n" + source.body();
         String folded = fold(haystack);
-        if (!haystack.contains(evidence) || !folded.contains(fold(title)) || !folded.contains(fold(company))) return null;
+        if (!quotes(haystack, evidence) || !folded.contains(fold(title)) || !folded.contains(fold(company))) return null;
         Map<String, Object> payload = new LinkedHashMap<>();
         payload.put("title", title.strip());
         payload.put("company", company.strip());
@@ -524,6 +528,15 @@ public class MailScanService {
             payload.put("url", url);
         }
         return new MailScanRepository.Candidate("job", payload, confidence.doubleValue(), evidence);
+    }
+
+    /**
+     * The evidence is a quote from the email. Spacing may differ: notices put each field on its own line and the
+     * model joins them with a space.
+     */
+    static boolean quotes(String haystack, String evidence) {
+        String quote = evidence.strip().replaceAll("\\s+", " ");
+        return !quote.isEmpty() && haystack.replaceAll("\\s+", " ").contains(quote);
     }
 
     private static String fold(String text) {
@@ -545,18 +558,20 @@ public class MailScanService {
             }
             return false;
         }
+        String subject = message.subject() == null ? "" : message.subject();
         JsonNode labels = raw.path("labelIds");
         if (labels.isArray()) for (JsonNode label : labels) {
-            if (label.isString() && Set.of("SENT", "DRAFT", "SPAM", "TRASH", "CHAT",
-                    "CATEGORY_PROMOTIONS", "CATEGORY_SOCIAL").contains(label.asString()))
-                return true;
+            if (!label.isString()) continue;
+            if (Set.of("SENT", "DRAFT", "SPAM", "TRASH", "CHAT").contains(label.asString())) return true;
+            // Card and bank notices are often filed under Promotions or Social; nothing else there is read.
+            if (Set.of("CATEGORY_PROMOTIONS", "CATEGORY_SOCIAL").contains(label.asString())
+                    && !PAYMENT_SUBJECT.matcher(subject).find()) return true;
         }
         String unsubscribe = header(raw.path("payload").path("headers"), "List-Unsubscribe");
         if (unsubscribe == null || unsubscribe.isBlank()) return false;
         String sender = message.from() == null ? "" : message.from().toLowerCase(Locale.ROOT);
         java.util.regex.Matcher address = Pattern.compile("<([^>]+)>").matcher(sender);
         if (address.find()) sender = address.group(1);
-        String subject = message.subject() == null ? "" : message.subject();
         return !(BOOKING_SENDER.matcher(sender).find() || BOOKING_SUBJECT.matcher(subject).find()
                 || PAYMENT_SUBJECT.matcher(subject).find());
     }
