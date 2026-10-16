@@ -14,8 +14,16 @@ public enum AggregateMetric {
     }
 
     public String sqlExpression(String alias) {
+        return sqlExpression(alias, false);
+    }
+
+    /**
+     * Counting one kind adds up quantities (two coffees count as 2). Counting every kind counts entries: a night
+     * of sleep logged with its hours as the quantity is one entry, not 8.6.
+     */
+    public String sqlExpression(String alias, boolean allKinds) {
         return switch (this) {
-            case COUNT -> "COALESCE(SUM(" + alias + ".quantity), 0)";
+            case COUNT -> allKinds ? "COUNT(" + alias + ".id)::numeric" : "COALESCE(SUM(" + alias + ".quantity), 0)";
             case SUM -> "COALESCE(SUM(" + numericExpression(alias) + "), 0)";
             case AVG -> "ROUND(AVG(" + numericExpression(alias) + "), 2)";
             case MIN -> "MIN(" + numericExpression(alias) + ")";

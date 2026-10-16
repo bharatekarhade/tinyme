@@ -191,6 +191,31 @@ class EntryRepositoryTests {
     }
 
     @Test
+    void countingEveryKindCountsEntriesNotQuantities() {
+        String kind = createKind();
+        LocalDate day = LocalDate.of(2031, 3, 3);   // a day no other test logs on: "*" sees every kind
+        List<UUID> ids = new ArrayList<>();
+        try {
+            ids.add(insert("sleep", day, "8.6", Map.of("hours", new BigDecimal("8.6"))));
+            ids.add(insert(kind, day, "2", Map.of("type", "coffee")));
+
+            AggregateResult all = entries.aggregate(new AggregateQuery(List.of("*"), AggregateMetric.COUNT,
+                    null, Map.of(), day, day, GroupBy.NONE));
+            assertThat(all.value()).as("a night of sleep and one coffee entry").isEqualByComparingTo("2");
+            AggregateResult perDay = entries.aggregate(new AggregateQuery(List.of("*"), AggregateMetric.COUNT,
+                    null, Map.of(), day, day, GroupBy.DAY));
+            assertThat(perDay.buckets()).singleElement()
+                    .satisfies(bucket -> assertThat(bucket.value()).isEqualByComparingTo("2"));
+
+            AggregateResult coffee = entries.aggregate(new AggregateQuery(List.of(kind), AggregateMetric.COUNT,
+                    null, Map.of(), day, day, GroupBy.NONE));
+            assertThat(coffee.value()).as("one kind still adds up quantities").isEqualByComparingTo("2");
+        } finally {
+            cleanup(kind, ids);
+        }
+    }
+
+    @Test
     void numericMetricsSkipMissingAndStringFields() {
         String kind = createKind();
         LocalDate day = LocalDate.of(2026, 10, 8);
