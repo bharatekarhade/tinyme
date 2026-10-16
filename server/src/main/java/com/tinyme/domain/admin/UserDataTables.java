@@ -11,7 +11,7 @@ public final class UserDataTables {
             "tool_calls", "photos", "photo_people", "blobs", "places", "pending_actions",
             "plans", "plan_people", "plan_occurrences", "health_settings", "health_sync_log", "nudge_log",
             "google_account", "oauth_states", "confirmations", "calendar_sync_checkpoints", "calendar_sync_runs",
-            "mail_scan_state", "scanned_messages", "suggestions", "mail_scan_runs");
+            "mail_scan_state", "scanned_messages", "suggestions", "mail_scan_runs", "job_leads");
 
     /** Secret-bearing tables are cleared by Delete all but never included in an export archive. */
     public static final List<String> SECRETS = List.of("google_account", "oauth_states", "confirmations");

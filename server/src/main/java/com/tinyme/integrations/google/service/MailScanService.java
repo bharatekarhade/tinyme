@@ -45,6 +45,14 @@ public class MailScanService {
             "(?i)(ご利用|利用のお知らせ|利用通知|デビット|クレジット|カード|お支払|決済|引落|領収|"
                     + "\\b(payment|purchase|transaction|charged?|receipt|debit|credit card|card ending|"
                     + "usage (report|notice|notification|alert|details)|spending alert)\\b)");
+    /** Job-alert senders whose daily lists are read even from the Social or Promotions tab. */
+    private static final Pattern JOB_ALERT_SENDER = Pattern.compile(
+            "(?i)^(jobalerts-noreply|jobs-noreply|jobs-listings)@linkedin\\.com$");
+    private static final Pattern LINKEDIN_JOB_LINK = Pattern.compile(
+            "https?://(?:[a-z]+\\.)?linkedin\\.com/(?:comm/)?jobs/view/(\\d{5,})[^\\s<>\"')\\]]*");
+    private static final Pattern LONG_LINK = Pattern.compile("https?://\\S{100,}");
+    /** A job alert lists about ten postings; its body may be longer than other emails'. */
+    private static final int JOB_ALERT_BODY_CHARS = 8_000;
     /** How far back a payment notice may be; older ones are statements, not news. */
     private static final int PAYMENT_LOOKBACK_DAYS = 60;
     private static final BigDecimal MAX_PAYMENT = new BigDecimal("100000000");
@@ -53,13 +61,14 @@ public class MailScanService {
     private final MailScanAgentRunner scanner;
     private final MailScanRepository repository;
     private final MailPaymentService payments;
+    private final JobLeadRepository jobs;
     private final UserZone userZone;
     private final Clock clock;
     private final int maxPerRun;
     private final int maxPerDay;
 
     public MailScanService(GmailClient gmail, MailScanAgentRunner scanner, MailScanRepository repository,
-                           MailPaymentService payments, UserZone userZone, Clock clock,
+                           MailPaymentService payments, JobLeadRepository jobs, UserZone userZone, Clock clock,
                            @Value("${tinyme.mail-scan.max-per-run:30}") int maxPerRun,
                            @Value("${tinyme.mail-scan.max-per-day:200}") int maxPerDay) {
         this.gmail = gmail;
@@ -67,6 +76,7 @@ public class MailScanService {
         this.scanner = scanner;
         this.repository = repository;
         this.payments = payments;
+        this.jobs = jobs;
         this.userZone = userZone;
         this.clock = clock;
         this.maxPerRun = Math.max(1, Math.min(100, maxPerRun));
@@ -218,8 +228,10 @@ public class MailScanService {
                 continue;
             }
             raw = gmail.getMessage(id, GoogleMessageFormat.FULL);
-            message = parser.parse(raw, true, 4_000);
-            var input = new MailScanAgentRunner.MailInput(id, message.from(), message.date(), message.subject(), message.body());
+            boolean jobAlert = jobAlert(message);
+            message = parser.parse(raw, true, jobAlert ? 40_000 : 4_000);
+            String body = jobAlert ? compactJobAlert(message.body()) : message.body();
+            var input = new MailScanAgentRunner.MailInput(id, message.from(), message.date(), message.subject(), body);
             candidates.add(input);
             candidateById.put(id, input);
             if (candidates.size() == 10) {
@@ -269,7 +281,15 @@ public class MailScanService {
         for (JsonNode proposal : proposals) {
             String messageId = text(proposal, "gmail_message_id");
             MailScanAgentRunner.MailInput source = byId.get(messageId);
-            if (messageId == null || !proposalIds.add(messageId)) { rejected++; continue; }
+            if (messageId == null) { rejected++; continue; }
+            // A job alert lists several postings; every other email gives at most one suggestion.
+            if ("job".equals(text(proposal, "type"))) {
+                var job = job(proposal, source);
+                if (job == null) rejected++;
+                else if (jobs.save(messageId, job)) suggestedIds.add(messageId);
+                continue;
+            }
+            if (!proposalIds.add(messageId)) { rejected++; continue; }
             MailScanRepository.Candidate candidate = validate(proposal, source, today, userZone.current());
             if (candidate == null) { rejected++; continue; }
             if ("payment".equals(candidate.type())) {
@@ -457,7 +477,74 @@ public class MailScanService {
         return false;
     }
 
+    /** A daily job-alert email from a job site: its postings become job leads. */
+    static boolean jobAlert(GmailMessageParser.Message message) {
+        return JOB_ALERT_SENDER.matcher(address(message.from())).matches();
+    }
+
+    /**
+     * Shortens LinkedIn's tracking links to the posting's plain address and drops other very long links, so all
+     * of an alert's jobs fit what the scanner reads.
+     */
+    static String compactJobAlert(String body) {
+        String compact = LINKEDIN_JOB_LINK.matcher(body).replaceAll("https://www.linkedin.com/jobs/view/$1/");
+        compact = LONG_LINK.matcher(compact).replaceAll("").replaceAll("\n{3,}", "\n\n");
+        return compact.substring(0, Math.min(compact.length(), JOB_ALERT_BODY_CHARS));
+    }
+
+    /**
+     * A posting from a job alert. Only alerts qualify; the title, company and link must be in the email itself, so
+     * the model can't make a job up.
+     */
+    static MailScanRepository.Candidate job(JsonNode proposal, MailScanAgentRunner.MailInput source) {
+        if (source == null || !JOB_ALERT_SENDER.matcher(address(source.from())).matches()) return null;
+        String title = text(proposal, "title");
+        String company = text(proposal, "company");
+        String evidence = text(proposal, "evidence");
+        JsonNode confidence = proposal.get("confidence");
+        if (title == null || title.isBlank() || title.length() > 200 || company == null || company.isBlank()
+                || company.length() > 200 || evidence == null || evidence.isBlank() || evidence.length() > 200
+                || confidence == null || !confidence.isNumber() || confidence.doubleValue() < 0.6) return null;
+        String haystack = (source.subject() == null ? "" : source.subject()) + "\n" + source.body();
+        String folded = fold(haystack);
+        if (!haystack.contains(evidence) || !folded.contains(fold(title)) || !folded.contains(fold(company))) return null;
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("title", title.strip());
+        payload.put("company", company.strip());
+        String location = text(proposal, "location");
+        if (location != null && !location.isBlank()) {
+            if (location.length() > 200) return null;
+            payload.put("location", location.strip());
+        }
+        String url = text(proposal, "url");
+        if (url != null && !url.isBlank()) {
+            url = url.strip();
+            // Only a link that is really in the email, and only the web: never javascript:, mailto: or the like.
+            if (url.length() > 1000 || !url.matches("(?i)https://\\S+") || !haystack.contains(url)) return null;
+            payload.put("url", url);
+        }
+        return new MailScanRepository.Candidate("job", payload, confidence.doubleValue(), evidence);
+    }
+
+    private static String fold(String text) {
+        return Normalizer.normalize(text, Normalizer.Form.NFKC).replaceAll("\\s+", " ").toLowerCase(Locale.ROOT);
+    }
+
+    private static String address(String from) {
+        String sender = from == null ? "" : from.toLowerCase(Locale.ROOT).strip();
+        java.util.regex.Matcher bracketed = Pattern.compile("<([^>]+)>").matcher(sender);
+        return bracketed.find() ? bracketed.group(1).strip() : sender;
+    }
+
     static boolean prefiltered(JsonNode raw, GmailMessageParser.Message message) {
+        // Job alerts are read even from the Social or Promotions tab and despite their unsubscribe header.
+        if (jobAlert(message)) {
+            JsonNode labels = raw.path("labelIds");
+            if (labels.isArray()) for (JsonNode label : labels) {
+                if (label.isString() && Set.of("SENT", "DRAFT", "SPAM", "TRASH").contains(label.asString())) return true;
+            }
+            return false;
+        }
         JsonNode labels = raw.path("labelIds");
         if (labels.isArray()) for (JsonNode label : labels) {
             if (label.isString() && Set.of("SENT", "DRAFT", "SPAM", "TRASH", "CHAT",

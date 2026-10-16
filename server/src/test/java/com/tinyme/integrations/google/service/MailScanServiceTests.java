@@ -183,6 +183,78 @@ class MailScanServiceTests {
         assertThat(MailScanService.prefiltered(json(headers), newsletter)).isTrue();
     }
 
+    private static final MailScanAgentRunner.MailInput JOB_ALERT = new MailScanAgentRunner.MailInput(
+            "gmail-jobs-01", "LinkedIn Job Alerts <jobalerts-noreply@linkedin.com>", "2026-10-16T08:00:00+09:00",
+            "“software engineer”: Acme and 9 more new jobs", """
+            Your job alert for software engineer in Tokyo
+            Backend Engineer (Java)
+            Acme KK
+            Tokyo, Japan
+            View job: https://www.linkedin.com/jobs/view/4012345678/
+            iOS Engineer
+            Example Inc.
+            Shibuya, Tokyo (Hybrid)
+            View job: https://www.linkedin.com/jobs/view/4012345679/""");
+
+    @Test
+    void eachPostingInAJobAlertBecomesAJobWithItsLink() {
+        var job = MailScanService.job(json("""
+                {"type":"job","title":"Backend Engineer (Java)","company":"Acme KK","location":"Tokyo, Japan",
+                 "url":"https://www.linkedin.com/jobs/view/4012345678/","confidence":0.95,
+                 "evidence":"Backend Engineer (Java)","gmail_message_id":"gmail-jobs-01"}
+                """), JOB_ALERT);
+
+        assertThat(job).isNotNull();
+        assertThat(job.payload()).containsEntry("title", "Backend Engineer (Java)").containsEntry("company", "Acme KK")
+                .containsEntry("location", "Tokyo, Japan").containsEntry("url", "https://www.linkedin.com/jobs/view/4012345678/");
+    }
+
+    @Test
+    void aJobMustComeFromAnAlertAndBeWrittenInIt() {
+        String base = """
+                {"type":"job","title":"%s","company":"%s","url":"%s","confidence":0.95,
+                 "evidence":"Backend Engineer (Java)","gmail_message_id":"gmail-jobs-01"}
+                """;
+        String url = "https://www.linkedin.com/jobs/view/4012345678/";
+        assertThat(MailScanService.job(json(base.formatted("Backend Engineer (Java)", "Acme KK", url)), EMAIL))
+                .as("not a job alert").isNull();
+        assertThat(MailScanService.job(json(base.formatted("Staff Engineer", "Acme KK", url)), JOB_ALERT))
+                .as("title not in the email").isNull();
+        assertThat(MailScanService.job(json(base.formatted("Backend Engineer (Java)", "Globex", url)), JOB_ALERT))
+                .as("company not in the email").isNull();
+        assertThat(MailScanService.job(json(base.formatted("Backend Engineer (Java)", "Acme KK",
+                "https://www.linkedin.com/jobs/view/999/")), JOB_ALERT)).as("link not in the email").isNull();
+        assertThat(MailScanService.job(json(base.formatted("Backend Engineer (Java)", "Acme KK",
+                "javascript:alert(1)")), JOB_ALERT)).as("not a web link").isNull();
+    }
+
+    @Test
+    void longTrackingLinksInAnAlertShrinkToThePostingsAddress() {
+        String tracking = "https://www.linkedin.com/comm/jobs/view/4012345678/?trackingId=" + "x".repeat(300)
+                + "&refId=abc&lipi=urn%3Ali%3Apage";
+        String unsubscribe = "https://www.linkedin.com/comm/psettings/email-unsubscribe?" + "y".repeat(300);
+
+        String compact = MailScanService.compactJobAlert("Backend Engineer\nView job: " + tracking
+                + "\n\n\n\nUnsubscribe: " + unsubscribe);
+
+        assertThat(compact).contains("View job: https://www.linkedin.com/jobs/view/4012345678/")
+                .doesNotContain("trackingId", "email-unsubscribe", "\n\n\n");
+    }
+
+    @Test
+    void linkedInJobAlertsAreReadFromAnyTabButItsOtherEmailsAreNot() {
+        String social = "{\"labelIds\":[\"INBOX\",\"CATEGORY_SOCIAL\"],\"payload\":{\"headers\":[{\"name\":\"List-Unsubscribe\",\"value\":\"<mailto:x@y.test>\"}]}}";
+        String trash = "{\"labelIds\":[\"TRASH\"],\"payload\":{\"headers\":[]}}";
+        var alert = new GmailMessageParser.Message("m", "t", "LinkedIn Job Alerts <jobalerts-noreply@linkedin.com>",
+                null, null, null, "10 new jobs for you", null, null, null, List.of());
+        var newsletter = new GmailMessageParser.Message("m", "t", "LinkedIn <messages-noreply@linkedin.com>",
+                null, null, null, "Who viewed your profile", null, null, null, List.of());
+
+        assertThat(MailScanService.prefiltered(json(social), alert)).isFalse();
+        assertThat(MailScanService.prefiltered(json(trash), alert)).isTrue();
+        assertThat(MailScanService.prefiltered(json(social), newsletter)).isTrue();
+    }
+
     @Test
     void filtersDraftSpamTrashAndChatLabelsBeforeReadingBodies() {
         for (String label : List.of("DRAFT", "SPAM", "TRASH", "CHAT")) {
@@ -234,7 +306,8 @@ class MailScanServiceTests {
         }).when(repository).saveHistoryId(org.mockito.ArgumentMatchers.anyString());
 
         var service = new MailScanService(gmail, scanner, repository,
-                org.mockito.Mockito.mock(MailPaymentService.class), zone,
+                org.mockito.Mockito.mock(MailPaymentService.class),
+                org.mockito.Mockito.mock(JobLeadRepository.class), zone,
                 java.time.Clock.fixed(now, ZoneId.of("UTC")), 30, 200);
         var first = service.run();
         assertThat(first.scanned()).isEqualTo(30);

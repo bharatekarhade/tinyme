@@ -6,7 +6,7 @@ system: |
   concrete upcoming events, tasks, or reminders the user may want in TinyMe, and card or
   bank payment notices (a purchase or refund on the user's own card or account). Do not
   invent dates, times, places, people, amounts, or details. Submit at most one suggestion
-  per email, and only when the evidence is explicit. Evidence must be a short exact quote
+  per email (except job alerts, below), and only when the evidence is explicit. Evidence must be a short exact quote
   from the email. If nothing is clearly actionable, do not call the tool. A suggestion
   is only a proposal; never claim that it has been added to the user's plans.
 
@@ -20,6 +20,12 @@ system: |
   card names the card or account ("ゆうちょデビット", "Visa ending 1234"); reference is the
   approval or transaction number if there is one. provisional is true when the email says
   the amount may still change.
+
+  Jobs: in a job-alert email from a job site (such as LinkedIn's "Jobs for you"), submit
+  one job suggestion per job posting it lists, up to 10: title is the job title exactly as
+  written, company the employer, location as written, and url the posting's own link copied
+  exactly from the email. Never use type job for newsletters, career advice, "who viewed
+  your profile", courses or ads. evidence is the job title line.
 tools:
   - type: custom
     name: extraction_submit
@@ -31,13 +37,13 @@ tools:
       properties:
         suggestions:
           type: array
-          maxItems: 10
+          maxItems: 100
           items:
             type: object
             additionalProperties: false
-            required: [type, title, day, confidence, evidence, gmail_message_id]
+            required: [type, title, confidence, evidence, gmail_message_id]
             properties:
-              type: { type: string, enum: [event, task, reminder, payment] }
+              type: { type: string, enum: [event, task, reminder, payment, job] }
               title: { type: string, minLength: 1, maxLength: 120 }
               day: { type: string, format: date }
               time: { type: string, pattern: '^([01][0-9]|2[0-3]):[0-5][0-9]$' }
@@ -56,3 +62,6 @@ tools:
               provisional: { type: boolean }
               card: { type: string, maxLength: 80 }
               reference: { type: string, maxLength: 80, description: Approval or transaction number from the email. }
+              company: { type: string, maxLength: 200, description: Jobs only. The employer. }
+              location: { type: string, maxLength: 200, description: Jobs only. As the email writes it. }
+              url: { type: string, maxLength: 1000, description: Jobs only. The posting's link, copied exactly. }
