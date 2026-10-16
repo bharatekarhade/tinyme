@@ -43,7 +43,8 @@ public class MailScanService {
     /** Card and bank notices often carry an unsubscribe header too; they still go to the scanner. */
     private static final Pattern PAYMENT_SUBJECT = Pattern.compile(
             "(?i)(ご利用|利用のお知らせ|利用通知|デビット|クレジット|カード|お支払|決済|引落|領収|"
-                    + "\\b(payment|purchase|transaction|charged?|receipt|debit|credit card|card ending)\\b)");
+                    + "\\b(payment|purchase|transaction|charged?|receipt|debit|credit card|card ending|"
+                    + "usage (report|notice|notification|alert|details)|spending alert)\\b)");
     /** How far back a payment notice may be; older ones are statements, not news. */
     private static final int PAYMENT_LOOKBACK_DAYS = 60;
     private static final BigDecimal MAX_PAYMENT = new BigDecimal("100000000");

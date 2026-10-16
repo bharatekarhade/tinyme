@@ -177,6 +177,9 @@ class MailScanServiceTests {
 
         assertThat(MailScanService.prefiltered(json(headers), notice)).isFalse();
         assertThat(MailScanService.prefiltered(json(headers), receipt)).isFalse();
+        var paypay = new GmailMessageParser.Message("m", "t", "PayPay Card <info@example-card.test>", null, null, null,
+                "PayPay Card (Visa) Usage Report", null, null, null, List.of());
+        assertThat(MailScanService.prefiltered(json(headers), paypay)).isFalse();
         assertThat(MailScanService.prefiltered(json(headers), newsletter)).isTrue();
     }
 
