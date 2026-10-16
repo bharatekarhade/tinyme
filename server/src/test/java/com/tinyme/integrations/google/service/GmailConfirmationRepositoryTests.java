@@ -33,7 +33,7 @@ class GmailConfirmationRepositoryTests {
     void pendingConfirmationIsDurableAndCanBeDecidedOnce() {
         var ids = createCall();
         try {
-            UUID confirmationId = confirmations.create(ids.session(), "gmail-thread", ids.call(),
+            UUID confirmationId = confirmations.create(ids.session(), "gmail-thread", ids.call(), "gmail_send",
                     Map.of("draft_id", "draft-1", "to", "aiko@example.test", "subject", "Friday",
                             "preview", "See you soon"), Duration.ofMinutes(10));
 
@@ -41,9 +41,14 @@ class GmailConfirmationRepositoryTests {
                 assertThat(row.id()).isEqualTo(confirmationId);
                 assertThat(row.payload().path("subject").asString()).isEqualTo("Friday");
             });
+            assertThat(confirmations.hasPendingDraft("draft-1")).isTrue();
             assertThat(confirmations.decide(confirmationId, false)).isPresent()
                     .get().extracting(node -> node.path("draft_id").asString()).isEqualTo("draft-1");
             assertThat(confirmations.pending()).isEmpty();
+            assertThat(confirmations.hasPendingDraft("draft-1")).isFalse();
+            assertThat(confirmations.consumeRecentDecisions(ids.session())).singleElement()
+                    .satisfies(decision -> assertThat(decision.status()).isEqualTo("rejected"));
+            assertThat(confirmations.consumeRecentDecisions(ids.session())).isEmpty();
             assertThat(confirmations.decide(confirmationId, true)).isEmpty();
         } finally {
             jdbc.update("DELETE FROM agent_sessions WHERE id=?", ids.session());
@@ -54,8 +59,8 @@ class GmailConfirmationRepositoryTests {
     void onlyOneUnexpiredConfirmationCanBePending() {
         var ids = createCall();
         try {
-            confirmations.create(ids.session(), null, ids.call(), Map.of("draft_id", "one"), Duration.ofMinutes(10));
-            assertThatThrownBy(() -> confirmations.create(ids.session(), null, ids.call(),
+            confirmations.create(ids.session(), null, ids.call(), "gmail_send", Map.of("draft_id", "one"), Duration.ofMinutes(10));
+            assertThatThrownBy(() -> confirmations.create(ids.session(), null, ids.call(), "gmail_send",
                     Map.of("draft_id", "two"), Duration.ofMinutes(10)))
                     .isInstanceOf(GmailConfirmationRepository.PendingConfirmationExistsException.class);
         } finally {

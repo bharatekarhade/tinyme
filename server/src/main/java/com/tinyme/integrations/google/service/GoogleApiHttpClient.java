@@ -89,13 +89,19 @@ public class GoogleApiHttpClient {
 
     /** Sends a single non-idempotent request. POST/PUT calls deliberately have no automatic retry. */
     public JsonNode sendJson(String method, URI uri, JsonNode body) throws IOException, InterruptedException {
+        return sendJson(method, uri, body, Map.of());
+    }
+
+    public JsonNode sendJson(String method, URI uri, JsonNode body, Map<String, String> headers)
+            throws IOException, InterruptedException {
         String jsonBody = JSON.writeValueAsString(body);
         for (int attempt = 0; ; attempt++) {
-            HttpRequest request = HttpRequest.newBuilder(uri).timeout(Duration.ofSeconds(30))
+            HttpRequest.Builder builder = HttpRequest.newBuilder(uri).timeout(Duration.ofSeconds(30))
                     .header("Authorization", "Bearer " + tokens.accessToken())
                     .header("Accept", "application/json")
-                    .header("Content-Type", "application/json")
-                    .method(method, HttpRequest.BodyPublishers.ofString(jsonBody)).build();
+                    .header("Content-Type", "application/json");
+            headers.forEach(builder::header);
+            HttpRequest request = builder.method(method, HttpRequest.BodyPublishers.ofString(jsonBody)).build();
             HttpResponse<String> response = http.send(request, HttpResponse.BodyHandlers.ofString());
             if (response.statusCode() >= 200 && response.statusCode() < 300) {
                 try {
@@ -112,6 +118,29 @@ public class GoogleApiHttpClient {
             }
             throw new GoogleApiException(response.statusCode(), responseReason(response.statusCode(), error));
         }
+    }
+
+    /** Conditional delete used by CalendarSync; writes are never retried after an ambiguous response. */
+    public void delete(URI uri, String etag) throws IOException, InterruptedException {
+        HttpRequest.Builder builder = HttpRequest.newBuilder(uri).timeout(Duration.ofSeconds(30))
+                .header("Authorization", "Bearer " + tokens.accessToken())
+                .header("Accept", "application/json").DELETE();
+        if (etag != null && !etag.isBlank()) builder.header("If-Match", etag);
+        HttpResponse<String> response = http.send(builder.build(), HttpResponse.BodyHandlers.ofString());
+        if (response.statusCode() >= 200 && response.statusCode() < 300) return;
+        if (response.statusCode() == 401) {
+            tokens.clearCache();
+            HttpRequest.Builder retry = HttpRequest.newBuilder(uri).timeout(Duration.ofSeconds(30))
+                    .header("Authorization", "Bearer " + tokens.accessToken())
+                    .header("Accept", "application/json").DELETE();
+            if (etag != null && !etag.isBlank()) retry.header("If-Match", etag);
+            HttpResponse<String> second = http.send(retry.build(), HttpResponse.BodyHandlers.ofString());
+            if (second.statusCode() >= 200 && second.statusCode() < 300) return;
+            ApiError error = parseError(second.body());
+            throw new GoogleApiException(second.statusCode(), responseReason(second.statusCode(), error));
+        }
+        ApiError error = parseError(response.body());
+        throw new GoogleApiException(response.statusCode(), responseReason(response.statusCode(), error));
     }
 
     public void requireScope(String scope) throws GoogleApiException {

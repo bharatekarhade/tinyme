@@ -7,6 +7,7 @@ import com.tinyme.agent.repository.MessageRepository;
 import com.tinyme.agent.service.SessionManager;
 import com.tinyme.agent.service.TurnListener;
 import com.tinyme.agent.service.TurnRunner;
+import com.tinyme.settings.UserZone;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.CommandLineRunner;
 import org.springframework.boot.DefaultApplicationArguments;
@@ -36,7 +37,7 @@ class DevChatRunner implements CommandLineRunner {
     private final ZoneId zone;
     private final String eventCapture;
 
-    DevChatRunner(TurnRunner turns, SessionManager sessions, MessageRepository messages,
+    DevChatRunner(TurnRunner turns, SessionManager sessions, MessageRepository messages, UserZone userZone,
                   ConfigurableApplicationContext context,
                   @Value("${tinyme.dev.zone:}") String zone,
                   @Value("${tinyme.dev.event-capture:${TINYME_DEV_EVENT_CAPTURE:}}") String eventCapture) {
@@ -44,7 +45,7 @@ class DevChatRunner implements CommandLineRunner {
         this.sessions = sessions;
         this.messages = messages;
         this.context = context;
-        this.zone = zone.isBlank() ? ZoneId.systemDefault() : ZoneId.of(zone);
+        this.zone = zone.isBlank() ? userZone.current() : ZoneId.of(zone);
         this.eventCapture = eventCapture;
     }
 

@@ -150,12 +150,11 @@ struct ActionDTO: Decodable, Sendable, Hashable {
         isError ? nil : ref?["place_id"]?.stringValue
     }
 
-    var gmailConfirmation: GmailSendConfirmationDTO? {
-        guard !isError, tool == "gmail_send", let id = ref?["confirmation_id"]?.stringValue else { return nil }
-        return GmailSendConfirmationDTO(id: id,
-                                        to: ref?["to"]?.stringValue ?? "",
-                                        subject: ref?["subject"]?.stringValue ?? "Email",
-                                        preview: ref?["preview"]?.stringValue ?? "")
+    var googleConfirmation: GoogleConfirmationRef? {
+        guard !isError, ["gmail_send", "calendar_respond"].contains(tool),
+              let id = ref?["confirmation_id"]?.stringValue else { return nil }
+        return GoogleConfirmationRef(id: id,
+                                     kind: ref?["kind"]?.stringValue ?? (tool == "gmail_send" ? "email" : "calendar_invite"))
     }
 
     var needsLocationPermission: Bool {
@@ -196,23 +195,50 @@ struct ActionDTO: Decodable, Sendable, Hashable {
     ]
 }
 
-struct GmailSendConfirmationDTO: Decodable, Sendable, Hashable, Identifiable {
+struct GoogleConfirmationRef: Sendable, Hashable, Identifiable {
     let id: String
-    let to: String
-    let subject: String
-    let preview: String
+    let kind: String
 }
 
-struct GmailPendingConfirmationDTO: Decodable, Sendable, Identifiable {
+struct GooglePendingConfirmationDTO: Decodable, Sendable, Hashable, Identifiable {
     let id: String
+    let kind: String
     let to: String
+    let cc: String
+    let bcc: String
     let subject: String
     let preview: String
+    let body: String
+    let attachments: [String]
+    let title: String?
+    let response: String?
+    let startsAt: String?
+    let endsAt: String?
     let expiresAt: Date
 
     enum CodingKeys: String, CodingKey {
-        case id, to, subject, preview
+        case id, kind, to, cc, bcc, subject, preview, body, attachments, title, response
+        case startsAt = "starts_at"
+        case endsAt = "ends_at"
         case expiresAt = "expires_at"
+    }
+
+    init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        id = try values.decode(String.self, forKey: .id)
+        kind = try values.decode(String.self, forKey: .kind)
+        to = try values.decodeIfPresent(String.self, forKey: .to) ?? ""
+        cc = try values.decodeIfPresent(String.self, forKey: .cc) ?? ""
+        bcc = try values.decodeIfPresent(String.self, forKey: .bcc) ?? ""
+        subject = try values.decodeIfPresent(String.self, forKey: .subject) ?? ""
+        preview = try values.decodeIfPresent(String.self, forKey: .preview) ?? ""
+        body = try values.decodeIfPresent(String.self, forKey: .body) ?? ""
+        attachments = try values.decodeIfPresent([String].self, forKey: .attachments) ?? []
+        title = try values.decodeIfPresent(String.self, forKey: .title)
+        response = try values.decodeIfPresent(String.self, forKey: .response)
+        startsAt = try values.decodeIfPresent(String.self, forKey: .startsAt)
+        endsAt = try values.decodeIfPresent(String.self, forKey: .endsAt)
+        expiresAt = try values.decode(Date.self, forKey: .expiresAt)
     }
 }
 

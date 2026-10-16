@@ -27,18 +27,23 @@ public final class GmailMessageParser {
     private static final Pattern CHARSET = Pattern.compile("(?i)(?:^|;)\\s*charset\\s*=\\s*(?:\"([^\"]+)\"|'([^']+)'|([^;\\s]+))");
 
     public Message parse(JsonNode message, boolean includeBody, int bodyLimit) {
+        return parse(message, includeBody, bodyLimit, true);
+    }
+
+    public Message parse(JsonNode message, boolean includeBody, int bodyLimit, boolean trimReplies) {
         String id = text(message, "id");
         String threadId = text(message, "threadId");
         Map<String, String> headers = headers(message.path("payload").path("headers"));
         List<Attachment> attachments = new ArrayList<>();
         String body = includeBody ? body(message.path("payload"), attachments) : null;
         if (includeBody) {
-            body = trimQuoted(body);
+            if (trimReplies) body = trimQuoted(body);
             body = body.substring(0, Math.min(body.length(), Math.max(0, bodyLimit)));
         }
         else collectAttachments(message.path("payload"), attachments);
-        return new Message(id, threadId, headers.get("from"), headers.get("to"), headers.get("subject"),
-                headers.get("date"), text(message, "snippet"), body, List.copyOf(attachments));
+        return new Message(id, threadId, headers.get("from"), headers.get("to"), headers.get("cc"),
+                headers.get("bcc"), headers.get("subject"), headers.get("date"),
+                text(message, "snippet"), body, List.copyOf(attachments));
     }
 
     private static String body(JsonNode part, List<Attachment> attachments) {
@@ -156,7 +161,7 @@ public final class GmailMessageParser {
         return value == null || value.isNull() || !value.isString() ? null : value.asString();
     }
 
-    public record Message(String id, String threadId, String from, String to, String subject,
+    public record Message(String id, String threadId, String from, String to, String cc, String bcc, String subject,
                           String date, String snippet, String body, List<Attachment> attachments) {}
     public record Attachment(String filename, String mimeType, String attachmentId) {}
 }

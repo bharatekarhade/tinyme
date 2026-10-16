@@ -201,7 +201,7 @@ class PlanCalendarTests {
         var plan = new PlanCalendar.PlanInput(UUID.randomUUID(), PlanKind.EVENT, "Weekly run", null, null,
                 berlin.getId(), date("2026-03-23"), LocalTime.of(7, 30), null, null,
                 new Repeat(RepeatFrequency.WEEKLY, 1, Set.of(DayOfWeek.MONDAY), null), null,
-                PlanStatus.ACTIVE, null, PlanSource.CHAT, List.of());
+                PlanStatus.ACTIVE, null, PlanSource.CHAT, List.of(), null);
         var result = CALENDAR.expand(date("2026-03-23"), date("2026-03-30"),
                 Instant.parse("2026-03-22T12:00:00Z"), berlin, List.of(plan), List.of(), List.of(), List.of(), false);
 
@@ -209,6 +209,17 @@ class PlanCalendarTests {
                 .containsExactly(LocalTime.of(7, 30), LocalTime.of(7, 30));
         assertThat(result).extracting(PlanOccurrence::startsAt)
                 .containsExactly(Instant.parse("2026-03-23T06:30:00Z"), Instant.parse("2026-03-30T05:30:00Z"));
+    }
+
+    @Test
+    void carriesTheAcceptedMailReferenceIntoCalendarOccurrences() {
+        var plan = new PlanCalendar.PlanInput(UUID.randomUUID(), PlanKind.EVENT, "Flight to Osaka", null, null,
+                TOKYO.getId(), TODAY, LocalTime.of(9, 30), null, null, null, null,
+                PlanStatus.ACTIVE, null, PlanSource.CHAT, List.of(), "gmail:message-123");
+
+        var result = expand(TODAY, TODAY, List.of(plan), List.of(), List.of(), List.of(), false);
+
+        assertThat(result).singleElement().extracting(PlanOccurrence::externalId).isEqualTo("gmail:message-123");
     }
 
     @Test
@@ -234,7 +245,7 @@ class PlanCalendarTests {
                                                 LocalTime startTime, LocalTime endTime, LocalDate endDay,
                                                 Repeat repeat, String habitKind, PlanStatus status) {
         return new PlanCalendar.PlanInput(UUID.randomUUID(), kind, title, null, null, TOKYO.getId(), startDay,
-                startTime, endTime, endDay, repeat, habitKind, status, null, PlanSource.CHAT, List.of());
+                startTime, endTime, endDay, repeat, habitKind, status, null, PlanSource.CHAT, List.of(), null);
     }
 
     private static List<LocalDate> days(List<PlanOccurrence> occurrences) {

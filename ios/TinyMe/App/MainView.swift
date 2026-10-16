@@ -118,6 +118,10 @@ struct MainView: View {
             // Foreground is caught below; this is the launch.
             environment.session.warmUpLocation()
             environment.healthSync.start(api: environment.session.api)
+            Task {
+                try? await api.send(.googleSync)
+                try? await api.send(.googleMailScan)
+            }
         }
         .task {
             // The outbox sends with chat closed too (a message queued offline): reload what a turn changed.
@@ -132,6 +136,10 @@ struct MainView: View {
         .onChange(of: scenePhase) { _, phase in
             if phase == .active {
                 environment.session.warmUpLocation()   // so chat never waits on GPS
+                Task {
+                    try? await api.send(.googleSync)
+                    try? await api.send(.googleMailScan)
+                }
                 Task { await environment.nearbyPlaceAlerts.appBecameActive(api: environment.session.api) }
                 Task { await environment.outbox.wake(retryNow: true) }
                 Task { await environment.health.pushIfNeeded(api: environment.session.api) }

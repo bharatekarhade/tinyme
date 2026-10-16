@@ -1,0 +1,29 @@
+{
+  "input": {
+    "today": "2026-10-16",
+    "timezone": "Asia/Tokyo",
+    "emails": [
+      {
+        "gmail_message_id": "gmail-flight-01",
+        "from": "Example Airlines <tickets@example-air.test>",
+        "date": "2026-10-15T18:20:00+09:00",
+        "subject": "Your flight to Osaka is confirmed",
+        "body": "Your flight to Osaka is confirmed for October 24, 2026. Departure is at 09:30 from Haneda."
+      }
+    ]
+  },
+  "extraction_submit": {
+    "suggestions": [
+      {
+        "type": "event",
+        "title": "Flight to Osaka",
+        "day": "2026-10-24",
+        "time": "09:30",
+        "place": "Haneda Airport",
+        "confidence": 0.98,
+        "evidence": "Your flight to Osaka is confirmed for October 24, 2026.",
+        "gmail_message_id": "gmail-flight-01"
+      }
+    ]
+  }
+}

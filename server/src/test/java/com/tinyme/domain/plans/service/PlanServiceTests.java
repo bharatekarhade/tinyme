@@ -81,6 +81,22 @@ class PlanServiceTests {
     }
 
     @Test
+    void googleImportedPlansCannotBeEditedOrDeletedInTinyMe() {
+        UUID id = UUID.randomUUID();
+        PlanEntity imported = mock(PlanEntity.class);
+        when(imported.getSource()).thenReturn(PlanSource.GOOGLE);
+        when(plans.findLive(id)).thenReturn(Optional.of(imported));
+
+        assertThatThrownBy(() -> service.update(id,
+                new PlanChange.Cancel(), ZONE, NOW))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("This event is from Google Calendar; change it there");
+        assertThatThrownBy(() -> service.delete(id, NOW))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("This event is from Google Calendar; change it there");
+    }
+
+    @Test
     void habitEntryUnderMergedKindMarksItsPlanDone() {
         UUID id = UUID.randomUUID();
         PlanEntity habit = mock(PlanEntity.class);

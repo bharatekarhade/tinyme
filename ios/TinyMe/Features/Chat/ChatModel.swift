@@ -46,7 +46,7 @@ final class ChatModel {
     private(set) var historyError: String?
     private(set) var locationPermissionPromptVersion = 0
     private(set) var pendingEmailConfirmations: Set<String> = []
-    private(set) var emailConfirmationDetails: [String: GmailSendConfirmationDTO] = [:]
+    private(set) var emailConfirmationDetails: [String: GooglePendingConfirmationDTO] = [:]
     private(set) var emailConfirmationErrors: [String: String] = [:]
     private(set) var sendingEmailConfirmations: Set<String> = []
     private(set) var emailConfirmationStatuses: [String: String] = [:]
@@ -169,12 +169,9 @@ final class ChatModel {
 
     private func refreshEmailConfirmations() async {
         do {
-            let pending: [GmailPendingConfirmationDTO] = try await api.get(.pendingConfirmations)
+            let pending: [GooglePendingConfirmationDTO] = try await api.get(.pendingConfirmations)
             pendingEmailConfirmations = Set(pending.map(\.id))
-            emailConfirmationDetails = Dictionary(uniqueKeysWithValues: pending.map { item in
-                (item.id, GmailSendConfirmationDTO(id: item.id, to: item.to,
-                                                   subject: item.subject, preview: item.preview))
-            })
+            emailConfirmationDetails = Dictionary(uniqueKeysWithValues: pending.map { ($0.id, $0) })
         } catch {
             // Keep the current conversation usable if the pending-send lookup is unavailable.
         }
@@ -191,6 +188,14 @@ final class ChatModel {
                 pendingEmailConfirmations.remove(id)
                 emailConfirmationErrors.removeValue(forKey: id)
                 emailConfirmationStatuses[id] = result.status
+            } catch let error as APIError {
+                if case let .server(status, _, detail) = error, status == 409 {
+                    pendingEmailConfirmations.remove(id)
+                    emailConfirmationStatuses[id] = "expired"
+                    emailConfirmationErrors[id] = detail ?? "This draft changed, review it again"
+                } else {
+                    emailConfirmationErrors[id] = send ? "Gmail couldn't confirm the result. Check Sent before trying again." : "Couldn't cancel this confirmation. Try again."
+                }
             } catch {
                 emailConfirmationErrors[id] = send ? "Gmail couldn't confirm the result. Check Sent before trying again." : "Couldn't cancel this confirmation. Try again."
             }
@@ -306,7 +311,7 @@ final class ChatModel {
         switch event {
         case .actionDone(let tool, let summary, let isError, let ref):
             let action = ActionDTO(tool: tool, summary: summary, isError: isError, ref: ref)
-            if let confirmation = action.gmailConfirmation {
+            if let confirmation = action.googleConfirmation {
                 pendingEmailConfirmations.insert(confirmation.id)
                 emailConfirmationStatuses.removeValue(forKey: confirmation.id)
                 Task { await refreshEmailConfirmations() }

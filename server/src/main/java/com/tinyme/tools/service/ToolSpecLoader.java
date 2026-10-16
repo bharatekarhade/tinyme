@@ -19,6 +19,7 @@ import java.util.Objects;
 public class ToolSpecLoader {
     private static final String DEFAULT_SEED_PATH = "seed/agents/chat.yaml";
     private static final String GMAIL_SEED_PATH = "seed/agents/gmail.yaml";
+    private static final String CALENDAR_SEED_PATH = "seed/agents/calendar.yaml";
 
     private final Map<String, ToolSpec> specs;
 
@@ -44,6 +45,11 @@ public class ToolSpecLoader {
         Map<String, ToolSpec> result = new LinkedHashMap<>();
         result.putAll(loadResource(DEFAULT_SEED_PATH));
         for (var entry : loadResource(GMAIL_SEED_PATH).entrySet()) {
+            if (result.putIfAbsent(entry.getKey(), entry.getValue()) != null) {
+                throw new IllegalStateException("Duplicate custom tool name '" + entry.getKey() + "'");
+            }
+        }
+        for (var entry : loadResource(CALENDAR_SEED_PATH).entrySet()) {
             if (result.putIfAbsent(entry.getKey(), entry.getValue()) != null) {
                 throw new IllegalStateException("Duplicate custom tool name '" + entry.getKey() + "'");
             }

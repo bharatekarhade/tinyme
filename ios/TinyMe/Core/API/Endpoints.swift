@@ -15,6 +15,9 @@ struct Endpoint: Sendable {
     static let logout = Endpoint(method: "POST", path: "auth/logout")
     static let googleStatus = Endpoint(method: "GET", path: "integrations/google")
     static let googleStart = Endpoint(method: "POST", path: "integrations/google/start")
+    static let googleSync = Endpoint(method: "POST", path: "integrations/google/sync")
+    static let googleMailScan = Endpoint(method: "POST", path: "integrations/google/scan")
+    static let mailSuggestions = Endpoint(method: "GET", path: "integrations/google/suggestions")
     static let googleDisconnect = Endpoint(method: "DELETE", path: "integrations/google", signsOutOnUnauthorized: false)
     static let dataExport = Endpoint(method: "GET", path: "admin/export")
     static let deleteAll = Endpoint(method: "POST", path: "admin/delete-all", signsOutOnUnauthorized: false)
@@ -116,6 +119,14 @@ struct Endpoint: Sendable {
             URLQueryItem(name: "from", value: from.description),
             URLQueryItem(name: "to", value: to.description)
         ])
+    }
+
+    static func acceptMailSuggestion(_ id: String) -> Endpoint {
+        Endpoint(method: "POST", path: "integrations/google/suggestions/\(id)/accept")
+    }
+
+    static func dismissMailSuggestion(_ id: String) -> Endpoint {
+        Endpoint(method: "POST", path: "integrations/google/suggestions/\(id)/dismiss")
     }
 
     static func planDone(_ id: String, day: LocalDay) -> Endpoint {

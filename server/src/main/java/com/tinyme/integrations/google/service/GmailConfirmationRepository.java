@@ -21,16 +21,16 @@ public class GmailConfirmationRepository {
     public GmailConfirmationRepository(JdbcTemplate jdbc) { this.jdbc = jdbc; }
 
     @Transactional
-    public UUID create(UUID sessionId, String threadId, UUID toolCallId, Map<String, Object> payload,
-                       Duration lifetime) {
+    public UUID create(UUID sessionId, String threadId, UUID toolCallId, String tool,
+                       Map<String, Object> payload, Duration lifetime) {
         jdbc.update("UPDATE confirmations SET status='expired', decided_at=statement_timestamp() "
                 + "WHERE status='pending' AND expires_at <= statement_timestamp()");
         UUID id = UUID.randomUUID();
         try {
             jdbc.update("""
                     INSERT INTO confirmations (id, session_id, thread_id, tool_call_id, tool, payload, status, expires_at)
-                    VALUES (?, ?, ?, ?, 'gmail_send', ?::jsonb, 'pending', statement_timestamp() + (? * INTERVAL '1 millisecond'))
-                    """, id, sessionId, threadId, toolCallId, json(payload), lifetime.toMillis());
+                    VALUES (?, ?, ?, ?, ?, ?::jsonb, 'pending', statement_timestamp() + (? * INTERVAL '1 millisecond'))
+                    """, id, sessionId, threadId, toolCallId, tool, json(payload), lifetime.toMillis());
         } catch (DuplicateKeyException pendingExists) {
             throw new PendingConfirmationExistsException();
         }
@@ -40,14 +40,35 @@ public class GmailConfirmationRepository {
     @Transactional(readOnly = true)
     public List<Confirmation> pending() {
         return jdbc.query("""
-                SELECT id, payload, expires_at FROM confirmations
+                SELECT id, tool, payload, expires_at FROM confirmations
                 WHERE status='pending' AND expires_at > statement_timestamp() ORDER BY created_at
-                """, (rs, row) -> new Confirmation(rs.getObject("id", UUID.class),
+                """, (rs, row) -> new Confirmation(rs.getObject("id", UUID.class), rs.getString("tool"),
                 readJson(rs.getString("payload")), rs.getTimestamp("expires_at").toInstant()));
+    }
+
+    @Transactional(readOnly = true)
+    public boolean hasPendingDraft(String draftId) {
+        return Boolean.TRUE.equals(jdbc.queryForObject("SELECT EXISTS (SELECT 1 FROM confirmations "
+                + "WHERE status='pending' AND expires_at > statement_timestamp() AND payload ->> 'draft_id' = ?)",
+                Boolean.class, draftId));
+    }
+
+    @Transactional(readOnly = true)
+    public Optional<JsonNode> pendingPayload(UUID id) {
+        return jdbc.query("SELECT payload FROM confirmations WHERE id=? AND status='pending' "
+                        + "AND expires_at > statement_timestamp()", rs -> rs.next()
+                        ? Optional.of(readJson(rs.getString(1))) : Optional.empty(), id);
+    }
+
+    @Transactional
+    public int expirePending(UUID id) {
+        return jdbc.update("UPDATE confirmations SET status='expired', decided_at=statement_timestamp() "
+                + "WHERE id=? AND status='pending'", id);
     }
 
     @Transactional
     public Optional<JsonNode> decide(UUID id, boolean approve) {
+        // A rejected or completed confirmation is terminal; a later tap cannot reopen it.
         String status = approve ? "approved" : "rejected";
         return jdbc.query("""
                 UPDATE confirmations SET status=?, decided_at=statement_timestamp()
@@ -58,7 +79,26 @@ public class GmailConfirmationRepository {
 
     @Transactional
     public boolean markFailed(UUID id) {
-        return jdbc.update("UPDATE confirmations SET status='failed' WHERE id=? AND status='approved'", id) == 1;
+        return jdbc.update("UPDATE confirmations SET status='failed', decided_at=statement_timestamp() "
+                + "WHERE id=? AND status='approved'", id) == 1;
+    }
+
+    @Transactional
+    public boolean markCompleted(UUID id, String status) {
+        if (!List.of("sent", "responded").contains(status)) throw new IllegalArgumentException("invalid completion status");
+        return jdbc.update("UPDATE confirmations SET status=?, decided_at=statement_timestamp() "
+                + "WHERE id=? AND status='approved'", status, id) == 1;
+    }
+
+    @Transactional
+    public List<RecentDecision> consumeRecentDecisions(UUID sessionId) {
+        return jdbc.query("""
+                UPDATE confirmations SET context_notified_at=statement_timestamp()
+                WHERE id IN (SELECT id FROM confirmations WHERE session_id=? AND status IN ('sent','responded','rejected','failed')
+                  AND context_notified_at IS NULL ORDER BY decided_at LIMIT 10)
+                RETURNING payload, status, decided_at
+                """, (rs, row) -> new RecentDecision(readJson(rs.getString("payload")), rs.getString("status"),
+                rs.getTimestamp("decided_at").toInstant()), sessionId);
     }
 
     @Transactional
@@ -77,7 +117,8 @@ public class GmailConfirmationRepository {
         catch (RuntimeException failure) { throw new IllegalStateException("Stored confirmation is invalid", failure); }
     }
 
-    public record Confirmation(UUID id, JsonNode payload, java.time.Instant expiresAt) {}
+    public record Confirmation(UUID id, String tool, JsonNode payload, java.time.Instant expiresAt) {}
+    public record RecentDecision(JsonNode payload, String status, java.time.Instant decidedAt) {}
 
     public static final class PendingConfirmationExistsException extends RuntimeException {}
 }

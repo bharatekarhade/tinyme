@@ -37,17 +37,16 @@ public class GmailSendTool implements ToolHandler {
             JsonNode messageNode = draft.get("message");
             if (messageNode == null || !messageNode.isObject())
                 throw new IllegalArgumentException("That Gmail draft could not be found");
-            var message = parser.parse(messageNode, true, GmailMessageParser.MAX_MESSAGE_CHARS);
+            var message = parser.parse(messageNode, true, 50_000, false);
             String to = clean(message.to());
             String subject = clean(message.subject());
-            String preview = message.body() == null ? "" : message.body().substring(0, Math.min(300, message.body().length()));
             if (to.isBlank()) throw new IllegalArgumentException("The draft has no recipient");
             var confirmationId = confirmations.request(context.sessionRowId(), context.threadId(),
-                    context.toolCallId(), draftId, to, subject, preview);
+                    context.toolCallId(), draftId, message);
             Map<String, Object> ref = Map.of("confirmation_id", confirmationId.toString());
             return new ToolResult.Ok(Map.of("confirmation_id", confirmationId.toString(),
                     "status", "pending", "message", "Waiting for the user to confirm sending"),
-                    "Ready to send: " + (subject.isBlank() ? "email" : subject), ref,
+                    "Email send confirmation required", ref,
                     Map.of("confirmation_id", confirmationId.toString(), "status", "pending"));
         } catch (GmailConfirmationRepository.PendingConfirmationExistsException exists) {
             return new ToolResult.Err("confirmation_pending", "Confirm or cancel the pending email before preparing another send.");

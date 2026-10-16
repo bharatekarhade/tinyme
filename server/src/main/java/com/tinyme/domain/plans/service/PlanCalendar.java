@@ -150,7 +150,7 @@ public final class PlanCalendar {
         String id = plan.id() + ":" + originalDay;
         return new PlanOccurrence(id, plan.id(), originalDay, day, plan.startDay(), startTime, endTime, endDay,
                 startsAt, endsAt, allDay, plan.kind(), plan.title(), plan.notes(), plan.place(), plan.people(),
-                status, plan.habitKind(), plan.repeat(), plan.source().name().toLowerCase(Locale.ROOT));
+                status, plan.habitKind(), plan.repeat(), plan.source().name().toLowerCase(Locale.ROOT), plan.externalId());
     }
 
     private static OccurrenceStatus status(PlanInput plan, LocalDate day,
@@ -196,7 +196,7 @@ public final class PlanCalendar {
                         person.relationship(), person.memoryPath());
                 birthdays.add(new PlanOccurrence(id, null, day, day, null, null, null, null,
                         null, null, true, PlanKind.EVENT, title, null, null, List.of(snapshot), status,
-                        null, null, "people"));
+                        null, null, "people", null));
             }
         }
         return birthdays;
@@ -268,7 +268,7 @@ public final class PlanCalendar {
     public record PlanInput(UUID id, PlanKind kind, String title, String notes, String place, String zone,
                             LocalDate startDay, LocalTime startTime, LocalTime endTime, LocalDate endDay,
                             Repeat repeat, String habitKind, PlanStatus status, Instant completedAt,
-                            PlanSource source, List<PersonSnapshot> people) {
+                            PlanSource source, List<PersonSnapshot> people, String externalId) {
         public PlanInput {
             Objects.requireNonNull(id, "id");
             Objects.requireNonNull(kind, "kind");

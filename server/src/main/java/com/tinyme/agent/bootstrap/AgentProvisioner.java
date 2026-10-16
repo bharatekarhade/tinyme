@@ -70,8 +70,15 @@ final class AgentProvisioner {
                 Map<?, ?> gmail = yaml("seed/agents/gmail.yaml");
                 ids.put("ANTHROPIC_GMAIL_AGENT_ID", ensure(connection, "agent.gmail", "ANTHROPIC_GMAIL_AGENT_ID",
                         "/v1/agents", gmail, false, configured));
+                Map<?, ?> calendar = yaml("seed/agents/calendar.yaml");
+                ids.put("ANTHROPIC_CALENDAR_AGENT_ID", ensure(connection, "agent.calendar", "ANTHROPIC_CALENDAR_AGENT_ID",
+                        "/v1/agents", calendar, false, configured));
+                Map<?, ?> scanner = yaml("seed/agents/mail-scanner.yaml");
+                ids.put("ANTHROPIC_SCANNER_AGENT_ID", ensure(connection, "agent.scanner", "ANTHROPIC_SCANNER_AGENT_ID",
+                        "/v1/agents", scanner, false, configured));
                 Map<?, ?> googlePrompt = yaml("seed/agents/chat-google.yaml");
-                agent = coordinatorWithGmail(agent, ids.get("ANTHROPIC_GMAIL_AGENT_ID"),
+                agent = coordinatorWithGoogle(agent, ids.get("ANTHROPIC_GMAIL_AGENT_ID"),
+                        ids.get("ANTHROPIC_CALENDAR_AGENT_ID"),
                         requiredString(googlePrompt, "system_append", "Google chat prompt"));
             }
             ids.put("ANTHROPIC_AGENT_ID", ensure(connection, "agent.chat", "ANTHROPIC_AGENT_ID",
@@ -108,7 +115,8 @@ final class AgentProvisioner {
         }
     }
 
-    private static Map<?, ?> coordinatorWithGmail(Map<?, ?> seed, String gmailId, String googlePrompt) {
+    private static Map<?, ?> coordinatorWithGoogle(Map<?, ?> seed, String gmailId, String calendarId,
+                                                    String googlePrompt) {
         var coordinator = new LinkedHashMap<Object, Object>(seed);
         Object system = coordinator.get("system");
         if (!(system instanceof String prompt)) throw new IllegalStateException("Chat seed is missing its system prompt");
@@ -116,7 +124,8 @@ final class AgentProvisioner {
         coordinator.put("multiagent", Map.of(
                 "type", "multiagent_20261001",
                 "subagents", Map.of("type", "enabled", "predefined_agents",
-                        java.util.List.of(Map.of("type", "agent", "id", gmailId)),
+                        java.util.List.of(Map.of("type", "agent", "id", gmailId),
+                                Map.of("type", "agent", "id", calendarId)),
                         "inline_agents", Map.of("type", "disabled")),
                 "workflows", Map.of("type", "disabled")));
         return coordinator;

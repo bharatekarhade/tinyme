@@ -1,6 +1,7 @@
 package com.tinyme.integrations.google.api;
 
 import com.tinyme.integrations.google.service.GmailConfirmationService;
+import com.tinyme.integrations.google.service.GoogleOAuthException;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Pattern;
@@ -38,11 +39,16 @@ public class GmailConfirmationController {
             return confirmations.decide(id, request.decision());
         } catch (GmailConfirmationService.MissingConfirmationException missing) {
             throw new ResponseStatusException(HttpStatus.GONE, "This send confirmation expired or was already handled");
+        } catch (GmailConfirmationService.ConfirmationChangedException changed) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "This draft changed, review it again");
         } catch (IllegalArgumentException invalid) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, invalid.getMessage());
+        } catch (GoogleOAuthException connectionFailure) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT,
+                    "Reconnect Google before confirming this action");
         } catch (IOException | InterruptedException failure) {
             if (failure instanceof InterruptedException) Thread.currentThread().interrupt();
-            throw new ResponseStatusException(HttpStatus.BAD_GATEWAY, "Gmail could not send this draft");
+            throw new ResponseStatusException(HttpStatus.BAD_GATEWAY, "Google could not complete this confirmation");
         }
     }
 

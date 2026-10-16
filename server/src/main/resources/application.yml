@@ -40,6 +40,11 @@ tinyme:
     client-secret: ${GOOGLE_CLIENT_SECRET:}
     redirect-uri: ${GOOGLE_REDIRECT_URI:}
 
+  mail-scan:
+    interval: ${TINYME_MAILSCAN_INTERVAL:15m}
+    max-per-run: ${TINYME_MAILSCAN_MAX_PER_RUN:30}
+    max-per-day: ${TINYME_MAILSCAN_MAX_PER_DAY:200}
+
 # Only enable behind a reverse proxy you control; forwarded headers affect login IP limiting.
 # server.forward-headers-strategy: native
 
@@ -73,9 +78,15 @@ tinyme:
         - gmail_thread
         - gmail_draft
         - gmail_send
+      tinyme-calendar:
+        - calendar_events
+        - calendar_free_time
+        - calendar_respond
     setup-enabled: ${TINYME_AGENT_SETUP_ENABLED:true}
     api-key: ${ANTHROPIC_API_KEY:}
     environment-id: ${ANTHROPIC_ENVIRONMENT_ID:}
     agent-id: ${ANTHROPIC_AGENT_ID:}
+    calendar-agent-id: ${ANTHROPIC_CALENDAR_AGENT_ID:}
+    scanner-agent-id: ${ANTHROPIC_SCANNER_AGENT_ID:}
     memory-store-id: ${ANTHROPIC_MEMORY_STORE_ID:}
     allow-new-memory-store: ${TINYME_ALLOW_NEW_MEMORY_STORE:false}

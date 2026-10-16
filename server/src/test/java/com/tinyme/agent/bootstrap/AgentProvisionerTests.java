@@ -31,7 +31,7 @@ class AgentProvisionerTests {
 
     @BeforeEach
     void clearSettings() {
-        jdbc.update("DELETE FROM settings WHERE key IN ('env.default', 'agent.chat', 'agent.gmail', 'memory.main', 'google.agents')");
+        jdbc.update("DELETE FROM settings WHERE key IN ('env.default', 'agent.chat', 'agent.gmail', 'agent.calendar', 'memory.main', 'google.agents')");
         jdbc.update("DELETE FROM google_account");
     }
 
@@ -82,7 +82,11 @@ class AgentProvisionerTests {
             if (path.endsWith("/memories")) throw new ManagedAgentApi.ApiException(409, "memory_path_conflict_error");
             if (method.equals("POST") && path.equals("/v1/agents")) {
                 Map<?, ?> payload = (Map<?, ?>) payloadValue;
-                return Map.of("id", "tinyme-gmail".equals(payload.get("name")) ? "agent_gmail" : "agent_chat", "version", 1);
+                return Map.of("id", switch (String.valueOf(payload.get("name"))) {
+                    case "tinyme-gmail" -> "agent_gmail";
+                    case "tinyme-calendar" -> "agent_calendar";
+                    default -> "agent_chat";
+                }, "version", 1);
             }
             if (method.equals("POST")) {
                 return Map.of("id", switch (path) {
@@ -101,11 +105,14 @@ class AgentProvisionerTests {
         assertThat(jdbc.queryForObject("SELECT value ->> 'status' FROM settings WHERE key='google.agents'", String.class))
                 .isEqualTo("ready");
         org.mockito.ArgumentCaptor<Map> chatPayload = org.mockito.ArgumentCaptor.forClass(Map.class);
-        verify(api, times(2)).request(eq("POST"), eq("/v1/agents"), chatPayload.capture(), eq(false));
+        verify(api, times(4)).request(eq("POST"), eq("/v1/agents"), chatPayload.capture(), eq(false));
         Map<?, ?> postedChat = chatPayload.getAllValues().stream()
                 .filter(payload -> "tinyme-chat".equals(payload.get("name"))).findFirst().orElseThrow();
         assertThat(postedChat.get("system").toString()).contains("Google Gmail");
         assertThat(postedChat.get("multiagent").toString()).contains("agent_gmail");
+        assertThat(postedChat.get("multiagent").toString()).contains("agent_calendar");
+        assertThat(jdbc.queryForObject("SELECT value ->> 'id' FROM settings WHERE key='agent.calendar'", String.class))
+                .isEqualTo("agent_calendar");
 
         jdbc.update("DELETE FROM google_account");
         clearInvocations(api);

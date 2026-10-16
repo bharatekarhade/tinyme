@@ -24,12 +24,16 @@ public class GoogleAgentProvisioner {
     public GoogleAgentProvisioner(DataSource datasource, ManagedAgentApi api,
                                   @Value("${tinyme.agent.environment-id:}") String environmentId,
                                   @Value("${tinyme.agent.agent-id:}") String agentId,
-                                  @Value("${tinyme.agent.memory-store-id:}") String memoryStoreId) {
+                                  @Value("${tinyme.agent.memory-store-id:}") String memoryStoreId,
+                                  @Value("${tinyme.agent.calendar-agent-id:}") String calendarAgentId,
+                                  @Value("${tinyme.agent.scanner-agent-id:}") String scannerAgentId) {
         this.datasource = datasource;
         this.jdbc = new JdbcTemplate(datasource);
         this.api = api;
         this.configured = Map.of("ANTHROPIC_ENVIRONMENT_ID", environmentId,
-                "ANTHROPIC_AGENT_ID", agentId, "ANTHROPIC_MEMORY_STORE_ID", memoryStoreId);
+                "ANTHROPIC_AGENT_ID", agentId, "ANTHROPIC_MEMORY_STORE_ID", memoryStoreId,
+                "ANTHROPIC_CALENDAR_AGENT_ID", calendarAgentId,
+                "ANTHROPIC_SCANNER_AGENT_ID", scannerAgentId);
     }
 
     public void sync() throws Exception {

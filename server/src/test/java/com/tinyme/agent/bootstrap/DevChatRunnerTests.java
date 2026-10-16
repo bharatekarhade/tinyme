@@ -3,6 +3,7 @@ package com.tinyme.agent.bootstrap;
 import com.tinyme.agent.model.SessionRef;
 import com.tinyme.agent.model.TurnRequest;
 import com.tinyme.agent.service.TurnRunner;
+import com.tinyme.settings.UserZone;
 import com.tinyme.agent.service.SessionManager;
 import com.tinyme.agent.service.TurnListener;
 import com.tinyme.agent.repository.MessageRepository;
@@ -37,6 +38,7 @@ class DevChatRunnerTests {
     private final TurnRunner turns = mock(TurnRunner.class);
     private final SessionManager sessions = mock(SessionManager.class);
     private final MessageRepository messages = mock(MessageRepository.class);
+    private final UserZone userZone = mock(UserZone.class);
     private final ConfigurableApplicationContext context = mock(ConfigurableApplicationContext.class);
     private final SessionRef session = new SessionRef(UUID.randomUUID(), "sesn_test", 1);
     private static final UUID USER_MESSAGE_ROW_ID = UUID.fromString("29228cb9-f347-4230-a9d3-04f8ad69a862");
@@ -45,10 +47,11 @@ class DevChatRunnerTests {
     Path tempDir;
 
     private DevChatRunner runner(String zone) throws Exception {
+        when(userZone.current()).thenReturn(ZoneId.of("Asia/Tokyo"));
         when(sessions.todaySession(any())).thenReturn(session);
         when(messages.insertUser(eq(session.sessionRowId()), any(UUID.class), anyString()))
                 .thenReturn(USER_MESSAGE_ROW_ID);
-        return new DevChatRunner(turns, sessions, messages, context, zone, "");
+        return new DevChatRunner(turns, sessions, messages, userZone, context, zone, "");
     }
 
     @Test
@@ -75,7 +78,7 @@ class DevChatRunnerTests {
 
         runner("").run("had a coffee");
 
-        var request = captureRequest("had a coffee", ZoneId.systemDefault());
+        var request = captureRequest("had a coffee", ZoneId.of("Asia/Tokyo"));
         assertThat(request.userMessageId()).isEqualTo(USER_MESSAGE_ROW_ID);
         verify(context).close();
     }
@@ -110,7 +113,8 @@ class DevChatRunnerTests {
             return new TurnResult("Done", 0);
         });
 
-        new DevChatRunner(turns, sessions, messages, context, "UTC", capture.toString()).run("hello");
+        when(userZone.current()).thenReturn(ZoneId.of("Asia/Tokyo"));
+        new DevChatRunner(turns, sessions, messages, userZone, context, "UTC", capture.toString()).run("hello");
 
         JsonNode captured = JSON.readTree(Files.readString(capture));
         assertThat(captured).hasSize(1);
@@ -132,12 +136,14 @@ class DevChatRunnerTests {
                 .thenReturn(USER_MESSAGE_ROW_ID);
         when(turns.run(any(TurnRequest.class), any(TurnListener.class), any()))
                 .thenReturn(new TurnResult("Logged from dev.", 1));
+        when(userZone.current()).thenReturn(zone);
         var application = new SpringApplication(DevChatRunner.class);
         application.setRegisterShutdownHook(false);
         application.addInitializers(ctx -> {
             ctx.getBeanFactory().registerSingleton("turnRunner", turns);
             ctx.getBeanFactory().registerSingleton("sessionManager", sessions);
             ctx.getBeanFactory().registerSingleton("messageRepository", messages);
+            ctx.getBeanFactory().registerSingleton("userZone", userZone);
             ctx.getBeanFactory().registerSingleton("agentSetupRunner", setup);
         });
 

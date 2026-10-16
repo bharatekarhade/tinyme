@@ -207,9 +207,11 @@ public class TurnRunner {
                 LocalDate.ofInstant(referenceTime, zone), referenceTime, request.attachedPhotoId(), request.location(),
                 listener);
         var threads = new ThreadRegistry(coordinatorAgent, coordinatorAgentId.get(), gmailAgentId.get());
-        String prefix = request.location() == null
-                ? contextPrefix.build(zone, referenceTime)
-                : contextPrefix.build(zone, referenceTime, request.location());
+        String prefix = contextPrefix.build(zone, referenceTime, request.location(), session.sessionRowId());
+        // Keep older builder implementations and focused test doubles usable while the session-aware
+        // overload is adopted everywhere. The production builder always returns a non-null prefix.
+        if (prefix == null) prefix = contextPrefix.build(zone, referenceTime, request.location());
+        if (prefix == null) prefix = contextPrefix.build(zone, referenceTime);
         state.checkCancelled();
         try (var source = new ResilientEventSource(api, session.anthropicSessionId(), reconnectSleeper, rawEventObserver)) {
             state.source = source;

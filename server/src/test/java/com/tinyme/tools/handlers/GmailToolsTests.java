@@ -2,6 +2,8 @@ package com.tinyme.tools.handlers;
 
 import com.tinyme.integrations.google.service.GmailClient;
 import com.tinyme.integrations.google.service.GmailConfirmationService;
+import com.tinyme.integrations.google.service.GmailMessageParser;
+import com.tinyme.integrations.google.service.GmailConfirmationRepository;
 import com.tinyme.integrations.google.service.GoogleMessageFormat;
 import com.tinyme.tools.model.ToolContext;
 import com.tinyme.tools.model.ToolResult;
@@ -20,6 +22,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static org.mockito.ArgumentMatchers.eq;
 
 class GmailToolsTests {
     private static final JsonMapper JSON = JsonMapper.builder().build();
@@ -103,7 +106,7 @@ class GmailToolsTests {
     @Test
     void draftCreatesOrUpdatesDraftAndDoesNotReturnOrStoreItsBody() throws Exception {
         GmailClient gmail = mock(GmailClient.class);
-        when(gmail.saveDraft("aiko@example.test", null, "Dinner", "Let's meet at seven.", null))
+        when(gmail.saveDraft("aiko@example.test", null, null, "Dinner", "Let's meet at seven.", null))
                 .thenReturn(JSON.readTree("{\"id\":\"draft-1\"}"));
 
         ToolResult.Ok result = (ToolResult.Ok) new GmailDraftTool(gmail).handle(JSON.readTree("""
@@ -113,7 +116,22 @@ class GmailToolsTests {
         assertThat(result.data().toString()).contains("draft-1", "aiko@example.test", "Dinner")
                 .doesNotContain("Let's meet at seven.");
         assertThat(result.stored().toString()).doesNotContain("Let's meet at seven.");
-        verify(gmail).saveDraft("aiko@example.test", null, "Dinner", "Let's meet at seven.", null);
+        verify(gmail).saveDraft("aiko@example.test", null, null, "Dinner", "Let's meet at seven.", null);
+    }
+
+    @Test
+    void draftWithPendingSendConfirmationCannotBeEdited() throws Exception {
+        GmailClient gmail = mock(GmailClient.class);
+        GmailConfirmationRepository confirmations = mock(GmailConfirmationRepository.class);
+        when(confirmations.hasPendingDraft("draft-1")).thenReturn(true);
+
+        ToolResult result = new GmailDraftTool(gmail, confirmations).handle(JSON.readTree("""
+                {"to":"aiko@example.test","subject":"Changed","body":"Changed body","draft_id":"draft-1"}
+                """), context);
+
+        assertThat(result).isInstanceOf(ToolResult.Err.class)
+                .extracting("message").asString().contains("pending send confirmation");
+        org.mockito.Mockito.verifyNoInteractions(gmail);
     }
 
     @Test
@@ -129,8 +147,8 @@ class GmailToolsTests {
                    {"name":"To","value":"aiko@example.test"},{"name":"Subject","value":"Friday"}],
                    "body":{"data":"%s"}}}}
                 """.formatted(encoded)));
-        when(confirmations.request(sessionId, "gmail-thread-1", toolCallId, "draft-1",
-                "aiko@example.test", "Friday", "Hello Aiko, see you Friday.")).thenReturn(confirmationId);
+        when(confirmations.request(eq(sessionId), eq("gmail-thread-1"), eq(toolCallId), eq("draft-1"),
+                org.mockito.ArgumentMatchers.any(GmailMessageParser.Message.class))).thenReturn(confirmationId);
 
         ToolResult.Ok result = (ToolResult.Ok) new GmailSendTool(gmail, confirmations)
                 .handle(JSON.readTree("{\"draft_id\":\"draft-1\"}"), sendContext);
@@ -139,7 +157,10 @@ class GmailToolsTests {
                 .containsEntry("confirmation_id", confirmationId.toString());
         assertThat(result.data().toString()).contains("pending").doesNotContain("Hello Aiko");
         verify(gmail, org.mockito.Mockito.never()).sendDraft("draft-1");
-        verify(confirmations).request(sessionId, "gmail-thread-1", toolCallId, "draft-1",
-                "aiko@example.test", "Friday", "Hello Aiko, see you Friday.");
+        verify(confirmations).request(org.mockito.ArgumentMatchers.eq(sessionId),
+                org.mockito.ArgumentMatchers.eq("gmail-thread-1"), org.mockito.ArgumentMatchers.eq(toolCallId),
+                org.mockito.ArgumentMatchers.eq("draft-1"), org.mockito.ArgumentMatchers.argThat(message ->
+                        message.to().equals("aiko@example.test") && message.subject().equals("Friday")
+                                && message.body().equals("Hello Aiko, see you Friday.")));
     }
 }

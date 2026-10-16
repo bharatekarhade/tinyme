@@ -14,7 +14,7 @@ struct MessageBubble: View {
     var onOpenPlace: ((String) -> Void)?
     var onOpenPlaceCandidate: ((PlaceCandidateDTO) -> Void)?
     var pendingEmailConfirmations: Set<String> = []
-    var emailConfirmationDetails: [String: GmailSendConfirmationDTO] = [:]
+    var emailConfirmationDetails: [String: GooglePendingConfirmationDTO] = [:]
     var emailConfirmationErrors: [String: String] = [:]
     var sendingEmailConfirmations: Set<String> = []
     var emailConfirmationStatuses: [String: String] = [:]
@@ -119,7 +119,7 @@ struct MessageBubble: View {
             VStack(alignment: .leading, spacing: Space.s2) {
                 // Place searches and saved-place lookups show as cards below, not chips.
                 let visibleActions = actions.filter {
-                    $0.tool != "places_search" && $0.savedPlaces.isEmpty && $0.gmailConfirmation == nil
+                    $0.tool != "places_search" && $0.savedPlaces.isEmpty && $0.googleConfirmation == nil
                 }
                 if !visibleActions.isEmpty {
                     FlowLayout(spacing: 6) {
@@ -152,11 +152,11 @@ struct MessageBubble: View {
                         }
                         .accessibilityLabel("TinyMe is thinking")
                 }
-                ForEach(actions.compactMap(\.gmailConfirmation)) { confirmation in
+                ForEach(actions.compactMap(\.googleConfirmation)) { confirmation in
                     if let details = emailConfirmationDetails[confirmation.id],
                        pendingEmailConfirmations.contains(confirmation.id)
                         || emailConfirmationStatuses[confirmation.id] != nil {
-                        GmailSendCard(confirmation: details,
+                        GoogleConfirmationCard(confirmation: details,
                                       isSending: sendingEmailConfirmations.contains(confirmation.id),
                                       error: emailConfirmationErrors[confirmation.id],
                                       status: emailConfirmationStatuses[confirmation.id],

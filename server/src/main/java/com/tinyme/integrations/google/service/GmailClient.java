@@ -9,6 +9,14 @@ import java.nio.charset.StandardCharsets;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Base64;
+import java.util.Properties;
+import java.io.ByteArrayOutputStream;
+import jakarta.mail.Message;
+import jakarta.mail.MessagingException;
+import jakarta.mail.Session;
+import jakarta.mail.internet.AddressException;
+import jakarta.mail.internet.InternetAddress;
+import jakarta.mail.internet.MimeMessage;
 import tools.jackson.databind.node.ObjectNode;
 import tools.jackson.databind.json.JsonMapper;
 
@@ -19,7 +27,8 @@ public class GmailClient {
     private static final String READ_SCOPE = "https://www.googleapis.com/auth/gmail.readonly";
     private static final String COMPOSE_SCOPE = "https://www.googleapis.com/auth/gmail.compose";
     private static final JsonMapper JSON = JsonMapper.builder().build();
-    private static final java.util.List<String> SEARCH_METADATA_HEADERS = java.util.List.of("From", "To", "Subject", "Date");
+    private static final java.util.List<String> SEARCH_METADATA_HEADERS =
+            java.util.List.of("From", "To", "Subject", "Date", "List-Unsubscribe");
     private final GoogleApiHttpClient http;
 
     public GmailClient(GoogleApiHttpClient http) { this.http = http; }
@@ -32,6 +41,22 @@ public class GmailClient {
         params.put("maxResults", Integer.toString(Math.max(1, Math.min(100, maxResults))));
         if (pageToken != null && !pageToken.isBlank()) params.put("pageToken", pageToken);
         return http.get(GoogleApiHttpClient.uri(BASE, "/users/me/messages", params));
+    }
+
+    public JsonNode profile() throws IOException, InterruptedException {
+        http.requireScope(READ_SCOPE);
+        return http.get(GoogleApiHttpClient.uri(BASE, "/users/me/profile", Map.of()));
+    }
+
+    public JsonNode history(String startHistoryId, String pageToken, int maxResults)
+            throws IOException, InterruptedException {
+        http.requireScope(READ_SCOPE);
+        Map<String, String> params = new LinkedHashMap<>();
+        params.put("startHistoryId", startHistoryId);
+        params.put("historyTypes", "messageAdded");
+        params.put("maxResults", Integer.toString(Math.max(1, Math.min(500, maxResults))));
+        if (pageToken != null && !pageToken.isBlank()) params.put("pageToken", pageToken);
+        return http.get(GoogleApiHttpClient.uri(BASE, "/users/me/history", params));
     }
 
     public JsonNode getMessage(String id, GoogleMessageFormat format) throws IOException, InterruptedException {
@@ -51,16 +76,29 @@ public class GmailClient {
 
     public JsonNode saveDraft(String to, String cc, String subject, String body, String draftId)
             throws IOException, InterruptedException {
+        return saveDraft(to, cc, null, subject, body, draftId);
+    }
+
+    public JsonNode saveDraft(String to, String cc, String bcc, String subject, String body, String draftId)
+            throws IOException, InterruptedException {
         http.requireScope(COMPOSE_SCOPE);
-        StringBuilder mime = new StringBuilder();
-        mime.append("To: ").append(header(to)).append("\r\n");
-        if (cc != null && !cc.isBlank()) mime.append("Cc: ").append(header(cc)).append("\r\n");
-        mime.append("Subject: ").append(header(subject)).append("\r\n")
-                .append("MIME-Version: 1.0\r\nContent-Type: text/plain; charset=UTF-8\r\n")
-                .append("Content-Transfer-Encoding: 8bit\r\n\r\n").append(body);
+        MimeMessage mime = new MimeMessage(Session.getInstance(new Properties()));
+        try {
+            mime.setRecipients(Message.RecipientType.TO, addresses(to));
+            if (cc != null && !cc.isBlank()) mime.setRecipients(Message.RecipientType.CC, addresses(cc));
+            if (bcc != null && !bcc.isBlank()) mime.setRecipients(Message.RecipientType.BCC, addresses(bcc));
+            mime.setSubject(header(subject), StandardCharsets.UTF_8.name());
+            mime.setText(body, StandardCharsets.UTF_8.name());
+            mime.saveChanges();
+        } catch (MessagingException invalid) {
+            throw new IllegalArgumentException("Email address or message headers are invalid", invalid);
+        }
+        ByteArrayOutputStream rawBytes = new ByteArrayOutputStream();
+        try { mime.writeTo(rawBytes); }
+        catch (MessagingException invalid) { throw new IllegalArgumentException("Email draft could not be encoded", invalid); }
         ObjectNode rawMessage = JSON.createObjectNode();
         rawMessage.put("raw", Base64.getUrlEncoder().withoutPadding()
-                .encodeToString(mime.toString().getBytes(StandardCharsets.UTF_8)));
+                .encodeToString(rawBytes.toByteArray()));
         ObjectNode request = JSON.createObjectNode();
         request.set("message", rawMessage);
         if (draftId == null) {
@@ -80,6 +118,17 @@ public class GmailClient {
         if (value == null || value.indexOf('\r') >= 0 || value.indexOf('\n') >= 0)
             throw new IllegalArgumentException("Email headers must be a single line");
         return value;
+    }
+
+    private static InternetAddress[] addresses(String raw) {
+        try {
+            InternetAddress[] parsed = InternetAddress.parse(header(raw), true);
+            if (parsed.length == 0) throw new AddressException("At least one address is required");
+            for (InternetAddress address : parsed) address.validate();
+            return parsed;
+        } catch (AddressException invalid) {
+            throw new IllegalArgumentException("Email address is invalid", invalid);
+        }
     }
 
     private static java.net.URI messageUri(String path, GoogleMessageFormat format) {

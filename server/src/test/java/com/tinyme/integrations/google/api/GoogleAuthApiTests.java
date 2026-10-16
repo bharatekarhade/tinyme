@@ -111,6 +111,12 @@ class GoogleAuthApiTests {
     }
 
     @Test
+    void mailSuggestionAndScanEndpointsRequireAuthentication() throws Exception {
+        mvc.perform(get("/integrations/google/suggestions")).andExpect(status().isUnauthorized());
+        mvc.perform(post("/integrations/google/scan")).andExpect(status().isUnauthorized());
+    }
+
+    @Test
     void disconnectRechecksPasswordRevokesGoogleAndRemovesTheLocalToken() throws Exception {
         jdbc.update("""
                 INSERT INTO google_account (email, scopes, refresh_token_enc, status, connected_at)

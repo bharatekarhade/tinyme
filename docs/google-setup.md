@@ -1,6 +1,6 @@
-# Google integration setup (G2)
+# Google integration setup
 
-Google OAuth connection and the iPhone Connect screen are implemented in G2. Gmail and Calendar API operations and sync are later work. Do not add Google credentials to the iOS app or commit them to Git.
+Google OAuth, Gmail tools and mail suggestions, Calendar tools and CalendarSync are implemented through G9. Do not add Google credentials to the iOS app or commit them to Git.
 
 ## Google Cloud project
 
@@ -23,7 +23,7 @@ Google OAuth connection and the iPhone Connect screen are implemented in G2. Gma
    GOOGLE_REDIRECT_URI=https://<public-hostname>/integrations/google/callback
    ```
 
-The OAuth server flow uses offline access so later Gmail and Calendar features can refresh access tokens after the user leaves the browser. G2 requests the scopes listed in the architecture guide and stores only the scopes Google actually grants.
+The OAuth server flow uses offline access so Gmail and Calendar features can refresh access tokens after the user leaves the browser. TinyMe requests `gmail.readonly`, `gmail.compose`, `calendar.events`, `calendar.calendarlist.readonly`, `calendar.events.freebusy`, and `calendar.app.created`, plus `openid` and `email`; it stores only the scopes Google actually grants. Calendar list and free/busy access use separate read-only scopes required by Google's Calendar API methods. If TinyMe was connected before these Calendar scopes were added, reconnect Google and approve them.
 
 ## Encryption key
 
@@ -45,8 +45,16 @@ The server uses the AEAD associated data `google_account:1` when encrypting and 
 
 After configuring the client and encryption key, sign in to TinyMe on the iPhone, open **Settings → Google → Connect Google**, and complete Google's sign-in in the secure browser sheet. TinyMe returns to the app and shows the email and the Gmail/Calendar scopes actually granted. Disconnect asks for the TinyMe password, revokes the Google grant when Google is reachable, and removes the server's saved connection.
 
-## G2 OAuth connection
+## Connection and sync
 
-Flyway migration `V1.13__google_oauth_storage.sql` creates the single-owner `google_account` row and temporary OAuth state table. G2 adds authenticated status, connect-start, and disconnect endpoints plus the public OAuth callback. The iPhone completes sign-in through Apple's secure browser session, then returns to TinyMe using the `tinyme://google-connected` URL scheme. Disconnect re-checks the TinyMe password, attempts to revoke the Google grant, and removes the local encrypted token even when Google is unavailable. Gmail and Calendar API calls, token refresh, and data sync are not implemented yet.
+Flyway migrations add encrypted Google-account storage, Gmail confirmations, calendar sync cursors, and mail-suggestion data. The iPhone completes sign-in through Apple's secure browser session and returns to TinyMe using the `tinyme://google-connected` URL scheme. CalendarSync mirrors TinyMe plans to its own Google calendar and imports selected calendars as read-only plans in Upcoming.
+
+## Mail suggestions (G9)
+
+TinyMe scans recent Gmail messages every 15 minutes and when the app opens. On first connect it checks only the previous seven days; later runs use Gmail's history cursor. Sent, draft, spam, trash, chat, promotions, social mail and ordinary mailing lists are skipped. Gmail metadata is checked first; message bodies are fetched only for candidates. Defaults cap scanning at 30 messages per run and 200 per day. Scanner failures retry once, then the message is marked failed. Suggestions expire after their date passes. The isolated scanner agent can only propose upcoming events, tasks and reminders. Review each proposal under **Upcoming → From email** before it becomes a plan. A time with an email-provided IANA time zone is converted to your configured TinyMe zone while retaining the original time for display.
+
+Scan run records are pruned after 30 days and per-message scan markers after 90 days. Accepted plans keep a Gmail message reference so **View email** can open the source message; email bodies are not stored in TinyMe.
+
+The optional server settings are `TINYME_MAILSCAN_INTERVAL` (for example `15m`), `TINYME_MAILSCAN_MAX_PER_RUN` (`30`) and `TINYME_MAILSCAN_MAX_PER_DAY` (`200`). Email bodies go to the configured scanner agent for extraction but are not stored in TinyMe's database or tool-call logs. TinyMe stores only proposed plan fields and a short evidence quote for review.
 
 Official setup references: [Google OAuth web-server flow](https://developers.google.com/identity/protocols/oauth2/web-server), [Google Workspace API setup](https://developers.google.com/workspace/guides/enable-apis), and [Tink AEAD encryption](https://developers.google.com/tink/encrypt-data).

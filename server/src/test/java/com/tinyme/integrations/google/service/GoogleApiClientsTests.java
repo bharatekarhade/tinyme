@@ -35,6 +35,22 @@ class GoogleApiClientsTests {
     }
 
     @Test
+    void gmailHistoryUsesIncrementalCursorAndSupportsPagination() throws Exception {
+        GoogleApiHttpClient http = mock(GoogleApiHttpClient.class);
+        GmailClient gmail = new GmailClient(http);
+
+        gmail.history("123456", "next/page", 800);
+
+        Map<String, String> expected = new LinkedHashMap<>();
+        expected.put("startHistoryId", "123456");
+        expected.put("historyTypes", "messageAdded");
+        expected.put("maxResults", "500");
+        expected.put("pageToken", "next/page");
+        org.mockito.Mockito.verify(http).get(GoogleApiHttpClient.uri("https://gmail.googleapis.com/gmail/v1",
+                "/users/me/history", expected));
+    }
+
+    @Test
     void gmailMetadataRequestsOnlyTheHeadersUsedBySearch() throws Exception {
         GoogleApiHttpClient http = mock(GoogleApiHttpClient.class);
         GmailClient gmail = new GmailClient(http);
@@ -43,7 +59,7 @@ class GoogleApiClientsTests {
 
         URI expected = GoogleApiHttpClient.uri("https://gmail.googleapis.com/gmail/v1", "/users/me/messages/m1",
                 Map.of("format", "metadata"),
-                Map.of("metadataHeaders", List.of("From", "To", "Subject", "Date")));
+                Map.of("metadataHeaders", List.of("From", "To", "Subject", "Date", "List-Unsubscribe")));
         org.mockito.Mockito.verify(http).get(expected);
     }
 
@@ -60,6 +76,7 @@ class GoogleApiClientsTests {
         expectedParams.put("timeMin", from.toString());
         expectedParams.put("timeMax", to.toString());
         expectedParams.put("singleEvents", "true");
+        expectedParams.put("showDeleted", "true");
         expectedParams.put("orderBy", "startTime");
         expectedParams.put("pageToken", "next page");
         URI expected = GoogleApiHttpClient.uri("https://www.googleapis.com/calendar/v3",
