@@ -478,8 +478,10 @@ public class MailScanService {
      * "20.5" in "$20.50", full-width digits included. The model can't make an amount up.
      */
     static boolean mentions(String text, BigDecimal amount) {
+        // Thousands separators are commas and the narrow spaces used inside numbers, never a line break or an
+        // ordinary space: "18:17" then "504円" on the next line must not become 18:17504.
         String flat = Normalizer.normalize(text, Normalizer.Form.NFKC)
-                .replaceAll("(?<=\\d)[,\\s\u00a0\u2009\u202f](?=\\d{3}(?!\\d))", "");
+                .replaceAll("(?<=\\d)[,\u00a0\u2009\u202f](?=\\d{3}(?!\\d))", "");
         List<String> forms = new ArrayList<>(List.of(amount.toPlainString()));
         if (amount.scale() <= 2) forms.add(amount.setScale(2, RoundingMode.UNNECESSARY).toPlainString());
         for (String form : forms) {
