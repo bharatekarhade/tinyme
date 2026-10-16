@@ -18,6 +18,9 @@ struct RootView: View {
             }
         }
         .animation(.easeInOut(duration: 0.3), value: isSignedIn)
+        #if DEBUG
+        .task { await ScreenshotMode.signInIfRequested(environment.session) }
+        #endif
     }
 
     private var isSignedIn: Bool {

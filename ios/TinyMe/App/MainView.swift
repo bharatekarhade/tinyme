@@ -140,6 +140,9 @@ struct MainView: View {
                 await gscan.load()   // the tab's badge
             }
             Task { await CurrencySetting.adoptPhoneRegion(api: api) }
+            #if DEBUG
+            ScreenshotMode.apply(to: router)
+            #endif
         }
         .task {
             // The outbox sends with chat closed too (a message queued offline): reload what a turn changed.

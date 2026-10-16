@@ -26,6 +26,8 @@ struct DayTimeline: View {
     private let laneWidth: CGFloat = 44
     private let pointsPerMinute: CGFloat = 1.05
     private let topInset: CGFloat = 12
+    /// About nine hours of the day at once.
+    private static let viewportHeight: CGFloat = 560
 
     private struct DragPreview {
         let item: OccurrenceDTO
@@ -49,6 +51,17 @@ struct DayTimeline: View {
             ScrollView(.vertical) {
                 GeometryReader { geometry in
                     ZStack(alignment: .topLeading) {
+                        // Scroll targets, one hour tall each, so "hour-N" lands just above that hour's line.
+                        // (A positioned view's frame is the whole timeline, so it can't be one.)
+                        VStack(spacing: 0) {
+                            ForEach(startHour..<endHour, id: \.self) { hour in
+                                Color.clear
+                                    .frame(width: 1, height: 60 * pointsPerMinute)
+                                    .id("hour-\(hour)")
+                            }
+                        }
+                        .accessibilityHidden(true)
+
                         ForEach(startHour..<endHour, id: \.self) { hour in
                             let y = CGFloat((hour - startHour) * 60) * pointsPerMinute + topInset
                             Text(Self.hourLabel(hour))
@@ -56,7 +69,6 @@ struct DayTimeline: View {
                                 .foregroundStyle(Palette.inkMuted)
                                 .frame(width: laneWidth - 8, alignment: .trailing)
                                 .position(x: (laneWidth - 8) / 2, y: y)
-                                .id("hour-\(hour)")
                             Rectangle()
                                 .fill(Palette.line)
                                 .frame(width: max(0, geometry.size.width - laneWidth), height: 1)
@@ -81,6 +93,9 @@ struct DayTimeline: View {
                 }
                 .frame(height: contentHeight)
             }
+            // Its own window on the day: inside the page's scroll view an unbounded one never scrolls, so it
+            // couldn't open at the current hour.
+            .frame(height: min(contentHeight, Self.viewportHeight))
             .scrollIndicators(.hidden)
             .contentShape(Rectangle())
             .simultaneousGesture(DragGesture(minimumDistance: 38).onEnded { value in
