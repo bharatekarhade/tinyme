@@ -1,5 +1,6 @@
 package com.tinyme.integrations.google.service;
 
+import com.tinyme.settings.UserCurrency;
 import com.tinyme.settings.UserZone;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -9,6 +10,9 @@ import org.springframework.transaction.annotation.Transactional;
 import tools.jackson.databind.JsonNode;
 
 import java.io.IOException;
+import java.math.BigDecimal;
+import java.math.RoundingMode;
+import java.text.Normalizer;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.LocalDate;
@@ -36,23 +40,32 @@ public class MailScanService {
             "(?i)\\b(flight|itinerary|booking|reservation|check.?in|ticket|confirmation|eventbrite|hotel)\\b");
     private static final Pattern BOOKING_SENDER = Pattern.compile(
             "(?i)@(air|ana|jal|united|delta|booking|expedia|eventbrite|opentable|resy|agoda|hotels)\\.[a-z.]+$");
+    /** Card and bank notices often carry an unsubscribe header too; they still go to the scanner. */
+    private static final Pattern PAYMENT_SUBJECT = Pattern.compile(
+            "(?i)(ご利用|利用のお知らせ|利用通知|デビット|クレジット|カード|お支払|決済|引落|領収|"
+                    + "\\b(payment|purchase|transaction|charged?|receipt|debit|credit card|card ending)\\b)");
+    /** How far back a payment notice may be; older ones are statements, not news. */
+    private static final int PAYMENT_LOOKBACK_DAYS = 60;
+    private static final BigDecimal MAX_PAYMENT = new BigDecimal("100000000");
     private final GmailClient gmail;
     private final GmailMessageParser parser;
     private final MailScanAgentRunner scanner;
     private final MailScanRepository repository;
+    private final MailPaymentService payments;
     private final UserZone userZone;
     private final Clock clock;
     private final int maxPerRun;
     private final int maxPerDay;
 
     public MailScanService(GmailClient gmail, MailScanAgentRunner scanner, MailScanRepository repository,
-                           UserZone userZone, Clock clock,
+                           MailPaymentService payments, UserZone userZone, Clock clock,
                            @Value("${tinyme.mail-scan.max-per-run:30}") int maxPerRun,
                            @Value("${tinyme.mail-scan.max-per-day:200}") int maxPerDay) {
         this.gmail = gmail;
         this.parser = new GmailMessageParser();
         this.scanner = scanner;
         this.repository = repository;
+        this.payments = payments;
         this.userZone = userZone;
         this.clock = clock;
         this.maxPerRun = Math.max(1, Math.min(100, maxPerRun));
@@ -258,6 +271,16 @@ public class MailScanService {
             if (messageId == null || !proposalIds.add(messageId)) { rejected++; continue; }
             MailScanRepository.Candidate candidate = validate(proposal, source, today, userZone.current());
             if (candidate == null) { rejected++; continue; }
+            if ("payment".equals(candidate.type())) {
+                var saved = repository.savePayment(messageId, candidate);
+                switch (saved.outcome()) {
+                    case SAVED, UPDATED -> suggestedIds.add(messageId);
+                    // The bank's final amount for a payment the owner already confirmed: its entry follows.
+                    case ACCEPTED_EARLIER -> payments.followUp(saved.paymentId(), messageId, candidate);
+                    case DUPLICATE -> { }
+                }
+                continue;
+            }
             if (repository.similarPlanExists(LocalDate.parse((String) candidate.payload().get("day")),
                     (String) candidate.payload().get("title"))) { rejected++; continue; }
             if (repository.saveSuggestion(messageId, candidate)) suggestedIds.add(messageId);
@@ -281,7 +304,7 @@ public class MailScanService {
                                                   LocalDate today, ZoneId userZone) {
         if (source == null) return null;
         String type = text(proposal, "type");
-        if (type == null || !List.of("event", "task", "reminder").contains(type)) return null;
+        if (type == null || !List.of("event", "task", "reminder", "payment").contains(type)) return null;
         String title = text(proposal, "title");
         String dayText = text(proposal, "day");
         String evidence = text(proposal, "evidence");
@@ -293,6 +316,9 @@ public class MailScanService {
         try { day = LocalDate.parse(dayText); } catch (RuntimeException invalid) { return null; }
         String haystack = (source.subject() == null ? "" : source.subject()) + "\n" + source.body();
         if (!haystack.contains(evidence)) return null;
+        if ("payment".equals(type)) {
+            return payment(proposal, haystack, title.strip(), day, evidence, confidenceNode.doubleValue(), today, userZone);
+        }
         Map<String, Object> payload = new LinkedHashMap<>();
         payload.put("title", title.strip());
         String time = text(proposal, "time");
@@ -336,6 +362,100 @@ public class MailScanService {
         return new MailScanRepository.Candidate(type, payload, confidenceNode.doubleValue(), evidence);
     }
 
+    /**
+     * A card or bank notice. The model only proposes; the amount must be written in the email itself, the day must
+     * be recent, and the currency real. Stored with the email's amount, as a string so no decimals are lost.
+     */
+    private static MailScanRepository.Candidate payment(JsonNode proposal, String haystack, String merchant,
+                                                        LocalDate day, String evidence, double confidence,
+                                                        LocalDate today, ZoneId userZone) {
+        if (merchant.length() > 120) return null;
+        BigDecimal amount = positiveAmount(proposal.get("amount"));
+        String currency = currency(text(proposal, "currency"));
+        if (amount == null || currency == null || !mentions(haystack, amount)) return null;
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("title", merchant);
+        payload.put("merchant", merchant);
+        LocalDate localDay = day;
+        try {
+            String time = text(proposal, "time");
+            if (time != null) {
+                LocalTime chargedAt = LocalTime.parse(time);
+                String zoneText = text(proposal, "time_zone");
+                if (zoneText != null) {
+                    var local = LocalDateTime.of(day, chargedAt).atZone(ZoneId.of(zoneText)).withZoneSameInstant(userZone);
+                    localDay = local.toLocalDate();
+                    chargedAt = local.toLocalTime();
+                }
+                payload.put("time", chargedAt.withSecond(0).withNano(0).toString());
+            }
+        } catch (RuntimeException invalid) { return null; }
+        if (localDay.isAfter(today.plusDays(1)) || localDay.isBefore(today.minusDays(PAYMENT_LOOKBACK_DAYS))) return null;
+        payload.put("day", localDay.toString());
+        payload.put("amount", amount.toPlainString());
+        payload.put("currency", currency);
+        JsonNode chargedNode = proposal.get("charged_amount");
+        String chargedCurrencyText = text(proposal, "charged_currency");
+        if (chargedNode != null && !chargedNode.isNull() || chargedCurrencyText != null) {
+            BigDecimal charged = positiveAmount(chargedNode);
+            String chargedCurrency = currency(chargedCurrencyText);
+            if (charged == null || chargedCurrency == null || !mentions(haystack, charged)) return null;
+            if (!chargedCurrency.equals(currency)) {
+                payload.put("charged_amount", charged.toPlainString());
+                payload.put("charged_currency", chargedCurrency);
+            }
+        }
+        String direction = text(proposal, "direction");
+        if (direction == null) direction = "purchase";
+        if (!List.of("purchase", "refund").contains(direction)) return null;
+        payload.put("direction", direction);
+        JsonNode provisional = proposal.get("provisional");
+        payload.put("provisional", provisional != null && provisional.isBoolean() && provisional.booleanValue());
+        String card = text(proposal, "card");
+        if (card != null && !card.isBlank()) {
+            if (card.length() > 80) return null;
+            payload.put("card", card.strip());
+        }
+        String reference = text(proposal, "reference");
+        if (reference != null && !reference.isBlank()) {
+            if (reference.length() > 80) return null;
+            payload.put("reference", reference.strip());
+        }
+        return new MailScanRepository.Candidate("payment", payload, confidence, evidence);
+    }
+
+    private static BigDecimal positiveAmount(JsonNode node) {
+        if (node == null || !node.isNumber()) return null;
+        BigDecimal amount = node.decimalValue().stripTrailingZeros();
+        if (amount.scale() < 0) amount = amount.setScale(0);
+        return amount.signum() > 0 && amount.scale() <= 3 && amount.compareTo(MAX_PAYMENT) <= 0 ? amount : null;
+    }
+
+    private static String currency(String code) {
+        try {
+            return code == null ? null : UserCurrency.normalize(code);
+        } catch (IllegalArgumentException unknown) {
+            return null;
+        }
+    }
+
+    /**
+     * Whether the email writes this amount as a number of its own: "155" in "-155円", "1550" in "¥1,550",
+     * "20.5" in "$20.50", full-width digits included. The model can't make an amount up.
+     */
+    static boolean mentions(String text, BigDecimal amount) {
+        String flat = Normalizer.normalize(text, Normalizer.Form.NFKC)
+                .replaceAll("(?<=\\d)[,\\s\u00a0\u2009\u202f](?=\\d{3}(?!\\d))", "");
+        List<String> forms = new ArrayList<>(List.of(amount.toPlainString()));
+        if (amount.scale() <= 2) forms.add(amount.setScale(2, RoundingMode.UNNECESSARY).toPlainString());
+        for (String form : forms) {
+            if (Pattern.compile("(?<![\\d.])" + Pattern.quote(form) + "(?![\\d]|\\.\\d)").matcher(flat).find()) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     static boolean prefiltered(JsonNode raw, GmailMessageParser.Message message) {
         JsonNode labels = raw.path("labelIds");
         if (labels.isArray()) for (JsonNode label : labels) {
@@ -348,8 +468,9 @@ public class MailScanService {
         String sender = message.from() == null ? "" : message.from().toLowerCase(Locale.ROOT);
         java.util.regex.Matcher address = Pattern.compile("<([^>]+)>").matcher(sender);
         if (address.find()) sender = address.group(1);
-        return !(BOOKING_SENDER.matcher(sender).find()
-                || BOOKING_SUBJECT.matcher(message.subject() == null ? "" : message.subject()).find());
+        String subject = message.subject() == null ? "" : message.subject();
+        return !(BOOKING_SENDER.matcher(sender).find() || BOOKING_SUBJECT.matcher(subject).find()
+                || PAYMENT_SUBJECT.matcher(subject).find());
     }
 
     private static String header(JsonNode rows, String name) {

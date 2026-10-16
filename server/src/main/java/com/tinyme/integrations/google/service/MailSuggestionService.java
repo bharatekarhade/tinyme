@@ -40,7 +40,8 @@ public class MailSuggestionService {
     @Transactional
     public Optional<AcceptedSuggestion> accept(UUID id) {
         MailScanRepository.Suggestion suggestion = suggestions.findNew(id).orElse(null);
-        if (suggestion == null) return Optional.empty();
+        // A payment becomes spending, not a plan; it has its own confirm step.
+        if (suggestion == null || "payment".equals(suggestion.type())) return Optional.empty();
         LocalTime time = suggestion.time() == null ? null : LocalTime.parse(suggestion.time());
         LocalTime endTime = suggestion.endTime() == null ? null : LocalTime.parse(suggestion.endTime());
         PlanKind kind = "event".equals(suggestion.type()) ? PlanKind.EVENT : PlanKind.TASK;

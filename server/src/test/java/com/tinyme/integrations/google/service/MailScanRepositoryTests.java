@@ -45,6 +45,51 @@ class MailScanRepositoryTests {
                 + "WHERE table_name='suggestions'", String.class)).doesNotContain("body", "subject", "from_address");
     }
 
+    private static MailScanRepository.Candidate payment(String amount, boolean provisional, String direction) {
+        var payload = new java.util.LinkedHashMap<String, Object>();
+        payload.put("title", "ORACLE CORPORATION JAPAN");
+        payload.put("merchant", "ORACLE CORPORATION JAPAN");
+        payload.put("day", "2026-08-01");
+        payload.put("amount", amount);
+        payload.put("currency", "JPY");
+        payload.put("direction", direction);
+        payload.put("provisional", provisional);
+        payload.put("card", "ゆうちょデビット");
+        payload.put("reference", "304395");
+        return new MailScanRepository.Candidate("payment", payload, 0.95, "利用金額　-" + amount + "円");
+    }
+
+    @Test
+    void aFollowUpEmailAboutTheSameChargeUpdatesThePaymentInsteadOfAddingOne() {
+        assertThat(repository.savePayment("mail-1", payment("155", true, "purchase")).outcome())
+                .isEqualTo(MailScanRepository.PaymentSave.SAVED);
+        assertThat(repository.savePayment("mail-2", payment("160", false, "purchase")).outcome())
+                .isEqualTo(MailScanRepository.PaymentSave.UPDATED);
+        assertThat(repository.savePayment("mail-3", payment("160", false, "refund")).outcome())
+                .as("a refund of that charge is its own item").isEqualTo(MailScanRepository.PaymentSave.SAVED);
+
+        assertThat(jdbc.queryForList("SELECT payload ->> 'amount' FROM suggestions WHERE payload ->> 'direction' = 'purchase'",
+                String.class)).containsExactly("160");
+        assertThat(jdbc.queryForObject("SELECT gmail_message_id FROM suggestions WHERE payload ->> 'direction' = 'purchase'",
+                String.class)).isEqualTo("mail-2");
+
+        jdbc.update("UPDATE suggestions SET status = 'dismissed' WHERE payload ->> 'direction' = 'purchase'");
+        assertThat(repository.savePayment("mail-4", payment("170", false, "purchase")).outcome())
+                .as("a dismissed payment stays dismissed").isEqualTo(MailScanRepository.PaymentSave.DUPLICATE);
+    }
+
+    @Test
+    void paymentsNeverExpireAndStayOutOfThePlanSuggestionList() {
+        repository.savePayment("mail-1", payment("155", false, "purchase"));
+        repository.saveSuggestion("mail-9", new MailScanRepository.Candidate("event",
+                Map.of("title", "Dinner", "day", "2026-10-20"), 0.9, "Dinner on the 20th"));
+
+        repository.expireSuggestions(java.time.LocalDate.of(2026, 10, 16));
+
+        assertThat(jdbc.queryForObject("SELECT status FROM suggestions WHERE type = 'payment'", String.class)).isEqualTo("new");
+        assertThat(repository.listNew()).extracting(MailScanRepository.Suggestion::type).containsExactly("event");
+    }
+
     @Test
     void initialScanPageAndHistoryCursorPersistAcrossRuns() {
         repository.startInitialScan("12345");

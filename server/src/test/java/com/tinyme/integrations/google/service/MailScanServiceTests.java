@@ -85,6 +85,101 @@ class MailScanServiceTests {
                 """), EMAIL, TODAY, ZoneId.of("Asia/Tokyo"))).isNull();
     }
 
+    private static final MailScanAgentRunner.MailInput CARD_EMAIL = new MailScanAgentRunner.MailInput(
+            "gmail-card-01", "yuchodebit <info@example-bank.test>", "2026-10-15T13:58:00+09:00",
+            "【ゆうちょデビット】ご利用のお知らせ", """
+            ゆうちょデビットのご利用を受け付けました。
+            利用日時　2026/10/15 13:57:29
+            利用店舗　ORACLE CORPORATION JAPAN
+            利用金額　-155円
+            利用通貨　JPY
+            承認番号　304395
+            ※本メールのご利用金額は暫定金額です。""");
+
+    @Test
+    void readsACardNoticeAsAPaymentWithTheAmountTheEmailActuallyShows() {
+        var result = MailScanService.validate(json("""
+                {"type":"payment","title":"ORACLE CORPORATION JAPAN","day":"2026-10-15","time":"13:57",
+                 "amount":155,"currency":"JPY","direction":"purchase","provisional":true,
+                 "card":"ゆうちょデビット","reference":"304395","confidence":0.95,
+                 "evidence":"利用金額　-155円","gmail_message_id":"gmail-card-01"}
+                """), CARD_EMAIL, TODAY, ZoneId.of("Asia/Tokyo"));
+
+        assertThat(result).isNotNull();
+        assertThat(result.type()).isEqualTo("payment");
+        assertThat(result.payload()).containsEntry("merchant", "ORACLE CORPORATION JAPAN")
+                .containsEntry("day", "2026-10-15").containsEntry("time", "13:57")
+                .containsEntry("amount", "155").containsEntry("currency", "JPY")
+                .containsEntry("direction", "purchase").containsEntry("provisional", true)
+                .containsEntry("card", "ゆうちょデビット").containsEntry("reference", "304395");
+    }
+
+    @Test
+    void refusesPaymentsWithAMadeUpAmountAFakeCurrencyOrAnOddDay() {
+        String base = """
+                {"type":"payment","title":"ORACLE CORPORATION JAPAN","day":"%s","amount":%s,"currency":"%s",
+                 "confidence":0.95,"evidence":"利用金額　-155円","gmail_message_id":"gmail-card-01"%s}
+                """;
+        ZoneId tokyo = ZoneId.of("Asia/Tokyo");
+        assertThat(MailScanService.validate(json(base.formatted("2026-10-15", "1550", "JPY", "")), CARD_EMAIL, TODAY, tokyo))
+                .as("amount not in the email").isNull();
+        assertThat(MailScanService.validate(json(base.formatted("2026-10-15", "155", "YEN", "")), CARD_EMAIL, TODAY, tokyo))
+                .as("not a currency code").isNull();
+        assertThat(MailScanService.validate(json(base.formatted("2026-08-01", "155", "JPY", "")), CARD_EMAIL, TODAY, tokyo))
+                .as("older than 60 days").isNull();
+        assertThat(MailScanService.validate(json(base.formatted("2026-10-20", "155", "JPY", "")), CARD_EMAIL, TODAY, tokyo))
+                .as("in the future").isNull();
+        assertThat(MailScanService.validate(json(base.formatted("2026-10-15", "155", "JPY", ",\"direction\":\"transfer\"")),
+                CARD_EMAIL, TODAY, tokyo)).as("unknown direction").isNull();
+        assertThat(MailScanService.validate(json(base.formatted("2026-10-15", "0", "JPY", "")), CARD_EMAIL, TODAY, tokyo))
+                .as("zero").isNull();
+    }
+
+    @Test
+    void aForeignPurchaseKeepsTheAmountTakenFromTheAccountAndMovesToTheUsersDay() {
+        var email = new MailScanAgentRunner.MailInput("gmail-card-02", "Card <alerts@example-card.test>",
+                "2026-10-15T23:30:00-04:00", "Your card was charged", """
+                A purchase of $20.50 at CORNER CAFE NYC on Oct 15, 2026 at 9:10 PM EDT.
+                Amount debited: ¥3,120 (JPY).""");
+
+        var result = MailScanService.validate(json("""
+                {"type":"payment","title":"CORNER CAFE NYC","day":"2026-10-15","time":"21:10",
+                 "time_zone":"America/New_York","amount":20.5,"currency":"usd","charged_amount":3120,
+                 "charged_currency":"JPY","confidence":0.9,"evidence":"A purchase of $20.50 at CORNER CAFE NYC",
+                 "gmail_message_id":"gmail-card-02"}
+                """), email, TODAY, ZoneId.of("Asia/Tokyo"));
+
+        assertThat(result).isNotNull();
+        assertThat(result.payload()).containsEntry("amount", "20.5").containsEntry("currency", "USD")
+                .containsEntry("charged_amount", "3120").containsEntry("charged_currency", "JPY")
+                .containsEntry("day", "2026-10-16").containsEntry("time", "10:10");   // 21:10 EDT is 10:10 next day in Tokyo
+    }
+
+    @Test
+    void anAmountMustAppearAsANumberOfItsOwn() {
+        assertThat(MailScanService.mentions("お支払い ¥1,550 です", new java.math.BigDecimal("1550"))).isTrue();
+        assertThat(MailScanService.mentions("total $20.50", new java.math.BigDecimal("20.5"))).isTrue();
+        assertThat(MailScanService.mentions("利用金額　－１５５円", new java.math.BigDecimal("155"))).isTrue();
+        assertThat(MailScanService.mentions("ref 15500", new java.math.BigDecimal("1550"))).isFalse();
+        assertThat(MailScanService.mentions("rate 1.55", new java.math.BigDecimal("155"))).isFalse();
+        assertThat(MailScanService.mentions("approval 304395", new java.math.BigDecimal("155"))).isFalse();
+    }
+
+    @Test
+    void cardNoticesWithAnUnsubscribeHeaderStillReachTheScannerButNewslettersDoNot() {
+        String headers = "{\"labelIds\":[\"INBOX\"],\"payload\":{\"headers\":[{\"name\":\"List-Unsubscribe\",\"value\":\"<mailto:x@y.test>\"}]}}";
+        var notice = new GmailMessageParser.Message("m", "t", "Bank <info@example-bank.test>", null, null, null,
+                "【ゆうちょデビット】ご利用のお知らせ", null, null, null, List.of());
+        var receipt = new GmailMessageParser.Message("m", "t", "Shop <no-reply@shop.test>", null, null, null,
+                "Your payment receipt", null, null, null, List.of());
+        var newsletter = new GmailMessageParser.Message("m", "t", "News <news@shop.test>", null, null, null,
+                "Autumn sale starts now", null, null, null, List.of());
+
+        assertThat(MailScanService.prefiltered(json(headers), notice)).isFalse();
+        assertThat(MailScanService.prefiltered(json(headers), receipt)).isFalse();
+        assertThat(MailScanService.prefiltered(json(headers), newsletter)).isTrue();
+    }
+
     @Test
     void filtersDraftSpamTrashAndChatLabelsBeforeReadingBodies() {
         for (String label : List.of("DRAFT", "SPAM", "TRASH", "CHAT")) {
@@ -135,7 +230,8 @@ class MailScanServiceTests {
             return null;
         }).when(repository).saveHistoryId(org.mockito.ArgumentMatchers.anyString());
 
-        var service = new MailScanService(gmail, scanner, repository, zone,
+        var service = new MailScanService(gmail, scanner, repository,
+                org.mockito.Mockito.mock(MailPaymentService.class), zone,
                 java.time.Clock.fixed(now, ZoneId.of("UTC")), 30, 200);
         var first = service.run();
         assertThat(first.scanned()).isEqualTo(30);

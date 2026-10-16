@@ -93,8 +93,9 @@ public class MailScanRepository {
         return jdbc.queryForObject("INSERT INTO mail_scan_runs (status) VALUES ('running') RETURNING id", UUID.class);
     }
 
+    /** Plans whose day has passed are no use any more; a payment's day is always in the past, so it never expires. */
     public void expireSuggestions(LocalDate today) {
-        jdbc.update("UPDATE suggestions SET status='expired' WHERE status='new' "
+        jdbc.update("UPDATE suggestions SET status='expired' WHERE status='new' AND type <> 'payment' "
                 + "AND (payload ->> 'day')::date < ?", today);
     }
 
@@ -115,9 +116,100 @@ public class MailScanRepository {
         }
     }
 
+    /** Plan suggestions (events, tasks, reminders). Payments are listed and confirmed separately. */
+    /**
+     * Saves a payment, or updates the one already waiting for the same charge: a bank's follow-up "final amount"
+     * email carries the same card and reference. One that was already confirmed or dismissed is left alone here.
+     */
+    @org.springframework.transaction.annotation.Transactional
+    public PaymentSaveResult savePayment(String messageId, Candidate candidate) {
+        if (!"payment".equals(candidate.type())) throw new IllegalArgumentException("not a payment");
+        Map<String, Object> payload = candidate.payload();
+        String reference = (String) payload.get("reference");
+        String payloadJson;
+        try {
+            payloadJson = JSON.writeValueAsString(payload);
+        } catch (RuntimeException failure) {
+            throw new IllegalStateException("Could not save payment suggestion", failure);
+        }
+        if (reference != null) {
+            var earlier = jdbc.query("""
+                    SELECT id, status FROM suggestions
+                    WHERE type = 'payment' AND lower(coalesce(payload ->> 'card', '')) = lower(coalesce(?, ''))
+                      AND payload ->> 'reference' = ? AND payload ->> 'direction' = ?
+                    ORDER BY created_at DESC LIMIT 1 FOR UPDATE
+                    """, (row, n) -> new Object[] { row.getObject(1, UUID.class), row.getString(2) },
+                    payload.get("card"), reference, payload.get("direction"));
+            if (!earlier.isEmpty()) {
+                UUID earlierId = (UUID) earlier.getFirst()[0];
+                String status = (String) earlier.getFirst()[1];
+                if ("accepted".equals(status)) return new PaymentSaveResult(PaymentSave.ACCEPTED_EARLIER, earlierId);
+                if (!"new".equals(status)) return new PaymentSaveResult(PaymentSave.DUPLICATE, earlierId);
+                updatePayment(earlierId, messageId, candidate);
+                return new PaymentSaveResult(PaymentSave.UPDATED, earlierId);
+            }
+        }
+        UUID id = jdbc.query("INSERT INTO suggestions (gmail_message_id, type, payload, confidence, evidence) "
+                        + "VALUES (?, 'payment', ?::jsonb, ?, ?) ON CONFLICT (gmail_message_id, payload) DO NOTHING "
+                        + "RETURNING id",
+                result -> result.next() ? result.getObject(1, UUID.class) : null,
+                messageId, payloadJson, candidate.confidence(), candidate.evidence());
+        return new PaymentSaveResult(id == null ? PaymentSave.DUPLICATE : PaymentSave.SAVED, id);
+    }
+
+    /** Replaces a payment's details with a later email's (the final amount), keeping its status. */
+    public void updatePayment(UUID id, String messageId, Candidate candidate) {
+        jdbc.update("UPDATE suggestions SET payload = ?::jsonb, evidence = ?, confidence = ?, gmail_message_id = ? "
+                        + "WHERE id = ? AND type = 'payment'",
+                JSON.writeValueAsString(candidate.payload()), candidate.evidence(), candidate.confidence(), messageId, id);
+    }
+
+    /** ACCEPTED_EARLIER: a later email about a payment that was already confirmed; its entry may need the new amount. */
+    public enum PaymentSave { SAVED, UPDATED, ACCEPTED_EARLIER, DUPLICATE }
+
+    public record PaymentSaveResult(PaymentSave outcome, UUID paymentId) { }
+
+    public List<Payment> listNewPayments() {
+        return jdbc.query(PAYMENT_COLUMNS + "WHERE type = 'payment' AND status = 'new' ORDER BY created_at DESC LIMIT 200",
+                (result, row) -> payment(result));
+    }
+
+    /** Locks the payment until the end of the caller's transaction, so it can't be confirmed twice. */
+    public Optional<Payment> lockPayment(UUID id) {
+        return jdbc.query(PAYMENT_COLUMNS + "WHERE id = ? AND type = 'payment' FOR UPDATE",
+                result -> result.next() ? Optional.of(payment(result)) : Optional.empty(), id);
+    }
+
+    public boolean acceptPayment(UUID id, UUID entryId) {
+        return jdbc.update("UPDATE suggestions SET status = 'accepted', entry_id = ? "
+                + "WHERE id = ? AND type = 'payment' AND status = 'new'", entryId, id) == 1;
+    }
+
+    private static final String PAYMENT_COLUMNS = "SELECT id, gmail_message_id, payload::text, confidence, evidence, "
+            + "created_at, status, entry_id FROM suggestions ";
+
+    private static Payment payment(java.sql.ResultSet result) throws java.sql.SQLException {
+        JsonNode node = JSON.readTree(result.getString(3));
+        return new Payment(result.getObject(1, UUID.class), result.getString(2), text(node, "merchant"),
+                LocalDate.parse(text(node, "day")), text(node, "time"), new java.math.BigDecimal(text(node, "amount")),
+                text(node, "currency"), text(node, "direction"), node.path("provisional").asBoolean(false),
+                text(node, "card"), text(node, "reference"),
+                text(node, "charged_amount") == null ? null : new java.math.BigDecimal(text(node, "charged_amount")),
+                text(node, "charged_currency"), result.getDouble(4), result.getString(5),
+                result.getTimestamp(6).toInstant(), result.getString(7), result.getObject(8, UUID.class));
+    }
+
+    /** A card or bank payment found in an email. amount is positive; direction says purchase or refund. */
+    public record Payment(UUID id, String gmailMessageId, String merchant, LocalDate day, String time,
+                          java.math.BigDecimal amount, String currency, String direction, boolean provisional,
+                          String card, String reference, java.math.BigDecimal chargedAmount, String chargedCurrency,
+                          double confidence, String evidence, Instant createdAt, String status, UUID entryId) {
+        public boolean refund() { return "refund".equals(direction); }
+    }
+
     public List<Suggestion> listNew() {
         return jdbc.query("SELECT id, gmail_message_id, type, payload, confidence, evidence, created_at "
-                        + "FROM suggestions WHERE status='new' ORDER BY created_at DESC LIMIT 100",
+                        + "FROM suggestions WHERE status='new' AND type <> 'payment' ORDER BY created_at DESC LIMIT 100",
                 (result, row) -> suggestion(result.getObject("id", UUID.class), result.getString("gmail_message_id"),
                         result.getString("type"), result.getString("payload"), result.getDouble("confidence"),
                         result.getString("evidence"), result.getTimestamp("created_at").toInstant()));
