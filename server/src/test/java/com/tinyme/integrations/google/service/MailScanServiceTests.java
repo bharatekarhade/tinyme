@@ -220,6 +220,28 @@ class MailScanServiceTests {
         assertThat(MailScanService.quotes(notice.body(), "利用金額：9,999円")).as("words not in the email").isFalse();
     }
 
+    @Test
+    void aQuoteOfFullWidthNumbersInNormalDigitsCountsAndRejectionsSayWhy() {
+        var notice = new MailScanAgentRunner.MailInput("gmail-card-04", "PayPayカード <info@example-card.test>",
+                "2026-10-16T18:18:00+09:00", "PayPayカード（Visa）利用速報", """
+                ご利用日時：２０２６年１０月１６日　１８：１５
+                ご利用金額：１，５００円
+                ご利用先：セブン－イレブン""");
+        String proposal = """
+                {"type":"payment","title":"セブン-イレブン","day":"2026-10-16","time":"18:15","amount":%s,
+                 "currency":"JPY","confidence":0.9,"evidence":"ご利用金額：1,500円","gmail_message_id":"gmail-card-04"}
+                """;
+
+        assertThat(MailScanService.validate(json(proposal.formatted("1500")), notice, TODAY, ZoneId.of("Asia/Tokyo")))
+                .isNotNull();
+        assertThat(MailScanService.rejection(json(proposal.formatted("1800")), notice, TODAY, ZoneId.of("Asia/Tokyo")))
+                .isEqualTo("amount_not_in_email");
+        assertThat(MailScanService.rejection(json("""
+                {"type":"task","title":"Web test","day":"2026-10-23","time":"23:59","confidence":0.9,
+                 "evidence":"ご利用先","gmail_message_id":"gmail-card-04"}
+                """), notice, TODAY, ZoneId.of("Asia/Tokyo"))).isEqualTo("time_on_task");
+    }
+
     private static final MailScanAgentRunner.MailInput JOB_ALERT = new MailScanAgentRunner.MailInput(
             "gmail-jobs-01", "LinkedIn Job Alerts <jobalerts-noreply@linkedin.com>", "2026-10-16T08:00:00+09:00",
             "“software engineer”: Acme and 9 more new jobs", """

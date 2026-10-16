@@ -291,7 +291,12 @@ public class MailScanService {
             }
             if (!proposalIds.add(messageId)) { rejected++; continue; }
             MailScanRepository.Candidate candidate = validate(proposal, source, today, userZone.current());
-            if (candidate == null) { rejected++; continue; }
+            if (candidate == null) {
+                rejected++;
+                log.info("Mail scan proposal rejected type={} reason={}", text(proposal, "type"),
+                        rejection(proposal, source, today, userZone.current()));
+                continue;
+            }
             if ("payment".equals(candidate.type())) {
                 var saved = repository.savePayment(messageId, candidate);
                 switch (saved.outcome()) {
@@ -303,7 +308,11 @@ public class MailScanService {
                 continue;
             }
             if (repository.similarPlanExists(LocalDate.parse((String) candidate.payload().get("day")),
-                    (String) candidate.payload().get("title"))) { rejected++; continue; }
+                    (String) candidate.payload().get("title"))) {
+                rejected++;
+                log.info("Mail scan proposal rejected type={} reason=similar_plan", candidate.type());
+                continue;
+            }
             if (repository.saveSuggestion(messageId, candidate)) suggestedIds.add(messageId);
         }
         for (MailScanAgentRunner.MailInput email : batch) {
@@ -531,12 +540,40 @@ public class MailScanService {
     }
 
     /**
-     * The evidence is a quote from the email. Spacing may differ: notices put each field on its own line and the
-     * model joins them with a space.
+     * The evidence is a quote from the email. Spacing and character width may differ: notices put each field on its
+     * own line and write numbers full-width (１，２８０円), and the model joins lines and quotes them as 1,280円.
      */
     static boolean quotes(String haystack, String evidence) {
-        String quote = evidence.strip().replaceAll("\\s+", " ");
-        return !quote.isEmpty() && haystack.replaceAll("\\s+", " ").contains(quote);
+        String quote = fold(evidence).strip();
+        return !quote.isEmpty() && fold(haystack).contains(quote);
+    }
+
+    /** Why validate refused a proposal, as a short code for the log; never any of the email's content. */
+    static String rejection(JsonNode proposal, MailScanAgentRunner.MailInput source, LocalDate today, ZoneId userZone) {
+        if (source == null) return "unknown_email";
+        String type = text(proposal, "type");
+        if (type == null || !List.of("event", "task", "reminder", "payment").contains(type)) return "unknown_type";
+        String evidence = text(proposal, "evidence");
+        JsonNode confidence = proposal.get("confidence");
+        if (text(proposal, "title") == null || text(proposal, "day") == null || evidence == null || evidence.isBlank()
+                || confidence == null || !confidence.isNumber()) return "missing_field";
+        if (confidence.doubleValue() < 0.6) return "low_confidence";
+        LocalDate day;
+        try { day = LocalDate.parse(text(proposal, "day")); } catch (RuntimeException invalid) { return "bad_day"; }
+        String haystack = (source.subject() == null ? "" : source.subject()) + "\n" + source.body();
+        if (!quotes(haystack, evidence)) return "evidence_not_in_email";
+        if ("payment".equals(type)) {
+            BigDecimal amount = positiveAmount(proposal.get("amount"));
+            if (amount == null) return "bad_amount";
+            if (!mentions(haystack, amount)) return "amount_not_in_email";
+            if (currency(text(proposal, "currency")) == null) return "bad_currency";
+            if (day.isAfter(today.plusDays(1)) || day.isBefore(today.minusDays(PAYMENT_LOOKBACK_DAYS))) return "day_out_of_range";
+            return "payment_invalid";
+        }
+        if (!"event".equals(type) && (text(proposal, "time") != null || text(proposal, "end_time") != null))
+            return "time_on_" + type;
+        if (day.isBefore(today)) return "past_day";
+        return "invalid";
     }
 
     private static String fold(String text) {
