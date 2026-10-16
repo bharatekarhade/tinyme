@@ -163,6 +163,10 @@ class MailScanServiceTests {
         assertThat(MailScanService.mentions("ref 15500", new java.math.BigDecimal("1550"))).isFalse();
         assertThat(MailScanService.mentions("rate 1.55", new java.math.BigDecimal("155"))).isFalse();
         assertThat(MailScanService.mentions("approval 304395", new java.math.BigDecimal("155"))).isFalse();
+        assertThat(MailScanService.mentions("2026年10月16日 18:17\n504円", new java.math.BigDecimal("504")))
+                .as("an amount on the line after a time").isTrue();
+        assertThat(MailScanService.mentions("18:17 504円", new java.math.BigDecimal("504")))
+                .as("an amount after a time and a space").isTrue();
     }
 
     @Test
@@ -218,6 +222,31 @@ class MailScanServiceTests {
         assertThat(result).isNotNull();
         assertThat(result.payload()).containsEntry("amount", "1280").containsEntry("card", "ゆうちょデビット");
         assertThat(MailScanService.quotes(notice.body(), "利用金額：9,999円")).as("words not in the email").isFalse();
+    }
+
+    @Test
+    void aPayPayUsageFlashIsAcceptedAsItReads() {
+        // A real PayPay card notice's text, as the owner sees it.
+        var flash = new MailScanAgentRunner.MailInput("gmail-paypay-504", "PayPayカード <paypay-card@example.test>",
+                "2026-10-16T18:18:00+09:00", "PayPayカード（Visa）利用速報", """
+                PayPayカード
+                PayPayカード（Visa）
+                利用速報
+                イオン マイバスケツト 西横浜駅前
+                2026年10月16日 18:17
+                504円
+                PayPayで取引履歴とポイントを確認
+
+                この利用に心あたりがない場合、まずは解決方法をご確認ください""");
+
+        var result = MailScanService.validate(json("""
+                {"type":"payment","title":"イオン マイバスケツト 西横浜駅前","day":"2026-10-16","time":"18:17",
+                 "amount":504,"currency":"JPY","direction":"purchase","card":"PayPayカード（Visa）","confidence":0.95,
+                 "evidence":"イオン マイバスケツト 西横浜駅前 2026年10月16日 18:17 504円","gmail_message_id":"gmail-paypay-504"}
+                """), flash, TODAY, ZoneId.of("Asia/Tokyo"));
+
+        assertThat(result).isNotNull();
+        assertThat(result.payload()).containsEntry("amount", "504").containsEntry("time", "18:17");
     }
 
     @Test
