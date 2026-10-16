@@ -131,7 +131,10 @@ class AdminExportTests {
 
         JsonNode manifest = JSON.readTree(files.get(root + "manifest.json"));
         assertThat(manifest.path("format").asString()).isEqualTo("tinyme-export");
-        assertThat(manifest.path("schema_version").asString()).isEqualTo("1.20");
+        // The newest migration this database ran, so a new migration doesn't need this test edited.
+        assertThat(manifest.path("schema_version").asString()).isEqualTo(jdbc.queryForObject(
+                "SELECT version FROM flyway_schema_history WHERE success ORDER BY installed_rank DESC LIMIT 1",
+                String.class));
         assertThat(manifest.path("user_zone").asString()).isEqualTo("Asia/Tokyo");
         assertThat(manifest.path("counts").path("entries").asLong()).isEqualTo(2);
         assertThat(manifest.path("counts").path("people").asLong()).isEqualTo(1);

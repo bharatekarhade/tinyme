@@ -24,6 +24,7 @@ public final class UserDataTables {
             .filter(table -> !SECRETS.contains(table) && !INTERNAL.contains(table))
             .toList();
 
+    /** Kept by Delete all. exchange_rates is a cache of public market rates, not the user's data. */
     public static final List<String> KEEP = List.of(
-            "account", "refresh_tokens", "settings", "flyway_schema_history");
+            "account", "refresh_tokens", "settings", "flyway_schema_history", "exchange_rates");
 }
