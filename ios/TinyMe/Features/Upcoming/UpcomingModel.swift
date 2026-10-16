@@ -41,8 +41,6 @@ final class UpcomingModel {
 
     private(set) var phase: Phase = .loading
     private(set) var upcoming: UpcomingDTO?
-    private(set) var mailSuggestions: [MailSuggestionDTO] = []
-    private(set) var workingSuggestionIds: Set<String> = []
     private(set) var weekStart: LocalDay
     private(set) var selectedDay: LocalDay
     private(set) var workingIds: Set<String> = []
@@ -112,13 +110,9 @@ final class UpcomingModel {
         guard let end = Self.adding(days: 6, to: start) else { return }
         loadTask = Task { [weak self, api] in
             do {
-                async let upcomingResult: UpcomingDTO = api.get(.upcoming(from: start, to: end))
-                async let suggestionsResult: [MailSuggestionDTO] = api.get(.mailSuggestions)
-                let result = try await upcomingResult
-                let suggestions = (try? await suggestionsResult) ?? []
+                let result: UpcomingDTO = try await api.get(.upcoming(from: start, to: end))
                 guard !Task.isCancelled, let self, self.weekStart == start else { return }
                 self.upcoming = result
-                self.mailSuggestions = suggestions
                 self.phase = .loaded
                 self.errorMessage = nil
             } catch {
@@ -135,36 +129,6 @@ final class UpcomingModel {
 
     func invalidate() {
         load()
-    }
-
-    func accept(_ suggestion: MailSuggestionDTO) {
-        guard !workingSuggestionIds.contains(suggestion.id) else { return }
-        workingSuggestionIds.insert(suggestion.id)
-        Task { [weak self, api] in
-            defer { self?.workingSuggestionIds.remove(suggestion.id) }
-            do {
-                let _: AcceptedMailSuggestionDTO = try await api.send(.acceptMailSuggestion(suggestion.id))
-                guard let self else { return }
-                self.mailSuggestions.removeAll { $0.id == suggestion.id }
-                self.load()
-            } catch {
-                self?.errorMessage = "Couldn't add that plan. Try again."
-            }
-        }
-    }
-
-    func dismiss(_ suggestion: MailSuggestionDTO) {
-        guard !workingSuggestionIds.contains(suggestion.id) else { return }
-        workingSuggestionIds.insert(suggestion.id)
-        Task { [weak self, api] in
-            defer { self?.workingSuggestionIds.remove(suggestion.id) }
-            do {
-                try await api.send(.dismissMailSuggestion(suggestion.id))
-                self?.mailSuggestions.removeAll { $0.id == suggestion.id }
-            } catch {
-                self?.errorMessage = "Couldn't dismiss that suggestion. Try again."
-            }
-        }
     }
 
     func select(_ day: LocalDay) {

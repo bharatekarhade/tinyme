@@ -8,6 +8,8 @@ import UIKit
 struct SettingsSheet: View {
     @Binding var isPresented: Bool
     var session: SessionModel
+    /// Opens History, your whole log, over the tabs.
+    var onOpenHistory: () -> Void = {}
     /// Called after "Delete all data" succeeded on the server.
     var onDataDeleted: () -> Void = {}
 
@@ -21,7 +23,7 @@ struct SettingsSheet: View {
                     .onTapGesture(perform: close)
                     .transition(.opacity)
                     .accessibilityHidden(true)
-                SettingsPanel(session: session, onClose: close, onDataDeleted: onDataDeleted)
+                SettingsPanel(session: session, onClose: close, onOpenHistory: onOpenHistory, onDataDeleted: onDataDeleted)
                     .offset(y: dragOffset)
                     .gesture(dragToDismiss)
                     .transition(.offset(y: 800))
@@ -50,7 +52,10 @@ struct SettingsSheet: View {
 private struct SettingsPanel: View {
     var session: SessionModel
     var onClose: () -> Void
+    var onOpenHistory: () -> Void
     var onDataDeleted: () -> Void
+    /// The currency spending is kept in; nil until loaded.
+    @State private var currency: String?
 
     @AppStorage(Appearance.storageKey) private var appearance: Appearance = .system
     @AppStorage("voice.sendOnRelease") private var sendOnRelease = false
@@ -108,7 +113,10 @@ private struct SettingsPanel: View {
         .accessibilityAddTraits(.isModal)
         .task {
             await checkServer()
-            if let api = session.api { await google.refresh(api: api) }
+            if let api = session.api {
+                await google.refresh(api: api)
+                if let loaded: CurrencySettingDTO = try? await api.get(.currency) { currency = loaded.currency }
+            }
         }
         .sheet(item: $exportFile, onDismiss: removeExportFile) { file in
             ActivityShareSheet(items: [file.url])
@@ -212,7 +220,9 @@ private struct SettingsPanel: View {
         if let account {
             VStack(alignment: .leading, spacing: 18) {
                 accountCard(email: account.email)
+                historySection
                 serverSection(server: account.server)
+                currencySection
                 appearanceSection
                 voiceSection
                 googleSection
@@ -275,6 +285,88 @@ private struct SettingsPanel: View {
                 }
             }
             .background(card)
+        }
+    }
+
+    private var historySection: some View {
+        Button(action: onOpenHistory) {
+            HStack(spacing: Space.s3) {
+                Image(systemName: "clock")
+                    .font(.system(size: 18, weight: .medium))
+                    .foregroundStyle(Palette.brandStrong)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("History")
+                        .textStyle(.label, weight: .semibold)
+                    Text("Everything you've logged")
+                        .textStyle(.caption)
+                        .foregroundStyle(Palette.inkMuted)
+                }
+                Spacer(minLength: Space.s2)
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(Palette.inkMuted)
+            }
+            .padding(.horizontal, 18)
+            .padding(.vertical, 14)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.pressable)
+        .background(card)
+    }
+
+    /// Spending is kept in this currency; other currencies are converted at the day's rate.
+    private var currencySection: some View {
+        VStack(alignment: .leading, spacing: Space.s2) {
+            Text("Money")
+                .textStyle(.label, weight: .semibold)
+                .foregroundStyle(Palette.inkMuted)
+                .padding(.horizontal, 4)
+            Menu {
+                Picker("Currency", selection: Binding(get: { currency ?? "" }, set: { setCurrency($0) })) {
+                    ForEach(currencyChoices, id: \.self) { code in
+                        Text(CurrencySetting.name(code)).tag(code)
+                    }
+                }
+            } label: {
+                row("Currency") {
+                    HStack(spacing: 4) {
+                        Text(currency ?? "…")
+                        Image(systemName: "chevron.up.chevron.down")
+                            .font(.system(size: 11, weight: .semibold))
+                            .foregroundStyle(Palette.inkMuted)
+                    }
+                    .foregroundStyle(Palette.ink)
+                }
+                .contentShape(Rectangle())
+            }
+            .disabled(currency == nil)
+            .background(card)
+            Text("Spending in other currencies is converted at that day's rate.")
+                .textStyle(.caption)
+                .foregroundStyle(Palette.inkMuted)
+                .padding(.horizontal, 4)
+        }
+    }
+
+    private var currencyChoices: [String] {
+        var codes = CurrencySetting.common
+        for extra in [currency, CurrencySetting.phoneCurrency].compactMap({ $0 }) where !codes.contains(extra) {
+            codes.insert(extra, at: 0)
+        }
+        return codes
+    }
+
+    private func setCurrency(_ code: String) {
+        guard let api = session.api, !code.isEmpty, code != currency else { return }
+        let previous = currency
+        currency = code
+        Task {
+            do {
+                let saved: CurrencySettingDTO = try await api.send(.setCurrency, body: CurrencyRequest(currency: code))
+                currency = saved.currency
+            } catch {
+                currency = previous
+            }
         }
     }
 

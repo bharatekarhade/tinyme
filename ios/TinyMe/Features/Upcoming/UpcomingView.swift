@@ -32,9 +32,6 @@ struct UpcomingView: View {
                    let next = model.upcoming?.nextUp {
                     nextUp(next)
                 }
-                if !model.mailSuggestions.isEmpty {
-                    mailSuggestions
-                }
                 if model.phase == .loading, model.upcoming == nil {
                     ProgressView().tint(Palette.brandStrong).frame(maxWidth: .infinity).padding(.vertical, Space.s6)
                 } else if case .failed(let message) = model.phase, model.upcoming == nil {
@@ -277,68 +274,6 @@ struct UpcomingView: View {
         if item.day == today { return "Next up" }
         if item.day == Self.adding(1, to: today) { return "Next up · Tomorrow" }
         return "Next up · \(item.day.date()?.formatted(.dateTime.weekday(.wide)) ?? item.day.description)"
-    }
-
-    private var mailSuggestions: some View {
-        VStack(alignment: .leading, spacing: Space.s3) {
-            HStack {
-                Label("From email", systemImage: "envelope.badge")
-                    .textStyle(.heading, weight: .semibold)
-                Spacer()
-                Text("\(model.mailSuggestions.count)")
-                    .textStyle(.caption, weight: .semibold)
-                    .foregroundStyle(Palette.inkMuted)
-            }
-            ForEach(model.mailSuggestions) { suggestion in
-                VStack(alignment: .leading, spacing: Space.s3) {
-                    HStack(alignment: .top, spacing: Space.s3) {
-                        Image(systemName: suggestion.type == "event" ? "calendar" : "checklist")
-                            .font(.system(size: 16, weight: .semibold))
-                            .foregroundStyle(Palette.brandStrong)
-                            .frame(width: 36, height: 36)
-                            .background(Palette.brandSoft, in: Circle())
-                        VStack(alignment: .leading, spacing: 3) {
-                            Text(suggestion.title).textStyle(.label, weight: .semibold)
-                            Text(suggestion.scheduleLabel).textStyle(.caption).foregroundStyle(Palette.inkMuted)
-                        }
-                        Spacer(minLength: 0)
-                    }
-                    Text("“\(suggestion.evidence)”")
-                        .textStyle(.caption)
-                        .foregroundStyle(Palette.inkMuted)
-                        .lineLimit(3)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                    if let url = suggestion.emailURL {
-                        Link(destination: url) {
-                            Label("View email", systemImage: "arrow.up.right.square")
-                                .textStyle(.caption, weight: .semibold)
-                                .foregroundStyle(Palette.brandStrong)
-                        }
-                    }
-                    HStack(spacing: Space.s2) {
-                        Button { model.accept(suggestion) } label: {
-                            Label("Add to Upcoming", systemImage: "plus")
-                                .textStyle(.caption, weight: .semibold)
-                                .frame(maxWidth: .infinity).frame(height: 40)
-                                .background(Palette.brand, in: Capsule())
-                                .foregroundStyle(Palette.onBrand)
-                        }
-                        .disabled(model.workingSuggestionIds.contains(suggestion.id))
-                        Button("Dismiss") { model.dismiss(suggestion) }
-                            .textStyle(.caption, weight: .semibold)
-                            .foregroundStyle(Palette.inkMuted)
-                            .frame(height: 40)
-                            .padding(.horizontal, Space.s3)
-                            .background(Palette.surfaceSunken, in: Capsule())
-                            .disabled(model.workingSuggestionIds.contains(suggestion.id))
-                    }
-                }
-                .padding(Space.s3)
-                .background(Palette.surfaceRaised, in: RoundedRectangle(cornerRadius: Radius.md, style: .continuous))
-                .overlay { RoundedRectangle(cornerRadius: Radius.md, style: .continuous).strokeBorder(Palette.line) }
-            }
-        }
-        .accessibilityElement(children: .contain)
     }
 
     @ViewBuilder

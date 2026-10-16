@@ -1,11 +1,11 @@
 import SwiftUI
 
-/// Floating glass navigation for Home, Upcoming and History, with chat always one tap away.
+/// Floating glass navigation for Home, Upcoming and G Scan, with chat always one tap away.
 struct HomeTabBar: View {
     enum Tab: String, CaseIterable, Identifiable {
         case home = "Home"
         case upcoming = "Upcoming"
-        case history = "History"
+        case gscan = "G Scan"
 
         var id: Self { self }
 
@@ -13,12 +13,14 @@ struct HomeTabBar: View {
             switch self {
             case .home: "house"
             case .upcoming: "calendar"
-            case .history: "clock"   // symmetric, so it sits centred over its label
+            case .gscan: "envelope.badge"
             }
         }
     }
 
     var selection: Tab = .home
+    /// How many things wait on a tab; shown as a small count on its icon.
+    var badges: [Tab: Int] = [:]
     var onSelect: (Tab) -> Void = { _ in }
     var onNewChat: () -> Void = {}
 
@@ -34,6 +36,18 @@ struct HomeTabBar: View {
                             Image(systemName: tab.systemImage)
                                 .font(.system(size: 19, weight: isOn ? .medium : .regular))
                                 .frame(height: 22)
+                                .overlay(alignment: .topTrailing) {
+                                    if let count = badges[tab], count > 0 {
+                                        Text(count > 99 ? "99+" : "\(count)")
+                                            .font(.system(size: 11, weight: .bold))
+                                            .foregroundStyle(Palette.onBrand)
+                                            .padding(.horizontal, 5)
+                                            .frame(minWidth: 18, minHeight: 18)
+                                            .background(Palette.accent, in: Capsule())
+                                            .offset(x: 12, y: -6)
+                                            .accessibilityHidden(true)
+                                    }
+                                }
                             Text(tab.rawValue)
                                 .textStyle(.caption, weight: isOn ? .semibold : .medium)
                         }
@@ -45,6 +59,7 @@ struct HomeTabBar: View {
                     }
                     .buttonStyle(.plain)
                     .accessibilityAddTraits(isOn ? .isSelected : [])
+                    .accessibilityValue(badges[tab].map { $0 > 0 ? "\($0) waiting" : "" } ?? "")
                 }
             }
             .padding(6)

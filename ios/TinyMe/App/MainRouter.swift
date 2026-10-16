@@ -6,7 +6,7 @@ import Observation
 @Observable
 final class MainRouter {
     enum Tab {
-        case home, upcoming, history
+        case home, upcoming, gscan
     }
 
     /// What chat opens with: empty from the + button, or text to start from (a suggestion, "Change my 12:40 lunch…").
@@ -36,6 +36,8 @@ final class MainRouter {
     var placeTarget: PlaceTarget?
     private(set) var pendingPlaceID: String?
     var showsSettings = false
+    /// History, your whole log, opened over the tabs from Profile or the Journal card.
+    var showsHistory = false
 
     /// The entry in the detail panel. Kept while the panel slides away, so it doesn't empty mid-animation.
     private(set) var entry: EntryDTO?
@@ -45,6 +47,11 @@ final class MainRouter {
     var historyIsStale = true
     /// History should drop its chip and search the next time it appears (the Journal card opens it this way).
     var historyNeedsReset = false
+
+    func openHistory() {
+        showsEntry = false
+        showsHistory = true
+    }
 
     func openChat(draft: String = "") {
         showsEntry = false
@@ -76,7 +83,7 @@ final class MainRouter {
     func open(_ card: CardDTO, range: HomeRange, selectedDate: LocalDay, tap: CardTap) {
         if card.system == true {
             historyNeedsReset = true
-            tab = .history
+            showsHistory = true
         } else {
             homePath.append(DrillTarget(cardId: card.id, range: range, selectedDate: selectedDate,
                                         block: tap.block, item: tap.item, day: tap.day, key: tap.key))

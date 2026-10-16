@@ -121,6 +121,18 @@ struct Endpoint: Sendable {
         ])
     }
 
+    static let mailPayments = Endpoint(method: "GET", path: "integrations/google/payments")
+    static let currency = Endpoint(method: "GET", path: "settings/currency")
+    static let setCurrency = Endpoint(method: "PUT", path: "settings/currency")
+
+    static func confirmPayment(_ id: String) -> Endpoint {
+        Endpoint(method: "POST", path: "integrations/google/payments/\(id)/confirm")
+    }
+
+    static func dismissPayment(_ id: String) -> Endpoint {
+        Endpoint(method: "POST", path: "integrations/google/payments/\(id)/dismiss")
+    }
+
     static func acceptMailSuggestion(_ id: String) -> Endpoint {
         Endpoint(method: "POST", path: "integrations/google/suggestions/\(id)/accept")
     }

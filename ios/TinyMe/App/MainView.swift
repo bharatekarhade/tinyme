@@ -1,7 +1,7 @@
 import SwiftUI
 import UIKit
 
-/// The signed-in app: Home and History under one tab bar, with chat, settings and the entry panel on top.
+/// The signed-in app: Home, Upcoming and G Scan under one tab bar, with chat, History, Profile and the entry panel on top.
 struct MainView: View {
     @Environment(AppEnvironment.self) private var environment
     @Environment(\.scenePhase) private var scenePhase
@@ -9,6 +9,7 @@ struct MainView: View {
     @State private var home: HomeModel
     @State private var upcoming: UpcomingModel
     @State private var history: EntryListModel
+    @State private var gscan: GScanModel
 
     private let api: APIClient
 
@@ -17,19 +18,24 @@ struct MainView: View {
         _home = State(initialValue: HomeModel(api: api))
         _upcoming = State(initialValue: UpcomingModel(api: api))
         _history = State(initialValue: EntryListModel(api: api, source: .history(kind: nil, query: "")))
+        _gscan = State(initialValue: GScanModel(api: api))
     }
 
     var body: some View {
         @Bindable var router = router
 
         Group {
-            switch router.tab {
-            case .home:
-                HomeView(model: home, api: api)
-            case .upcoming:
-                UpcomingView(model: upcoming) { draft in router.openChat(draft: draft) }
-            case .history:
-                HistoryView(model: history, api: api)
+            if router.showsHistory {
+                HistoryView(model: history, api: api) { router.showsHistory = false }
+            } else {
+                switch router.tab {
+                case .home:
+                    HomeView(model: home, api: api)
+                case .upcoming:
+                    UpcomingView(model: upcoming) { draft in router.openChat(draft: draft) }
+                case .gscan:
+                    GScanView(model: gscan)
+                }
             }
         }
         .sheet(isPresented: $router.showsEntry) {
@@ -49,15 +55,16 @@ struct MainView: View {
             .presentationDragIndicator(.visible)
         }
         .safeAreaInset(edge: .bottom) {
-            // A drill-down is its own screen: the bar comes back when you return to Home.
-            if router.tab != .home || router.homePath.isEmpty {
+            // A drill-down or History is its own screen: the bar comes back when you return.
+            if !router.showsHistory, router.tab != .home || router.homePath.isEmpty {
                 HomeTabBar(
                     selection: tabBarSelection,
+                    badges: [.gscan: gscan.waitingCount],
                     onSelect: { tab in
                         switch tab {
                         case .home: router.tab = .home
                         case .upcoming: router.tab = .upcoming
-                        case .history: router.tab = .history
+                        case .gscan: router.tab = .gscan
                         }
                     },
                     onNewChat: { router.openChat() }
@@ -98,12 +105,16 @@ struct MainView: View {
             }
         }
         .overlay {
-            SettingsSheet(isPresented: $router.showsSettings, session: environment.session) { [home, router] in
+            SettingsSheet(isPresented: $router.showsSettings, session: environment.session, onOpenHistory: { [router] in
+                router.showsSettings = false
+                router.openHistory()
+            }) { [home, router] in
                 // Everything on the server is gone: drop what this phone still holds and start again on Home.
                 router.showsSettings = false
                 router.showsEntry = false
                 router.homePath = []
                 router.tab = .home
+                router.showsHistory = false
                 router.historyIsStale = true
                 Task { await environment.outbox.clear() }
                 environment.health.reset()
@@ -116,12 +127,19 @@ struct MainView: View {
         }
         .onAppear {
             // Foreground is caught below; this is the launch.
+            gscan.onChange = { [home, upcoming, router] in
+                home.invalidate()
+                upcoming.invalidate()
+                router.historyIsStale = true
+            }
             environment.session.warmUpLocation()
             environment.healthSync.start(api: environment.session.api)
             Task {
                 try? await api.send(.googleSync)
                 try? await api.send(.googleMailScan)
+                await gscan.load()   // the tab's badge
             }
+            Task { await CurrencySetting.adoptPhoneRegion(api: api) }
         }
         .task {
             // The outbox sends with chat closed too (a message queued offline): reload what a turn changed.
@@ -139,6 +157,7 @@ struct MainView: View {
                 Task {
                     try? await api.send(.googleSync)
                     try? await api.send(.googleMailScan)
+                    await gscan.load()
                 }
                 Task { await environment.nearbyPlaceAlerts.appBecameActive(api: environment.session.api) }
                 Task { await environment.outbox.wake(retryNow: true) }
@@ -173,7 +192,7 @@ struct MainView: View {
         switch router.tab {
         case .home: .home
         case .upcoming: .upcoming
-        case .history: .history
+        case .gscan: .gscan
         }
     }
 }
