@@ -27,11 +27,13 @@ class JobLeadRepositoryTests {
     private static final Instant NOW = Instant.parse("2026-10-16T03:00:00Z");
 
     @Autowired JobLeadRepository jobs;
+    @Autowired JobTaskService tasks;
     @Autowired JdbcTemplate jdbc;
 
     @BeforeEach
     void clean() {
         jdbc.update("DELETE FROM job_leads");
+        jdbc.update("DELETE FROM plans WHERE external_id LIKE 'linkedin:%' OR external_id LIKE 'job:%'");
     }
 
     private static MailScanRepository.Candidate job(String title, String company, String url) {
@@ -88,5 +90,41 @@ class JobLeadRepositoryTests {
         assertThat(jobs.page("applied", null, 10).items()).extracting(JobLeadRepository.JobLead::id).containsExactly(applied);
         assertThat(jobs.countNew()).isEqualTo(24);
         assertThatThrownBy(() -> JobLeadRepository.Cursor.decode("not-a-cursor")).isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
+    void addingAJobToTasksMakesOneTaskForTodayLinkedToThePostingAndTakesItOffTheNewList() {
+        jobs.save("mail-1", job("iOS Engineer", "Mercari", "https://www.linkedin.com/jobs/view/4099999999/"));
+        jobs.save("mail-2", job("Platform Engineer", "Example Inc.", null));
+        UUID ios = jobs.page(null, null, 10).items().stream()
+                .filter(item -> item.title().equals("iOS Engineer")).findFirst().orElseThrow().id();
+        UUID platform = jobs.page(null, null, 10).items().stream()
+                .filter(item -> item.title().equals("Platform Engineer")).findFirst().orElseThrow().id();
+
+        var first = tasks.addTask(ios).orElseThrow();
+        var again = tasks.addTask(ios).orElseThrow();
+
+        assertThat(first.created()).isTrue();
+        assertThat(again.created()).as("a second tap").isFalse();
+        assertThat(again.planId()).isEqualTo(first.planId());
+        assertThat(jdbc.queryForMap("SELECT kind, title, notes, external_id FROM plans WHERE id = ?", first.planId()))
+                .containsEntry("kind", "task")
+                .containsEntry("title", "Apply: iOS Engineer at Mercari")
+                .containsEntry("notes", "Tokyo, Japan")
+                .containsEntry("external_id", "linkedin:4099999999");
+        assertThat(jobs.find(ios)).hasValueSatisfying(job -> assertThat(job.status()).isEqualTo("interested"));
+        assertThat(jobs.countNew()).isEqualTo(1);
+
+        var unlinked = tasks.addTask(platform).orElseThrow();
+        assertThat(jdbc.queryForObject("SELECT external_id FROM plans WHERE id = ?", String.class, unlinked.planId()))
+                .isEqualTo("job:" + platform);
+        assertThat(tasks.addTask(UUID.randomUUID())).isEmpty();
+    }
+
+    @Test
+    void aLongTitleIsShortenedToFitAPlan() {
+        String title = JobTaskService.title("Senior Staff Software Engineer, Distributed Systems and Infrastructure Platform",
+                "A Very Long Company Name Kabushiki Kaisha Holdings");
+        assertThat(title).hasSizeLessThanOrEqualTo(120).startsWith("Apply: Senior Staff").endsWith("…");
     }
 }

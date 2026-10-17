@@ -2,12 +2,14 @@ package com.tinyme.integrations.google.api;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.tinyme.integrations.google.service.JobLeadRepository;
+import com.tinyme.integrations.google.service.JobTaskService;
 import com.tinyme.integrations.google.service.MailScanScheduler;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -26,11 +28,13 @@ import java.util.UUID;
 public class JobLeadsController {
     private static final int MAX_PAGE = 50;
     private final JobLeadRepository jobs;
+    private final JobTaskService tasks;
     private final MailScanScheduler scans;
     private final Clock clock;
 
-    public JobLeadsController(JobLeadRepository jobs, MailScanScheduler scans, Clock clock) {
+    public JobLeadsController(JobLeadRepository jobs, JobTaskService tasks, MailScanScheduler scans, Clock clock) {
         this.jobs = jobs;
+        this.tasks = tasks;
         this.scans = scans;
         this.clock = clock;
     }
@@ -63,6 +67,13 @@ public class JobLeadsController {
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Job not found"));
     }
 
+    /** Adds the job to today's tasks. Tapping again returns the same task. */
+    @PostMapping("/{id}/task")
+    public TaskResponse addTask(@PathVariable UUID id) {
+        return tasks.addTask(id).map(task -> new TaskResponse(task.jobId(), task.planId()))
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Job not found"));
+    }
+
     @DeleteMapping("/{id}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void delete(@PathVariable UUID id) {
@@ -77,6 +88,8 @@ public class JobLeadsController {
     }
 
     public record StatusRequest(String status) { }
+
+    public record TaskResponse(@JsonProperty("job_id") UUID jobId, @JsonProperty("plan_id") UUID planId) { }
 
     /** {@code new_count} is how many jobs are still new, for the G Scan badge. */
     public record PageResponse(List<JobResponse> items, @JsonProperty("next_cursor") String nextCursor,

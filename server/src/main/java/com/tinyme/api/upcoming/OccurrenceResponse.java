@@ -29,7 +29,9 @@ public record OccurrenceResponse(String id,
                                  @JsonProperty("repeat_label") String repeatLabel,
                                  String habit,
                                  boolean editable,
-                                 @JsonProperty("gmail_message_id") String gmailMessageId) {
+                                 @JsonProperty("gmail_message_id") String gmailMessageId,
+                                 String origin,
+                                 @JsonProperty("origin_url") String originUrl) {
     private static final DateTimeFormatter TIME = DateTimeFormatter.ofPattern("HH:mm", Locale.ROOT);
 
     public OccurrenceResponse {
@@ -56,7 +58,28 @@ public record OccurrenceResponse(String id,
                 occurrence.habitKind(), !"people".equals(occurrence.source()),
                 "chat".equals(occurrence.source()) && occurrence.externalId() != null
                         && occurrence.externalId().startsWith("gmail:")
-                        ? occurrence.externalId().substring("gmail:".length()) : null);
+                        ? occurrence.externalId().substring("gmail:".length()) : null,
+                origin(occurrence.source(), occurrence.externalId()), originUrl(occurrence.source(), occurrence.externalId()));
+    }
+
+    /**
+     * Where the plan came from, for the small logo beside it: gmail (found in an email), linkedin (a job alert), or
+     * google_calendar. Null for what you made in TinyMe and for birthdays.
+     */
+    static String origin(String source, String externalId) {
+        if ("google".equals(source)) return "google_calendar";
+        if (!"chat".equals(source) || externalId == null) return null;
+        if (externalId.startsWith("gmail:")) return "gmail";
+        if (externalId.startsWith("linkedin:") || externalId.startsWith("job:")) return "linkedin";
+        return null;
+    }
+
+    /** The LinkedIn posting a job task came from; email links are built by the app from gmail_message_id. */
+    static String originUrl(String source, String externalId) {
+        if (!"chat".equals(source) || externalId == null || !externalId.startsWith("linkedin:")) return null;
+        String jobId = externalId.substring("linkedin:".length());
+        return jobId.chars().allMatch(Character::isDigit) && !jobId.isEmpty()
+                ? "https://www.linkedin.com/jobs/view/" + jobId + "/" : null;
     }
 
     private static PersonResponse person(PersonSnapshot person) {
