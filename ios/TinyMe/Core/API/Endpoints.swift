@@ -141,6 +141,22 @@ struct Endpoint: Sendable {
         Endpoint(method: "POST", path: "integrations/google/suggestions/\(id)/dismiss")
     }
 
+    /// Job postings from job alerts, newest first. `status` nil means every status.
+    static func jobs(status: String?, cursor: String?, limit: Int = 20) -> Endpoint {
+        var items = [URLQueryItem(name: "limit", value: String(limit))]
+        if let status { items.append(URLQueryItem(name: "status", value: status)) }
+        if let cursor { items.append(URLQueryItem(name: "cursor", value: cursor)) }
+        return Endpoint(method: "GET", path: "integrations/google/jobs", query: items)
+    }
+
+    static func addJobTask(_ id: String) -> Endpoint {
+        Endpoint(method: "POST", path: "integrations/google/jobs/\(id)/task")
+    }
+
+    static func updateJob(_ id: String) -> Endpoint {
+        Endpoint(method: "PATCH", path: "integrations/google/jobs/\(id)")
+    }
+
     static func planDone(_ id: String, day: LocalDay) -> Endpoint {
         Endpoint(method: "POST", path: "plans/\(id)/occurrences/\(day.description)/done")
     }

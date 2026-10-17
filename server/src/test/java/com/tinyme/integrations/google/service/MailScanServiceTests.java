@@ -225,6 +225,21 @@ class MailScanServiceTests {
     }
 
     @Test
+    void aQuoteOnlyHasToMatchTheEmailsWordsAndNumbersInOrder() {
+        // Label and value in separate table cells, as an HTML notice reads once its tags are gone.
+        String body = "ご利用日\n2026/10/17\nご利用先\nセブン-イレブン 横浜店\nご利用金額\n440円\nカード番号 ****1234";
+
+        assertThat(MailScanService.quotes(body, "ご利用金額：440円")).as("a colon the email doesn't have").isTrue();
+        assertThat(MailScanService.quotes(body, "ご利用先 セブンイレブン横浜店")).as("spaces and a dash").isTrue();
+        assertThat(MailScanService.quotes(body, "ご利用先：セブン-イレブン 横浜店 … ご利用金額：440円"))
+                .as("lines left out with …").isTrue();
+        assertThat(MailScanService.quotes(body, "ご利用金額 ¥440")).as("a sign the email doesn't have").isFalse();
+        assertThat(MailScanService.quotes(body, "ご利用金額 440円 … ご利用先")).as("out of order").isFalse();
+        assertThat(MailScanService.quotes(body, "ご利用金額 4,400円")).as("another number").isFalse();
+        assertThat(MailScanService.quotes(body, "…円…")).as("too short to prove anything").isFalse();
+    }
+
+    @Test
     void aPayPayUsageFlashIsAcceptedAsItReads() {
         // A real PayPay card notice's text, as the owner sees it.
         var flash = new MailScanAgentRunner.MailInput("gmail-paypay-504", "PayPayカード <paypay-card@example.test>",

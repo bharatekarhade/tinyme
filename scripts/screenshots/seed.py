@@ -152,15 +152,19 @@ for name, addr, area, lat, lng, cat, note, visited in places:
                f"({q(name)}, {q(addr)}, {q(area)}, {lat}, {lng}, {q(cat)}, {q(note)}, {'now()' if visited else 'NULL'}, 'chat');")
 
 # Plans
-def plan(kind, title, day, start=None, end=None, place=None, notes=None, freq=None, habit=None, remind=None):
-    out.append("INSERT INTO plans (kind, title, notes, place, zone, start_day, start_time, end_time, repeat_freq, habit_kind, remind_minutes) VALUES "
-               f"({q(kind)}, {q(title)}, {q(notes)}, {q(place)}, 'Asia/Tokyo', {q(day.isoformat())}, {q(start)}, {q(end)}, {q(freq)}, {q(habit)}, {q(remind)});")
+def plan(kind, title, day, start=None, end=None, place=None, notes=None, freq=None, habit=None, remind=None,
+         source="chat", external=None):
+    # external: gmail:<message id> (found in email), linkedin:<job id> (a job alert), or a Google Calendar event id.
+    out.append("INSERT INTO plans (kind, title, notes, place, zone, start_day, start_time, end_time, repeat_freq, habit_kind, remind_minutes, source, external_id) VALUES "
+               f"({q(kind)}, {q(title)}, {q(notes)}, {q(place)}, 'Asia/Tokyo', {q(day.isoformat())}, {q(start)}, {q(end)}, {q(freq)}, {q(habit)}, {q(remind)}, {q(source)}, {q(external)});")
 
 plan("event", "Team standup", TODAY - timedelta(days=14), "10:00", "10:15", freq="daily")
 plan("event", "Lunch with Kenji", TODAY, "12:30", "13:30", place="Afuri Ebisu", remind=30)
-plan("event", "Design review", TODAY, "15:30", "16:30", place="Room 4B")
+plan("event", "Design review", TODAY, "15:30", "16:30", place="Room 4B", source="google", external="demo-gcal-1")
 plan("event", "Climbing with Sam", TODAY, "19:00", "20:30", place="B-Pump Ogikubo")
 plan("task", "Renew passport", TODAY)
+plan("task", "Apply: Mobile Engineer at SmartNews", TODAY, notes="Tokyo, Japan (Remote)", external="linkedin:4011112222")
+plan("task", "Pay water bill", TODAY, external="gmail:demo-msg-6")
 plan("task", "Book flights for New Year", TODAY + timedelta(days=1))
 plan("event", "Dentist", TODAY + timedelta(days=3), "09:30", "10:15", place="Ebisu Dental")
 plan("event", "Gym", TODAY - timedelta(days=21), "07:00", "08:00", freq="weekly", habit="workout")
@@ -193,11 +197,13 @@ suggestion("event", {"title": "Dinner at Sushi Saito", "day": (TODAY + timedelta
 suggestion("task", {"title": "Pay electricity bill", "day": (TODAY + timedelta(days=4)).isoformat()},
            "Please pay ¥6,840 by October 20", "demo-msg-5")
 
-for title, company, loc, status in [("Senior iOS Engineer", "Mercari", "Tokyo, Japan (Hybrid)", "new"),
-                                    ("Staff Backend Engineer, Payments", "PayPay", "Tokyo, Japan", "applied"),
-                                    ("Mobile Engineer", "SmartNews", "Tokyo, Japan (Remote)", "interested")]:
+for n, (title, company, loc, status) in enumerate([("Senior iOS Engineer", "Mercari", "Tokyo, Japan (Hybrid)", "new"),
+                                                  ("iOS Team Lead", "LY Corporation", "Tokyo, Japan", "new"),
+                                                  ("Staff Backend Engineer, Payments", "PayPay", "Tokyo, Japan", "applied"),
+                                                  ("Mobile Engineer", "SmartNews", "Tokyo, Japan (Remote)", "interested")]):
+    job_id = 4011110000 + n
     out.append("INSERT INTO job_leads (dedupe_key, title, company, location, url, gmail_message_id, status) VALUES "
-               f"({q(company + '|' + title)}, {q(title)}, {q(company)}, {q(loc)}, 'https://www.linkedin.com/jobs/view/1/', 'demo-jobs', {q(status)});")
+               f"({q(f'linkedin:{job_id}')}, {q(title)}, {q(company)}, {q(loc)}, {q(f'https://www.linkedin.com/jobs/view/{job_id}/')}, 'demo-jobs', {q(status)});")
 
 # Today's chat, and an email the agent drafted that waits for a tap
 session = str(uuid.UUID("01a14365-0000-7000-8000-00000000c001"))

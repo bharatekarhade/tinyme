@@ -1,7 +1,7 @@
 import SwiftUI
 
-/// What TinyMe found in your Gmail: card payments to confirm, plans found in email, and emails or invite replies
-/// waiting for your tap. Payments count as spending only once you confirm them.
+/// What TinyMe found in your Gmail: card payments to confirm, plans found in email, emails or invite replies
+/// waiting for your tap, and jobs from job alerts. Payments count as spending only once you confirm them.
 struct GScanView: View {
     let model: GScanModel
     @State private var editing: MailPaymentDTO?
@@ -38,6 +38,7 @@ struct GScanView: View {
                 if !model.payments.isEmpty { paymentsSection }
                 if !model.suggestions.isEmpty { suggestionsSection }
                 if !model.confirmations.isEmpty { waitingSection }
+                if !model.jobs.isEmpty { jobsSection }
             }
             .padding(.horizontal, Space.s4)
             .padding(.bottom, Space.s6)
@@ -68,7 +69,7 @@ struct GScanView: View {
                 .textStyle(.heading, weight: .semibold)
             Text(reconnect
                  ? "Google asked TinyMe to sign in again. Until then nothing new is found."
-                 : "TinyMe reads new email for card payments and plans, and keeps them here for you to confirm. Nothing is added without your tap.")
+                 : "TinyMe reads new email for card payments, plans and job alerts, and keeps them here for you to confirm. Nothing is added without your tap.")
                 .textStyle(.body)
                 .foregroundStyle(Palette.inkMuted)
             if let error = model.google.errorMessage {
@@ -175,6 +176,33 @@ struct GScanView: View {
                                        error: nil, status: nil,
                                        onSend: { model.decide(confirmation, send: true) },
                                        onCancel: { model.decide(confirmation, send: false) })
+            }
+        }
+    }
+
+    // MARK: Job alerts
+
+    private var jobsSection: some View {
+        VStack(alignment: .leading, spacing: Space.s3) {
+            sectionTitle("Job alerts", systemImage: "briefcase", count: model.newJobsCount)
+            ForEach(model.jobs) { job in
+                JobCard(job: job, isWorking: model.working.contains(job.id),
+                        onAdd: { model.addTask(job) },
+                        onDismiss: { model.dismiss(job) })
+            }
+            if model.hasMoreJobs {
+                Button { Task { await model.loadMoreJobs() } } label: {
+                    HStack(spacing: Space.s2) {
+                        if model.isLoadingMoreJobs { ProgressView().tint(Palette.brandStrong) }
+                        Text("Show more jobs")
+                    }
+                    .textStyle(.caption, weight: .semibold)
+                    .foregroundStyle(Palette.brandStrong)
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 44)
+                }
+                .buttonStyle(.pressable)
+                .disabled(model.isLoadingMoreJobs)
             }
         }
     }
@@ -288,6 +316,49 @@ private struct PaymentCard: View {
             .padding(.horizontal, Space.s2)
             .padding(.vertical, 4)
             .background(Palette.surfaceSunken, in: Capsule())
+    }
+}
+
+/// One job from a job alert: what and where, a link to the posting, and whether to make it a task.
+private struct JobCard: View {
+    let job: JobLeadDTO
+    let isWorking: Bool
+    let onAdd: () -> Void
+    let onDismiss: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: Space.s3) {
+            HStack(alignment: .top, spacing: Space.s3) {
+                OriginLogo(origin: "linkedin", size: 28)
+                    .frame(width: 36, height: 36)
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(job.title)
+                        .textStyle(.label, weight: .semibold)
+                        .lineLimit(2)
+                    Text([job.company, job.location].compactMap { $0 }.joined(separator: " · "))
+                        .textStyle(.caption)
+                        .foregroundStyle(Palette.inkMuted)
+                        .lineLimit(2)
+                }
+                Spacer(minLength: 0)
+            }
+            if let url = job.postingURL {
+                Link(destination: url) {
+                    Label("View on LinkedIn", systemImage: "arrow.up.right.square")
+                        .textStyle(.caption, weight: .semibold)
+                        .foregroundStyle(Palette.brandStrong)
+                }
+            }
+            HStack(spacing: Space.s2) {
+                primaryButton("Add to tasks", systemImage: "plus", action: onAdd)
+                secondaryButton("Dismiss", action: onDismiss)
+            }
+            .disabled(isWorking)
+        }
+        .padding(Space.s3)
+        .background(Palette.surfaceRaised, in: RoundedRectangle(cornerRadius: Radius.md, style: .continuous))
+        .overlay { RoundedRectangle(cornerRadius: Radius.md, style: .continuous).strokeBorder(Palette.line) }
+        .opacity(isWorking ? 0.6 : 1)
     }
 }
 

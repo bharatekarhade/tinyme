@@ -231,7 +231,7 @@ public class EntryRepository {
                         + "SELECT e.local_day, SUM((e.data ->> CAST(:field AS text))::numeric) AS hours "
                         + "FROM entries e WHERE " + baseFilters + " GROUP BY e.local_day) night";
             } else {
-                sql = "SELECT " + query.metric().sqlExpression("e") + " AS value, COUNT(*) AS entries "
+                sql = "SELECT " + query.metric().sqlExpression("e", query.allKinds()) + " AS value, COUNT(*) AS entries "
                         + "FROM entries e WHERE " + baseFilters;
             }
             var result = jdbc.queryForMap(sql, parameters);
@@ -245,7 +245,7 @@ public class EntryRepository {
                     + "date_trunc(CAST(:unit AS text), CAST(:from AS timestamp)), "
                     + "date_trunc(CAST(:unit AS text), CAST(:to AS timestamp)), "
                     + "CAST(:step AS interval))::date AS period) "
-                    + "SELECT p.period, " + query.metric().sqlExpression("e") + " AS value, "
+                    + "SELECT p.period, " + query.metric().sqlExpression("e", query.allKinds()) + " AS value, "
                     + "COUNT(e.id) AS entries FROM periods p LEFT JOIN entries e ON "
                     + "date_trunc(CAST(:unit AS text), e.local_day::timestamp)::date = p.period "
                     + "AND " + baseFilters + " GROUP BY p.period ORDER BY p.period";
@@ -253,7 +253,7 @@ public class EntryRepository {
         } else {
             parameters.addValue("unit", query.groupBy().unit());
             String sql = "SELECT date_trunc(CAST(:unit AS text), e.local_day::timestamp)::date AS period, "
-                    + query.metric().sqlExpression("e") + " AS value, COUNT(e.id) AS entries "
+                    + query.metric().sqlExpression("e", query.allKinds()) + " AS value, COUNT(e.id) AS entries "
                     + "FROM entries e WHERE " + baseFilters
                     + " GROUP BY period ORDER BY period LIMIT " + MAX_UNBOUNDED_BUCKETS_QUERY;
             buckets = this.query(sql, parameters);
@@ -279,7 +279,7 @@ public class EntryRepository {
         MapSqlParameterSource params = new MapSqlParameterSource().addValue("by", query.by());
         String base = filters(query.kinds(), query.allKinds(), query.from(), query.to(), query.where(),
                 query.metric(), query.field(), "e", params);
-        String expression = query.metric().sqlExpression("e");
+        String expression = query.metric().sqlExpression("e", query.allKinds());
         String sql = "SELECT category_key, value, SUM(value) OVER () AS total FROM ("
                 + "SELECT e.data ->> CAST(:by AS text) AS category_key, " + expression + " AS value "
                 + "FROM entries e WHERE " + base + " GROUP BY 1) g "

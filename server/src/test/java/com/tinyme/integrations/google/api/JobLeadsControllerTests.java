@@ -1,6 +1,7 @@
 package com.tinyme.integrations.google.api;
 
 import com.tinyme.integrations.google.service.JobLeadRepository;
+import com.tinyme.integrations.google.service.JobTaskService;
 import com.tinyme.integrations.google.service.MailScanScheduler;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpStatus;
@@ -24,7 +25,8 @@ class JobLeadsControllerTests {
     private final JobLeadRepository jobs = mock(JobLeadRepository.class);
     private final MailScanScheduler scans = mock(MailScanScheduler.class);
     private final Clock clock = Clock.fixed(Instant.parse("2026-10-16T03:00:00Z"), ZoneOffset.UTC);
-    private final JobLeadsController controller = new JobLeadsController(jobs, scans, clock);
+    private final JobTaskService tasks = mock(JobTaskService.class);
+    private final JobLeadsController controller = new JobLeadsController(jobs, tasks, scans, clock);
 
     private static HttpStatus status(Throwable error) {
         return HttpStatus.valueOf(((ResponseStatusException) error).getStatusCode().value());
@@ -57,6 +59,9 @@ class JobLeadsControllerTests {
                 .satisfies(error -> assertThat(status(error)).isEqualTo(HttpStatus.NOT_FOUND));
         when(jobs.delete(id, clock.instant())).thenReturn(false);
         assertThatThrownBy(() -> controller.delete(id))
+                .satisfies(error -> assertThat(status(error)).isEqualTo(HttpStatus.NOT_FOUND));
+        when(tasks.addTask(id)).thenReturn(Optional.empty());
+        assertThatThrownBy(() -> controller.addTask(id))
                 .satisfies(error -> assertThat(status(error)).isEqualTo(HttpStatus.NOT_FOUND));
         verify(jobs, never()).setStatus(id, "hired", clock.instant());
     }

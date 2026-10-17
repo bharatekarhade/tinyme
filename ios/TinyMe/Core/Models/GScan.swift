@@ -84,6 +84,51 @@ struct ConfirmedPaymentDTO: Decodable, Sendable {
     }
 }
 
+/// A posting from a job-alert email (LinkedIn's "Jobs for you").
+struct JobLeadDTO: Decodable, Sendable, Hashable, Identifiable {
+    let id: String
+    let title: String
+    let company: String
+    let location: String?
+    let url: String?
+    let status: String
+    let foundAt: Date
+
+    private enum CodingKeys: String, CodingKey {
+        case id, title, company, location, url, status
+        case foundAt = "found_at"
+    }
+
+    var postingURL: URL? { url.flatMap(URL.init(string:)) }
+}
+
+struct JobLeadsPageDTO: Decodable, Sendable {
+    let items: [JobLeadDTO]
+    let nextCursor: String?
+    /// How many jobs are still new, for the badge.
+    let newCount: Int
+
+    private enum CodingKeys: String, CodingKey {
+        case items
+        case nextCursor = "next_cursor"
+        case newCount = "new_count"
+    }
+}
+
+struct JobTaskDTO: Decodable, Sendable {
+    let jobId: String
+    let planId: String
+
+    private enum CodingKeys: String, CodingKey {
+        case jobId = "job_id"
+        case planId = "plan_id"
+    }
+}
+
+struct JobStatusRequest: Encodable, Sendable {
+    let status: String
+}
+
 /// The currency your spending is kept in. `chosen` is false while the server's default applies.
 struct CurrencySettingDTO: Codable, Sendable, Equatable {
     var currency: String

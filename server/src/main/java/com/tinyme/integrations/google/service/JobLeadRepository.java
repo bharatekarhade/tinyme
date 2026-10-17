@@ -96,6 +96,26 @@ public class JobLeadRepository {
                 Timestamp.from(now), id) == 1;
     }
 
+    /** The job and the task it already became, if any, locked so one tap makes one task. */
+    public Optional<TaskSource> lockForTask(UUID id) {
+        return jdbc.query("""
+                SELECT title, company, location, dedupe_key, plan_id FROM job_leads
+                WHERE id = ? AND deleted_at IS NULL FOR UPDATE
+                """, result -> result.next() ? Optional.of(new TaskSource(result.getString("title"),
+                result.getString("company"), result.getString("location"), result.getString("dedupe_key"),
+                result.getObject("plan_id", UUID.class))) : Optional.empty(), id);
+    }
+
+    /** Records the job's task; a job still new becomes interested, so it leaves the new list. */
+    public void linkTask(UUID id, UUID planId, Instant now) {
+        jdbc.update("""
+                UPDATE job_leads SET plan_id = ?,
+                  status_changed_at = CASE WHEN status = 'new' THEN ? ELSE status_changed_at END,
+                  status = CASE WHEN status = 'new' THEN 'interested' ELSE status END
+                WHERE id = ?
+                """, planId, Timestamp.from(now), id);
+    }
+
     public Optional<JobLead> find(UUID id) {
         return jdbc.query(COLUMNS + "WHERE id = ? AND deleted_at IS NULL",
                 result -> result.next() ? Optional.of(lead(result)) : Optional.empty(), id);
@@ -112,6 +132,8 @@ public class JobLeadRepository {
                           Instant foundAt, Instant statusChangedAt) { }
 
     public record Page(List<JobLead> items, String nextCursor) { }
+
+    public record TaskSource(String title, String company, String location, String dedupeKey, UUID planId) { }
 
     /** Where the previous page ended, opaque to the app. Decoded outside the repository so a bad one is a 400. */
     public record Cursor(Instant foundAt, UUID id) {
