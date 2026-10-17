@@ -249,7 +249,7 @@ class MailScanServiceTests {
                 PayPayカード
                 PayPayカード（Visa）
                 利用速報
-                イオン マイバスケツト 西横浜駅前
+                サンプルマート 本町駅前
                 2026年10月16日 18:17
                 504円
                 PayPayで取引履歴とポイントを確認
@@ -257,9 +257,9 @@ class MailScanServiceTests {
                 この利用に心あたりがない場合、まずは解決方法をご確認ください""");
 
         var result = MailScanService.validate(json("""
-                {"type":"payment","title":"イオン マイバスケツト 西横浜駅前","day":"2026-10-16","time":"18:17",
+                {"type":"payment","title":"サンプルマート 本町駅前","day":"2026-10-16","time":"18:17",
                  "amount":504,"currency":"JPY","direction":"purchase","card":"PayPayカード（Visa）","confidence":0.95,
-                 "evidence":"イオン マイバスケツト 西横浜駅前 2026年10月16日 18:17 504円","gmail_message_id":"gmail-paypay-504"}
+                 "evidence":"サンプルマート 本町駅前 2026年10月16日 18:17 504円","gmail_message_id":"gmail-paypay-504"}
                 """), flash, TODAY, ZoneId.of("Asia/Tokyo"));
 
         assertThat(result).isNotNull();
