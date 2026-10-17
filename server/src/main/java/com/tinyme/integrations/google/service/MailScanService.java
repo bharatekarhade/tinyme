@@ -55,6 +55,11 @@ public class MailScanService {
     private static final int JOB_ALERT_BODY_CHARS = 8_000;
     /** How far back a payment notice may be; older ones are statements, not news. */
     private static final int PAYMENT_LOOKBACK_DAYS = 60;
+    /** "..." or "⋯" where the model left part of the email out of its quote (NFKC turns "…" into "..."). */
+    private static final Pattern ELLIPSIS = Pattern.compile("\\.{2,}|⋯");
+    private static final Pattern NOT_WORD = Pattern.compile("[^\\p{L}\\p{N}\\p{Sc}]+");
+    /** A quote this short ("円") would be found in any email, so it proves nothing. */
+    private static final int MIN_EVIDENCE_CHARS = 4;
     private static final BigDecimal MAX_PAYMENT = new BigDecimal("100000000");
     private final GmailClient gmail;
     private final GmailMessageParser parser;
@@ -542,12 +547,28 @@ public class MailScanService {
     }
 
     /**
-     * The evidence is a quote from the email. Spacing and character width may differ: notices put each field on its
-     * own line and write numbers full-width (１，２８０円), and the model joins lines and quotes them as 1,280円.
+     * The evidence is a quote from the email. Only its words and numbers must be there, in order: notices put each
+     * field on its own line, in table cells or full-width (１，２８０円), and the model joins them with a colon or a
+     * space (利用金額：1,280円), or leaves out a line with "…".
      */
     static boolean quotes(String haystack, String evidence) {
-        String quote = fold(evidence).strip();
-        return !quote.isEmpty() && fold(haystack).contains(quote);
+        String text = squeeze(haystack);
+        int from = 0;
+        int length = 0;
+        for (String part : ELLIPSIS.split(fold(evidence))) {
+            String piece = squeeze(part);
+            if (piece.isEmpty()) continue;
+            int at = text.indexOf(piece, from);
+            if (at < 0) return false;
+            from = at + piece.length();
+            length += piece.length();
+        }
+        return length >= MIN_EVIDENCE_CHARS;
+    }
+
+    /** Letters, digits and currency signs only: spacing and punctuation don't count. */
+    private static String squeeze(String text) {
+        return NOT_WORD.matcher(fold(text)).replaceAll("");
     }
 
     /** Why validate refused a proposal, as a short code for the log; never any of the email's content. */
