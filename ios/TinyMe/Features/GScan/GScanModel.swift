@@ -18,6 +18,12 @@ final class GScanModel {
     private(set) var payments: [MailPaymentDTO] = []
     private(set) var suggestions: [MailSuggestionDTO] = []
     private(set) var confirmations: [GooglePendingConfirmationDTO] = []
+    /// New jobs from job alerts, a page at a time.
+    private(set) var jobs: [JobLeadDTO] = []
+    private(set) var newJobsCount = 0
+    private var jobsCursor: String?
+    private(set) var isLoadingMoreJobs = false
+    var hasMoreJobs: Bool { jobsCursor != nil }
     /// Items with a request in flight, so their buttons can't be pressed twice.
     private(set) var working: Set<String> = []
     var errorMessage: String?
@@ -29,7 +35,7 @@ final class GScanModel {
     }
 
     /// How many things wait for you, for the tab's badge.
-    var waitingCount: Int { payments.count + suggestions.count + confirmations.count }
+    var waitingCount: Int { payments.count + suggestions.count + confirmations.count + newJobsCount }
 
     var isConnected: Bool { google.status?.isConnected == true }
     var needsConnecting: Bool {
@@ -54,12 +60,16 @@ final class GScanModel {
             payments = []
             suggestions = []
             confirmations = []
+            jobs = []
+            newJobsCount = 0
+            jobsCursor = nil
             phase = .loaded
             return
         }
         async let paymentsResult: [MailPaymentDTO] = api.get(.mailPayments)
         async let suggestionsResult: [MailSuggestionDTO] = api.get(.mailSuggestions)
         async let confirmationsResult: [GooglePendingConfirmationDTO] = api.get(.pendingConfirmations)
+        async let jobsResult: JobLeadsPageDTO = api.get(.jobs(status: "new", cursor: nil))
         do {
             let loaded = try await paymentsResult
             payments = loaded
@@ -69,6 +79,11 @@ final class GScanModel {
         }
         suggestions = (try? await suggestionsResult) ?? suggestions
         confirmations = (try? await confirmationsResult) ?? confirmations
+        if let page = try? await jobsResult {
+            jobs = page.items
+            jobsCursor = page.nextCursor
+            newJobsCount = page.newCount
+        }
     }
 
     func connect() async {
@@ -119,6 +134,45 @@ final class GScanModel {
         } done: { model in
             model.suggestions.removeAll { $0.id == suggestion.id }
         }
+    }
+
+    // MARK: Job alerts
+
+    func loadMoreJobs() async {
+        guard let cursor = jobsCursor, !isLoadingMoreJobs else { return }
+        isLoadingMoreJobs = true
+        defer { isLoadingMoreJobs = false }
+        do {
+            let page: JobLeadsPageDTO = try await api.get(.jobs(status: "new", cursor: cursor))
+            let known = Set(jobs.map(\.id))
+            jobs += page.items.filter { !known.contains($0.id) }
+            jobsCursor = page.nextCursor
+        } catch {
+            errorMessage = Self.message(error, fallback: "Couldn't load more jobs. Try again.")
+        }
+    }
+
+    /// Adds the job to today's tasks in Upcoming.
+    func addTask(_ job: JobLeadDTO) {
+        perform(job.id, failure: "Couldn't add that job to your tasks. Try again.") { [api] in
+            let _: JobTaskDTO = try await api.send(.addJobTask(job.id))
+        } done: { model in
+            model.removeJob(job)
+            model.onChange()
+        }
+    }
+
+    func dismiss(_ job: JobLeadDTO) {
+        perform(job.id, failure: "Couldn't dismiss that job. Try again.") { [api] in
+            let _: JobLeadDTO = try await api.send(.updateJob(job.id), body: JobStatusRequest(status: "not_interested"))
+        } done: { model in
+            model.removeJob(job)
+        }
+    }
+
+    private func removeJob(_ job: JobLeadDTO) {
+        jobs.removeAll { $0.id == job.id }
+        newJobsCount = max(0, newJobsCount - 1)
     }
 
     // MARK: Waiting for your tap

@@ -264,6 +264,7 @@ private struct EventBlock: View {
                 Text(timeRange).font(.system(size: 11, weight: .medium)).lineLimit(1)
                 Spacer(minLength: 0)
                 if isDone { Image(systemName: "checkmark").font(.system(size: 11, weight: .bold)) }
+                OriginLogo(origin: item.origin, size: 13)
             }
             Text(item.title).font(.system(size: 14, weight: .semibold)).lineLimit(1)
             if let place = item.place, !place.isEmpty, heightAllowsDetail {

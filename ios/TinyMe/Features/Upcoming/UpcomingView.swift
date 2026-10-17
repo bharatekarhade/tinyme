@@ -12,6 +12,7 @@ struct UpcomingView: View {
     @State private var dayMoveDate = Date.now
     @State private var pendingMove: PendingMove?
     @State private var selectedTask: OccurrenceDTO?
+    @State private var showsAllTasks = false
 
     private struct PendingMove: Identifiable {
         let item: OccurrenceDTO
@@ -250,6 +251,7 @@ struct UpcomingView: View {
                                 .truncationMode(.tail)
                         }
                         Spacer(minLength: 0)
+                        OriginLogo(origin: item.origin, size: 18)
                         Image(systemName: "chevron.right")
                             .font(.system(size: 15, weight: .semibold))
                             .foregroundStyle(Palette.inkMuted)
@@ -284,7 +286,8 @@ struct UpcomingView: View {
         if !items.isEmpty {
             let tasks = items.filter(\.isTask)
             let left = tasks.filter { !$0.isDone }.count
-            VStack(alignment: .leading, spacing: Space.s3) {
+            let shown = showsAllTasks || items.count <= Self.collapsedTasks ? items : Array(items.prefix(Self.collapsedTasks))
+            VStack(alignment: .leading, spacing: 0) {
                 HStack {
                     Text("ALL DAY · TASKS").textStyle(.caption, weight: .semibold).tracking(0.6)
                     Spacer()
@@ -294,64 +297,89 @@ struct UpcomingView: View {
                 }
                 .foregroundStyle(Palette.inkMuted)
                 .padding(.horizontal, Space.s4)
-                ScrollView(.horizontal) {
-                    HStack(spacing: Space.s2) {
-                        ForEach(items) { item in allDayChip(item) }
-                    }
-                    .padding(.horizontal, Space.s4)
+                .padding(.bottom, Space.s2)
+                ForEach(Array(shown.enumerated()), id: \.element.id) { index, item in
+                    if index > 0 { Divider().overlay(Palette.line).padding(.leading, 56) }
+                    allDayRow(item)
                 }
-                .scrollIndicators(.hidden)
+                if items.count > Self.collapsedTasks {
+                    Divider().overlay(Palette.line).padding(.leading, 56)
+                    Button {
+                        withAnimation(.snappy(duration: 0.22)) { showsAllTasks.toggle() }
+                    } label: {
+                        Label(showsAllTasks ? "Show less" : "Show \(items.count - Self.collapsedTasks) more",
+                              systemImage: showsAllTasks ? "chevron.up" : "chevron.down")
+                            .textStyle(.caption, weight: .semibold)
+                            .foregroundStyle(Palette.brandStrong)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(.leading, 56)
+                            .frame(height: 44)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                }
             }
-            .padding(.vertical, Space.s4)
+            .padding(.top, Space.s4)
+            .padding(.bottom, Space.s2)
             .background(Palette.surfaceRaised, in: RoundedRectangle(cornerRadius: Radius.md, style: .continuous))
             .overlay { RoundedRectangle(cornerRadius: Radius.md, style: .continuous).strokeBorder(Palette.line) }
             .clipShape(RoundedRectangle(cornerRadius: Radius.md, style: .continuous))
         }
     }
 
-    private func allDayChip(_ item: OccurrenceDTO) -> some View {
+    /// One task or all-day plan: its check circle (or glyph), title, what it's from, and where it came from.
+    private func allDayRow(_ item: OccurrenceDTO) -> some View {
         let isOverdue = item.day < (model.upcoming?.today ?? .today()) && !item.isDone
         return HStack(spacing: 0) {
-            Button { open(item) } label: {
-                HStack(spacing: Space.s2) {
-                    Image(systemName: isOverdue ? "exclamationmark.circle" : item.symbol)
-                        .font(.system(size: 18, weight: .medium))
-                        .foregroundStyle(isOverdue ? Palette.danger : Palette.brandStrong)
-                        .frame(width: 24)
-                    VStack(alignment: .leading, spacing: 2) {
-                        if isOverdue {
-                            Text("From \(Self.shortWeekday(item.day))")
-                                .textStyle(.caption, weight: .semibold)
-                                .foregroundStyle(Palette.danger)
-                        }
-                        Text(item.title)
-                            .textStyle(.label, weight: .semibold)
-                            .lineLimit(1)
-                            .strikethrough(item.isDone)
-                            .foregroundStyle(item.isDone ? Palette.inkMuted : Palette.ink)
-                    }
-                }
-                .padding(.leading, Space.s3)
-                .padding(.trailing, item.isTask ? 0 : Space.s3)
-                .frame(height: 56)
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
             if item.isTask {
                 Button { model.markDone(item) } label: {
                     Image(systemName: item.isDone ? "checkmark.circle.fill" : "circle")
-                        .font(.system(size: 21))
-                        .foregroundStyle(item.isDone ? Palette.brand : Palette.inkMuted)
-                        .frame(width: 44, height: 56)
+                        .font(.system(size: 22))
+                        .foregroundStyle(item.isDone ? Palette.brand : isOverdue ? Palette.danger : Palette.inkMuted)
+                        .frame(width: 56, height: 52)
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
                 .disabled(model.workingIds.contains(item.id))
                 .accessibilityLabel(item.isDone ? "Mark \(item.title) not done" : "Mark \(item.title) done")
+            } else {
+                Image(systemName: item.symbol)
+                    .font(.system(size: 18, weight: .medium))
+                    .foregroundStyle(Palette.brandStrong)
+                    .frame(width: 56, height: 52)
+                    .accessibilityHidden(true)
             }
+            Button { open(item) } label: {
+                HStack(spacing: Space.s2) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(item.title)
+                            .textStyle(.label, weight: .semibold)
+                            .lineLimit(2)
+                            .multilineTextAlignment(.leading)
+                            .strikethrough(item.isDone)
+                            .foregroundStyle(item.isDone ? Palette.inkMuted : Palette.ink)
+                        if isOverdue {
+                            Text("From \(Self.shortWeekday(item.day))")
+                                .textStyle(.caption, weight: .semibold)
+                                .foregroundStyle(Palette.danger)
+                        } else if let detail = (item.place ?? item.notes)?.nilIfEmpty {
+                            Text(detail)
+                                .textStyle(.caption)
+                                .foregroundStyle(Palette.inkMuted)
+                                .lineLimit(1)
+                        }
+                    }
+                    Spacer(minLength: 0)
+                    OriginLogo(origin: item.origin)
+                }
+                .padding(.vertical, Space.s2)
+                .padding(.trailing, Space.s4)
+                .frame(minHeight: 52)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityHint("Shows the details")
         }
-        .background(isOverdue ? Palette.accentSoft : Palette.brandSoft.opacity(0.6),
-                    in: RoundedRectangle(cornerRadius: Radius.sm, style: .continuous))
     }
 
     private func open(_ item: OccurrenceDTO) {
@@ -418,6 +446,9 @@ struct UpcomingView: View {
         .frame(maxWidth: .infinity).padding(Space.s6)
         .background(Palette.surfaceRaised, in: RoundedRectangle(cornerRadius: Radius.lg, style: .continuous))
     }
+
+    /// Tasks shown before "Show more", so the timeline stays in view.
+    private static let collapsedTasks = 4
 
     private static func adding(_ days: Int, to day: LocalDay) -> LocalDay? {
         guard let date = day.date(), let shifted = Calendar.current.date(byAdding: .day, value: days, to: date) else { return nil }
@@ -522,10 +553,7 @@ private struct PlanEventDetailSheet: View {
                     .frame(width: 40, height: 44)
             }
             PlanSheetRows(rows: rows)
-            if let url = item.emailURL {
-                Link(destination: url) { Label("View email", systemImage: "envelope") }
-                    .buttonStyle(PlanSheetButtonStyle(kind: .quiet))
-            }
+            PlanOriginLinks(item: item)
             if item.editable {
                 VStack(spacing: Space.s2) {
                     if item.isTask {
@@ -767,7 +795,6 @@ private struct PlanTaskDetailSheet: View {
     let onSkip: () -> Void
     let onDelete: () -> Void
     @Environment(\.dismiss) private var dismiss
-    @Environment(\.openURL) private var openURL
 
     var body: some View {
         VStack(alignment: .leading, spacing: Space.s4) {
@@ -778,10 +805,7 @@ private struct PlanTaskDetailSheet: View {
                     .frame(width: 40, height: 44)
             }
             PlanSheetRows(rows: rows)
-            if let url = item.emailURL {
-                Button { openURL(url) } label: { Label("View email", systemImage: "envelope") }
-                    .buttonStyle(PlanSheetButtonStyle(kind: .quiet))
-            }
+            PlanOriginLinks(item: item)
             if item.editable {
                 VStack(spacing: Space.s2) {
                     Button(action: onDone) {
@@ -811,6 +835,26 @@ private struct PlanTaskDetailSheet: View {
 }
 
 // MARK: - Shared sheet pieces
+
+/// "View email" or "View job on LinkedIn", with the logo of where the plan came from.
+private struct PlanOriginLinks: View {
+    let item: OccurrenceDTO
+
+    var body: some View {
+        if let url = item.emailURL {
+            Link(destination: url) {
+                Label { Text("View email") } icon: { OriginLogo(origin: "gmail", size: 18) }
+            }
+            .buttonStyle(PlanSheetButtonStyle(kind: .quiet))
+        }
+        if let url = item.postingURL {
+            Link(destination: url) {
+                Label { Text("View job on LinkedIn") } icon: { OriginLogo(origin: "linkedin", size: 18) }
+            }
+            .buttonStyle(PlanSheetButtonStyle(kind: .quiet))
+        }
+    }
+}
 
 private struct PlanSheetHeader<Icon: View>: View {
     let title: String

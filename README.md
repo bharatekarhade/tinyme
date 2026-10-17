@@ -60,6 +60,7 @@ Talk or type naturally, and TinyMe files it in the right place. "Flat white and 
 - A week strip, the next thing coming up, tasks and all-day items, and a timeline of the day that opens at the current hour.
 - Events, tasks, repeating plans, habits that check themselves off from your log, and reminders.
 - Drag an event to move it.
+- A small logo on each plan shows where it came from: Gmail, a LinkedIn job, or Google Calendar.
 - With Google connected, your Google Calendar events appear here, and plans made in TinyMe go to a TinyMe calendar in Google.
 
 ### G Scan (Gmail)
@@ -67,7 +68,8 @@ Talk or type naturally, and TinyMe files it in the right place. "Flat white and 
 - **Payments:** card and bank notices from any card become spending once you confirm them. Edit the amount or category first, or dismiss. Refunds count as money back. A charge in another currency is converted to yours at that day's rate, and a charge you already logged in chat is offered as a link instead of being added twice.
 - **Found in email:** reservations, bookings and bills become plans with one tap.
 - **Waiting for you:** emails and invite replies the agent drafted, sent only when you say so.
-- The scan runs on the server through the day and skips newsletters and promotions. LinkedIn job alerts are collected too; their screen in the app is still to come.
+- **Job alerts:** jobs from LinkedIn's job-alert emails. Open one on LinkedIn, add it to today's tasks, or dismiss it.
+- The scan runs on the server through the day and skips newsletters and promotions.
 
 ### People and places
 

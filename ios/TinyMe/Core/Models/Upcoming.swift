@@ -111,6 +111,9 @@ struct OccurrenceDTO: Decodable, Sendable, Hashable, Identifiable {
     let habit: String?
     let editable: Bool
     let gmailMessageId: String?
+    /// Where it came from, for its small logo: gmail, linkedin, google_calendar; nil when made in TinyMe.
+    let origin: String?
+    let originUrl: String?
 
     var isTask: Bool { kind == "task" }
     var isDone: Bool { status == "done" }
@@ -120,6 +123,8 @@ struct OccurrenceDTO: Decodable, Sendable, Hashable, Identifiable {
         guard let gmailMessageId else { return nil }
         return URL(string: "https://mail.google.com/mail/u/0/#all/\(gmailMessageId)")
     }
+    /// The LinkedIn posting a job task came from.
+    var postingURL: URL? { originUrl.flatMap(URL.init(string:)) }
     /// Quick-action URLs identify the original repeat day, even when this occurrence was moved.
     var actionDay: LocalDay {
         guard let separator = id.lastIndex(of: ":"),
@@ -164,5 +169,7 @@ struct OccurrenceDTO: Decodable, Sendable, Hashable, Identifiable {
         case allDay = "all_day"
         case repeatLabel = "repeat_label"
         case gmailMessageId = "gmail_message_id"
+        case origin
+        case originUrl = "origin_url"
     }
 }
