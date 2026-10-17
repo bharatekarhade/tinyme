@@ -95,4 +95,14 @@ class GmailMessageParserTests {
         var htmlMessage = new GmailMessageParser().parse(JSON.readTree(htmlFixture), true, 8_000);
         assertThat(htmlMessage.body()).isEqualTo("Hello 'friend' 👋");
     }
+
+    @Test
+    void decodesTheNamedEntitiesPaymentNoticesUse() throws Exception {
+        String html = "<td>ご利用金額</td><td>&yen;440</td><p>Tom &amp; Jerry&nbsp;&middot; &amp;#39; &unknown;</p>";
+        String fixture = """
+                {"payload":{"mimeType":"text/html","body":{"data":"%s"}}}
+                """.formatted(Base64.getUrlEncoder().withoutPadding().encodeToString(html.getBytes(StandardCharsets.UTF_8)));
+        var message = new GmailMessageParser().parse(JSON.readTree(fixture), true, 8_000);
+        assertThat(message.body()).isEqualTo("ご利用金額¥440Tom & Jerry · &#39; &unknown;");
+    }
 }

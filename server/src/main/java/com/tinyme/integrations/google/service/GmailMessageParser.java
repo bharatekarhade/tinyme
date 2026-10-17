@@ -24,6 +24,17 @@ public final class GmailMessageParser {
     private static final Pattern HTML_QUOTED = Pattern.compile("(?is)<blockquote\\b.*");
     private static final Pattern HTML_NOISE = Pattern.compile("(?is)<(style|script|head)\\b[^>]*>.*?</\\1\\s*>");
     private static final Pattern NUMERIC_ENTITY = Pattern.compile("&#(x[0-9a-f]+|[0-9]+);", Pattern.CASE_INSENSITIVE);
+    private static final Pattern NAMED_ENTITY = Pattern.compile("&([a-zA-Z]+);");
+    /** The named entities notices use; payment emails write ¥ as &yen;. */
+    private static final Map<String, String> NAMED = Map.ofEntries(
+            Map.entry("nbsp", " "), Map.entry("ensp", " "), Map.entry("emsp", " "), Map.entry("thinsp", " "),
+            Map.entry("lt", "<"), Map.entry("gt", ">"), Map.entry("quot", "\""), Map.entry("apos", "'"),
+            Map.entry("yen", "¥"), Map.entry("euro", "€"), Map.entry("pound", "£"), Map.entry("cent", "¢"),
+            Map.entry("copy", "©"), Map.entry("reg", "®"), Map.entry("trade", "™"), Map.entry("times", "×"),
+            Map.entry("middot", "·"), Map.entry("bull", "•"), Map.entry("hellip", "…"), Map.entry("ndash", "–"),
+            Map.entry("mdash", "—"), Map.entry("lsquo", "‘"), Map.entry("rsquo", "’"), Map.entry("ldquo", "“"),
+            Map.entry("rdquo", "”"), Map.entry("laquo", "«"), Map.entry("raquo", "»"), Map.entry("rarr", "→"),
+            Map.entry("zwj", ""), Map.entry("zwnj", ""), Map.entry("shy", ""));
     private static final Pattern CHARSET = Pattern.compile("(?i)(?:^|;)\\s*charset\\s*=\\s*(?:\"([^\"]+)\"|'([^']+)'|([^;\\s]+))");
 
     public Message parse(JsonNode message, boolean includeBody, int bodyLimit) {
@@ -56,8 +67,7 @@ public final class GmailMessageParser {
         html = HTML_QUOTED.matcher(html).replaceFirst("");
         html = HTML_BREAK.matcher(html).replaceAll("\n");
         html = HTML_TAG.matcher(html).replaceAll("");
-        return decodeEntities(html.replace("&nbsp;", " ").replace("&amp;", "&").replace("&lt;", "<")
-                .replace("&gt;", ">").replace("&quot;", "\"").replace("&#39;", "'"));
+        return decodeEntities(html);
     }
 
     private static String firstBody(JsonNode part, String mimeType) {
@@ -102,6 +112,15 @@ public final class GmailMessageParser {
     }
 
     private static String decodeEntities(String value) {
+        // Named first: "&amp;#39;" is the text "&#39;", not an apostrophe, so &amp; goes last.
+        Matcher named = NAMED_ENTITY.matcher(value);
+        StringBuilder plain = new StringBuilder();
+        while (named.find()) {
+            String replacement = NAMED.get(named.group(1));
+            named.appendReplacement(plain, Matcher.quoteReplacement(replacement == null ? named.group() : replacement));
+        }
+        named.appendTail(plain);
+        value = plain.toString();
         Matcher matcher = NUMERIC_ENTITY.matcher(value);
         StringBuffer decoded = new StringBuffer();
         while (matcher.find()) {
@@ -118,7 +137,7 @@ public final class GmailMessageParser {
             }
         }
         matcher.appendTail(decoded);
-        return decoded.toString();
+        return decoded.toString().replace("&amp;", "&");
     }
 
     private static void collectAttachments(JsonNode part, List<Attachment> output) {

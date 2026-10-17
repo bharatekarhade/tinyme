@@ -237,6 +237,8 @@ class MailScanServiceTests {
         assertThat(MailScanService.quotes(body, "ご利用金額 440円 … ご利用先")).as("out of order").isFalse();
         assertThat(MailScanService.quotes(body, "ご利用金額 4,400円")).as("another number").isFalse();
         assertThat(MailScanService.quotes(body, "…円…")).as("too short to prove anything").isFalse();
+        assertThat(MailScanService.quotes(body, "ご利用金額\\n440円")).as("a line break copied as \\n").isTrue();
+        assertThat(MailScanService.mismatch(body, "ご利用金額 ¥440")).isEqualTo("matched=5/9 next=U+00A5");
     }
 
     @Test

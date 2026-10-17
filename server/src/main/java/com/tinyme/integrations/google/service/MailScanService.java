@@ -57,6 +57,7 @@ public class MailScanService {
     private static final int PAYMENT_LOOKBACK_DAYS = 60;
     /** "..." or "⋯" where the model left part of the email out of its quote (NFKC turns "…" into "..."). */
     private static final Pattern ELLIPSIS = Pattern.compile("\\.{2,}|⋯");
+    private static final Pattern JSON_ESCAPE = Pattern.compile("\\\\[nrt]");
     private static final Pattern NOT_WORD = Pattern.compile("[^\\p{L}\\p{N}\\p{Sc}]+");
     /** A quote this short ("円") would be found in any email, so it proves nothing. */
     private static final int MIN_EVIDENCE_CHARS = 4;
@@ -552,18 +553,36 @@ public class MailScanService {
      * space (利用金額：1,280円), or leaves out a line with "…".
      */
     static boolean quotes(String haystack, String evidence) {
+        return mismatch(haystack, evidence) == null;
+    }
+
+    /**
+     * Null when the evidence is a quote from the email; otherwise where it stops matching, for the log: how many of
+     * its letters and digits matched and the code point of the first one that didn't. Never the email's text.
+     */
+    static String mismatch(String haystack, String evidence) {
         String text = squeeze(haystack);
         int from = 0;
         int length = 0;
-        for (String part : ELLIPSIS.split(fold(evidence))) {
+        int total = squeeze(unescape(evidence)).length();
+        for (String part : ELLIPSIS.split(fold(unescape(evidence)))) {
             String piece = squeeze(part);
             if (piece.isEmpty()) continue;
             int at = text.indexOf(piece, from);
-            if (at < 0) return false;
+            if (at < 0) {
+                int matched = 0;
+                while (matched < piece.length() && text.indexOf(piece.substring(0, matched + 1), from) >= 0) matched++;
+                return "matched=%d/%d next=U+%04X".formatted(length + matched, total, piece.codePointAt(matched));
+            }
             from = at + piece.length();
             length += piece.length();
         }
-        return length >= MIN_EVIDENCE_CHARS;
+        return length >= MIN_EVIDENCE_CHARS ? null : "too_short=" + length;
+    }
+
+    /** The model sometimes copies the email's line breaks as the JSON escapes it saw them in: a literal \n. */
+    private static String unescape(String evidence) {
+        return JSON_ESCAPE.matcher(evidence).replaceAll(" ");
     }
 
     /** Letters, digits and currency signs only: spacing and punctuation don't count. */
@@ -584,7 +603,8 @@ public class MailScanService {
         LocalDate day;
         try { day = LocalDate.parse(text(proposal, "day")); } catch (RuntimeException invalid) { return "bad_day"; }
         String haystack = (source.subject() == null ? "" : source.subject()) + "\n" + source.body();
-        if (!quotes(haystack, evidence)) return "evidence_not_in_email";
+        String mismatch = mismatch(haystack, evidence);
+        if (mismatch != null) return "evidence_not_in_email " + mismatch;
         if ("payment".equals(type)) {
             BigDecimal amount = positiveAmount(proposal.get("amount"));
             if (amount == null) return "bad_amount";
