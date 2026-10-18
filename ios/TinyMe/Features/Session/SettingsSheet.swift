@@ -225,6 +225,7 @@ private struct SettingsPanel: View {
                 currencySection
                 appearanceSection
                 voiceSection
+                NotificationSettingsSection(notifier: environment.notifier)
                 googleSection
                 if HealthAccess.isAvailable { healthSection }
                 dataSection

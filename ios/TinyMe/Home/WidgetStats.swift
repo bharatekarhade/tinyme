@@ -41,6 +41,7 @@ extension WidgetSnapshot.Stat {
                 continue
             }
             self.init(
+                id: card.id,
                 title: card.title,
                 symbol: CardView.symbol(for: card.icon),
                 accent: card.accent,

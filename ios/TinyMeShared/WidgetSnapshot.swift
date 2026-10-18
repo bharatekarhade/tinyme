@@ -3,6 +3,8 @@ import Foundation
 /// What the app hands to the home-screen widget: one line per card, as it last looked on Home.
 struct WidgetSnapshot: Codable, Sendable {
     struct Stat: Codable, Sendable, Hashable {
+        /// The card's id, so the widget can be set to show just this one. Nil in snapshots saved before that.
+        var id: String?
         let title: String
         /// SF Symbol name.
         let symbol: String

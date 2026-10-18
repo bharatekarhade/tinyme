@@ -89,10 +89,11 @@ struct MainView: View {
                         Task { await UIApplication.shared.open(settings) }
                     }
                 }
-            ) { [home, upcoming, router] in
+            ) { [home, upcoming, router, environment] in
                 home.invalidate()
                 upcoming.invalidate()
                 router.historyIsStale = true
+                Task { await environment.notifier.refresh() }   // a plan may have been added or moved
             }
         }
         .onChange(of: router.chat?.id) { _, chatID in
@@ -148,10 +149,13 @@ struct MainView: View {
             // The outbox sends with chat closed too (a message queued offline): reload what a turn changed.
             let (_, events) = await environment.outbox.subscribe()
             for await event in events {
-                guard case .finished(_, let outcome, _) = event, outcome != .completed(changedData: false) else { continue }
+                guard case .finished(_, let outcome, _) = event else { continue }
+                if case .completed = outcome { environment.notifier.journaled() }
+                guard outcome != .completed(changedData: false) else { continue }
                 home.invalidate()
                 upcoming.invalidate()
                 router.historyIsStale = true
+                Task { await environment.notifier.refresh() }
             }
         }
         .onChange(of: scenePhase) { _, phase in
@@ -165,9 +169,16 @@ struct MainView: View {
                 Task { await environment.nearbyPlaceAlerts.appBecameActive(api: environment.session.api) }
                 Task { await environment.outbox.wake(retryNow: true) }
                 Task { await environment.health.pushIfNeeded(api: environment.session.api) }
+                Task { await environment.notifier.refresh() }
                 environment.healthSync.start(api: environment.session.api)
+            } else if phase == .background {
+                // Whatever was done, moved or added on Upcoming rings at its new time.
+                environment.notifier.refreshBeforeSuspending()
             }
         }
+        .onChange(of: environment.notifier.route) { _, route in open(route) }
+        .onChange(of: gscan.waitingCount) { gscanShown() }
+        .onChange(of: router.tab) { gscanShown() }
         .task {
             await environment.nearbyPlaceAlerts.appBecameActive(api: environment.session.api)
         }
@@ -176,12 +187,43 @@ struct MainView: View {
             home.invalidate()
             router.historyIsStale = true
         }
+        .onAppear { open(environment.notifier.route) }   // a tap that launched the app
         .onOpenURL { url in
             // The widget's "Journal something?" bar.
             if url == WidgetSnapshot.chatURL, router.chat == nil {
                 router.openChat()
             }
         }
+    }
+
+    /// Goes where a tapped notification points.
+    private func open(_ route: NotificationRoute?) {
+        guard let route else { return }
+        environment.notifier.route = nil
+        router.showsSettings = false
+        router.showsEntry = false
+        router.showsHistory = false
+        switch route {
+        case .plan(let id):
+            router.chat = nil
+            router.tab = .upcoming
+            upcoming.focus(planId: id)
+        case .upcoming:
+            router.chat = nil
+            router.tab = .upcoming
+        case .gscan:
+            router.chat = nil
+            router.tab = .gscan
+        case .chat:
+            if router.chat == nil { router.openChat() }
+        }
+    }
+
+    /// G Scan is on screen: what it lists isn't news for a notification any more.
+    private func gscanShown() {
+        guard router.tab == .gscan, gscan.phase == .loaded else { return }
+        environment.notifier.sawMail(payments: gscan.payments, suggestions: gscan.suggestions, jobs: gscan.jobs,
+                                     waiting: gscan.waitingCount)
     }
 
     private var serverName: String {

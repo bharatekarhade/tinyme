@@ -12,15 +12,15 @@ struct TinyMeWidgetBundle: WidgetBundle {
     }
 }
 
-/// "Journal something?" on top, and under it your stats, one at a time.
+/// "Journal something?" on top, and under it your stats, one at a time, or the one tracker chosen in Edit Widget.
 struct StatsWidget: Widget {
     var body: some WidgetConfiguration {
-        StaticConfiguration(kind: WidgetSnapshot.kind, provider: StatsProvider()) { entry in
+        AppIntentConfiguration(kind: WidgetSnapshot.kind, intent: ChooseTrackerIntent.self, provider: StatsProvider()) { entry in
             StatsWidgetView(entry: entry)
                 .containerBackground(Palette.surface, for: .widget)
         }
         .configurationDisplayName("TinyMe")
-        .description("Journal in one tap, and see how things are going.")
+        .description("Journal in one tap, and see how things are going. Edit the widget to pick one tracker.")
         .supportedFamilies([.systemMedium])
     }
 }
@@ -33,7 +33,7 @@ struct StatsEntry: TimelineEntry {
     let index: Int
 }
 
-struct StatsProvider: TimelineProvider {
+struct StatsProvider: AppIntentTimelineProvider {
     /// How long each stat stays up. iOS may redraw less often than this when it is saving power.
     private let step: TimeInterval = 10
     private let entriesPerTimeline = 180   // half an hour, then iOS asks again
@@ -42,24 +42,32 @@ struct StatsProvider: TimelineProvider {
         StatsEntry(date: .now, stat: .placeholder, index: 0)
     }
 
-    func getSnapshot(in context: Context, completion: @escaping @Sendable (StatsEntry) -> Void) {
-        let stats = WidgetSnapshot.load()?.stats ?? []
-        completion(StatsEntry(date: .now, stat: stats.first ?? (context.isPreview ? .placeholder : nil), index: 0))
+    func snapshot(for configuration: ChooseTrackerIntent, in context: Context) async -> StatsEntry {
+        let stats = Self.stats(for: configuration)
+        return StatsEntry(date: .now, stat: stats.first ?? (context.isPreview ? .placeholder : nil), index: 0)
     }
 
-    func getTimeline(in context: Context, completion: @escaping @Sendable (Timeline<StatsEntry>) -> Void) {
-        let stats = WidgetSnapshot.load()?.stats ?? []
+    func timeline(for configuration: ChooseTrackerIntent, in context: Context) async -> Timeline<StatsEntry> {
+        let stats = Self.stats(for: configuration)
         let now = Date.now
         guard stats.count > 1 else {
-            // Nothing to rotate through: one entry, checked again in a while.
+            // One tracker, or nothing to rotate through: one entry, checked again in a while.
             let entry = StatsEntry(date: now, stat: stats.first, index: 0)
-            completion(Timeline(entries: [entry], policy: .after(now.addingTimeInterval(30 * 60))))
-            return
+            return Timeline(entries: [entry], policy: .after(now.addingTimeInterval(30 * 60)))
         }
         let entries = (0..<entriesPerTimeline).map { offset in
             StatsEntry(date: now.addingTimeInterval(Double(offset) * step), stat: stats[offset % stats.count], index: offset)
         }
-        completion(Timeline(entries: entries, policy: .atEnd))
+        return Timeline(entries: entries, policy: .atEnd)
+    }
+
+    /// The chosen tracker alone; all of them when none is chosen or the chosen card is gone from Home.
+    static func stats(for configuration: ChooseTrackerIntent) -> [WidgetSnapshot.Stat] {
+        let stats = WidgetSnapshot.load()?.stats ?? []
+        if let id = configuration.tracker?.id, let chosen = stats.first(where: { $0.id == id }) {
+            return [chosen]
+        }
+        return stats
     }
 }
 
@@ -175,7 +183,7 @@ private struct Face: View {
 extension WidgetSnapshot.Stat {
     /// Shown in the widget gallery before there is real data.
     static let placeholder = WidgetSnapshot.Stat(
-        title: "Journal", symbol: "text.book.closed", accent: "mint",
+        id: nil, title: "Journal", symbol: "text.book.closed", accent: "mint",
         value: "15", caption: "entries this week", change: "↑ 20% vs last week"
     )
 }

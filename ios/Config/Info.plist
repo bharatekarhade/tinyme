@@ -28,6 +28,9 @@
 	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
 	<string>TinyMe uses your location in the background only when you enable nearby place alerts, so it can notify you when you pass a saved place.</string>
 	<key>UIBackgroundModes</key>
-	<array><string>location</string></array>
+	<array><string>location</string><string>fetch</string></array>
+	<!-- Wakes TinyMe now and then to bring reminders and what Gmail found up to date. -->
+	<key>BGTaskSchedulerPermittedIdentifiers</key>
+	<array><string>com.tinyme.refresh</string></array>
 </dict>
 </plist>
