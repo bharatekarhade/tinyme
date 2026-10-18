@@ -31,7 +31,8 @@ public record OccurrenceResponse(String id,
                                  boolean editable,
                                  @JsonProperty("gmail_message_id") String gmailMessageId,
                                  String origin,
-                                 @JsonProperty("origin_url") String originUrl) {
+                                 @JsonProperty("origin_url") String originUrl,
+                                 @JsonProperty("remind_minutes") Integer remindMinutes) {
     private static final DateTimeFormatter TIME = DateTimeFormatter.ofPattern("HH:mm", Locale.ROOT);
 
     public OccurrenceResponse {
@@ -59,7 +60,8 @@ public record OccurrenceResponse(String id,
                 "chat".equals(occurrence.source()) && occurrence.externalId() != null
                         && occurrence.externalId().startsWith("gmail:")
                         ? occurrence.externalId().substring("gmail:".length()) : null,
-                origin(occurrence.source(), occurrence.externalId()), originUrl(occurrence.source(), occurrence.externalId()));
+                origin(occurrence.source(), occurrence.externalId()), originUrl(occurrence.source(), occurrence.externalId()),
+                occurrence.remindMinutes());
     }
 
     /**

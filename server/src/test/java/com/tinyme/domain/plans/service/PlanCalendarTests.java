@@ -201,7 +201,7 @@ class PlanCalendarTests {
         var plan = new PlanCalendar.PlanInput(UUID.randomUUID(), PlanKind.EVENT, "Weekly run", null, null,
                 berlin.getId(), date("2026-03-23"), LocalTime.of(7, 30), null, null,
                 new Repeat(RepeatFrequency.WEEKLY, 1, Set.of(DayOfWeek.MONDAY), null), null,
-                PlanStatus.ACTIVE, null, PlanSource.CHAT, List.of(), null);
+                PlanStatus.ACTIVE, null, PlanSource.CHAT, List.of(), null, null);
         var result = CALENDAR.expand(date("2026-03-23"), date("2026-03-30"),
                 Instant.parse("2026-03-22T12:00:00Z"), berlin, List.of(plan), List.of(), List.of(), List.of(), false);
 
@@ -215,11 +215,22 @@ class PlanCalendarTests {
     void carriesTheAcceptedMailReferenceIntoCalendarOccurrences() {
         var plan = new PlanCalendar.PlanInput(UUID.randomUUID(), PlanKind.EVENT, "Flight to Osaka", null, null,
                 TOKYO.getId(), TODAY, LocalTime.of(9, 30), null, null, null, null,
-                PlanStatus.ACTIVE, null, PlanSource.CHAT, List.of(), "gmail:message-123");
+                PlanStatus.ACTIVE, null, PlanSource.CHAT, List.of(), "gmail:message-123", null);
 
         var result = expand(TODAY, TODAY, List.of(plan), List.of(), List.of(), List.of(), false);
 
         assertThat(result).singleElement().extracting(PlanOccurrence::externalId).isEqualTo("gmail:message-123");
+    }
+
+    @Test
+    void carriesThePlansReminderSoThePhoneCanScheduleIt() {
+        var plan = new PlanCalendar.PlanInput(UUID.randomUUID(), PlanKind.EVENT, "Dentist", null, null,
+                TOKYO.getId(), TODAY, LocalTime.of(15, 0), null, null, null, null,
+                PlanStatus.ACTIVE, null, PlanSource.CHAT, List.of(), null, 30);
+
+        var result = expand(TODAY, TODAY, List.of(plan), List.of(), List.of(), List.of(), false);
+
+        assertThat(result).singleElement().extracting(PlanOccurrence::remindMinutes).isEqualTo(30);
     }
 
     @Test
@@ -245,7 +256,7 @@ class PlanCalendarTests {
                                                 LocalTime startTime, LocalTime endTime, LocalDate endDay,
                                                 Repeat repeat, String habitKind, PlanStatus status) {
         return new PlanCalendar.PlanInput(UUID.randomUUID(), kind, title, null, null, TOKYO.getId(), startDay,
-                startTime, endTime, endDay, repeat, habitKind, status, null, PlanSource.CHAT, List.of(), null);
+                startTime, endTime, endDay, repeat, habitKind, status, null, PlanSource.CHAT, List.of(), null, null);
     }
 
     private static List<LocalDate> days(List<PlanOccurrence> occurrences) {
