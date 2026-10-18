@@ -355,7 +355,14 @@ public class MailScanService {
         LocalDate day;
         try { day = LocalDate.parse(dayText); } catch (RuntimeException invalid) { return null; }
         String haystack = (source.subject() == null ? "" : source.subject()) + "\n" + source.body();
-        if (!quotes(haystack, evidence)) return null;
+        if (!quotes(haystack, evidence)) {
+            if (!"payment".equals(type) || !quotes(haystack, title)) return null;
+            // The scanner rewrites a Japanese notice's labels when it quotes them (加盟店 for 店舗, 円 the email
+            // doesn't write), so a payment is grounded by its shop and amount instead (the amount is checked
+            // below), and shows the email's own lines.
+            evidence = excerpt(haystack, title, positiveAmount(proposal.get("amount")));
+            if (evidence == null) return null;
+        }
         if ("payment".equals(type)) {
             return payment(proposal, haystack, title.strip(), day, evidence, confidenceNode.doubleValue(), today, userZone);
         }
@@ -585,6 +592,22 @@ public class MailScanService {
         return JSON_ESCAPE.matcher(evidence).replaceAll(" ");
     }
 
+    /** The email's lines naming the shop and the amount, as the evidence shown with a payment. */
+    static String excerpt(String haystack, String shop, BigDecimal amount) {
+        if (amount == null) return null;
+        String name = squeeze(shop);
+        List<String> lines = new ArrayList<>();
+        for (String line : haystack.split("\\R")) {
+            String trimmed = line.strip().replaceAll("\\s+", " ");
+            if (trimmed.isEmpty() || lines.contains(trimmed)) continue;
+            if (squeeze(trimmed).contains(name) || mentions(trimmed, amount)) lines.add(trimmed);
+            if (lines.size() == 3) break;
+        }
+        if (lines.isEmpty()) return null;
+        String joined = String.join(" / ", lines);
+        return joined.length() <= 200 ? joined : joined.substring(0, 199).strip() + "…";
+    }
+
     /** Letters, digits and currency signs only: spacing and punctuation don't count. */
     private static String squeeze(String text) {
         return NOT_WORD.matcher(fold(text)).replaceAll("");
@@ -604,7 +627,8 @@ public class MailScanService {
         try { day = LocalDate.parse(text(proposal, "day")); } catch (RuntimeException invalid) { return "bad_day"; }
         String haystack = (source.subject() == null ? "" : source.subject()) + "\n" + source.body();
         String mismatch = mismatch(haystack, evidence);
-        if (mismatch != null) return "evidence_not_in_email " + mismatch;
+        if (mismatch != null && !("payment".equals(type) && quotes(haystack, text(proposal, "title"))))
+            return "evidence_not_in_email " + mismatch;
         if ("payment".equals(type)) {
             BigDecimal amount = positiveAmount(proposal.get("amount"));
             if (amount == null) return "bad_amount";

@@ -225,6 +225,40 @@ class MailScanServiceTests {
     }
 
     @Test
+    void aPaymentWhoseQuoteTheScannerReworded_isGroundedByItsShopAndAmount() {
+        // A real ゆうちょデビット notice, as the owner sees it.
+        var notice = new MailScanAgentRunner.MailInput("gmail-debit-1260", "ゆうちょ銀行 <debit@example-bank.test>",
+                "2026-10-17T18:19:00+09:00", "【ゆうちょデビット】ご利用のお知らせ", """
+                ｶｰﾄﾞ ﾋﾞｰｱﾗﾄﾋﾞｰｳｼﾝ 様
+
+                ゆうちょデビットのご利用を受け付けました。
+
+                利用日時  2026/10/17 18:18:51
+                利用店舗  ROCKETNOW JPN
+                利用金額  1,260円
+                利用通貨  JPY
+                承認番号  104215""");
+        String proposal = """
+                {"type":"payment","title":"ROCKETNOW JPN","day":"2026-10-17","time":"18:18","amount":1260,
+                 "currency":"JPY","direction":"purchase","card":"ゆうちょデビット","reference":"104215",
+                 "confidence":0.95,"evidence":"%s","gmail_message_id":"gmail-debit-1260"}
+                """;
+
+        // The scanner's quote uses a label the email doesn't have.
+        var result = MailScanService.validate(json(proposal.formatted("加盟店名：ROCKETNOW JPN 利用金額：1,260円")),
+                notice, LocalDate.of(2026, 10, 18), ZoneId.of("Asia/Tokyo"));
+
+        assertThat(result).isNotNull();
+        assertThat(result.payload()).containsEntry("amount", "1260");
+        assertThat(result.evidence()).as("the email's own lines").isEqualTo("利用店舗 ROCKETNOW JPN / 利用金額 1,260円");
+        assertThat(MailScanService.validate(json(proposal.formatted("加盟店名：ROCKETNOW JPN")
+                        .replace("\"ROCKETNOW JPN\"", "\"Uber Eats\"")), notice, LocalDate.of(2026, 10, 18),
+                ZoneId.of("Asia/Tokyo"))).as("a shop the email doesn't name").isNull();
+        assertThat(MailScanService.validate(json(proposal.formatted("加盟店名：ROCKETNOW JPN").replace("1260", "1620")),
+                notice, LocalDate.of(2026, 10, 18), ZoneId.of("Asia/Tokyo"))).as("an amount it doesn't say").isNull();
+    }
+
+    @Test
     void aQuoteOnlyHasToMatchTheEmailsWordsAndNumbersInOrder() {
         // Label and value in separate table cells, as an HTML notice reads once its tags are gone.
         String body = "ご利用日\n2026/10/17\nご利用先\nセブン-イレブン 横浜店\nご利用金額\n440円\nカード番号 ****1234";
@@ -249,7 +283,7 @@ class MailScanServiceTests {
                 PayPayカード
                 PayPayカード（Visa）
                 利用速報
-                イオン マイバスケツト 西横浜駅前
+                サンプルマート 本町駅前
                 2026年10月16日 18:17
                 504円
                 PayPayで取引履歴とポイントを確認
@@ -257,9 +291,9 @@ class MailScanServiceTests {
                 この利用に心あたりがない場合、まずは解決方法をご確認ください""");
 
         var result = MailScanService.validate(json("""
-                {"type":"payment","title":"イオン マイバスケツト 西横浜駅前","day":"2026-10-16","time":"18:17",
+                {"type":"payment","title":"サンプルマート 本町駅前","day":"2026-10-16","time":"18:17",
                  "amount":504,"currency":"JPY","direction":"purchase","card":"PayPayカード（Visa）","confidence":0.95,
-                 "evidence":"イオン マイバスケツト 西横浜駅前 2026年10月16日 18:17 504円","gmail_message_id":"gmail-paypay-504"}
+                 "evidence":"サンプルマート 本町駅前 2026年10月16日 18:17 504円","gmail_message_id":"gmail-paypay-504"}
                 """), flash, TODAY, ZoneId.of("Asia/Tokyo"));
 
         assertThat(result).isNotNull();
