@@ -60,9 +60,11 @@ enum NotificationPlan {
 
         for item in upcoming.items where !item.allDay && item.source != "people" && item.status == "upcoming" {
             guard let startsAt = item.startsAt else { continue }
-            let lead = max(0, item.remindMinutes ?? defaultLeadMinutes)
+            guard startsAt > now else { continue }
+            var lead = max(0, item.remindMinutes ?? defaultLeadMinutes)
+            // Added too close to the start for the usual warning: ring when it starts instead.
+            if startsAt.addingTimeInterval(-Double(lead) * 60) <= now { lead = 0 }
             let fire = startsAt.addingTimeInterval(-Double(lead) * 60)
-            guard fire > now else { continue }
             planned.append(PlannedNotification(
                 id: planPrefix + item.id, fireDate: fire, title: item.title,
                 body: reminderBody(item, lead: lead, startsAt: startsAt, calendar: calendar),

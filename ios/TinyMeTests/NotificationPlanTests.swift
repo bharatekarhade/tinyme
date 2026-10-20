@@ -51,6 +51,16 @@ struct NotificationPlanTests {
         #expect(planned[0].route == .plan("a"))
     }
 
+    @Test func aPlanAddedInsideItsWarningRingsWhenItStarts() throws {
+        let data = try upcoming(items: item("a", title: "Coding task", startsAt: "2026-10-17T23:05:00Z"))   // 08:05
+
+        let planned = NotificationPlan.plans(data, now: now, calendar: tokyo)
+
+        #expect(planned.map(\.id) == ["tinyme.plan.a"])
+        #expect(planned[0].fireDate == Date(timeIntervalSince1970: 1_792_278_300))
+        #expect(planned[0].body.hasPrefix("Now"))
+    }
+
     @Test func listsEachDaysOpenTasksAtNineWithTheOnesLeftFromEarlierDays() throws {
         let data = try upcoming(
             items: [

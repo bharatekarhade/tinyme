@@ -1,6 +1,7 @@
 import BackgroundTasks
 import Foundation
 import Observation
+import OSLog
 import UIKit
 import UserNotifications
 
@@ -31,11 +32,23 @@ final class Notifier: NSObject, UNUserNotificationCenterDelegate {
     /// A tapped notification's destination, picked up by the signed-in app.
     var route: NotificationRoute?
     private(set) var authorization: UNAuthorizationStatus = .notDetermined
+    /// What is waiting to ring, for the line in Settings.
+    private(set) var scheduled: [Scheduled] = []
+    /// Why the last refresh couldn't load plans, for Settings; nil when it could.
+    private(set) var problem: String?
+
+    struct Scheduled: Equatable {
+        let title: String
+        let fireDate: Date
+    }
 
     private let center = UNUserNotificationCenter.current()
     private let defaults: UserDefaults
     private let api: () -> APIClient?
     private var isRefreshing = false
+    /// A refresh was asked for while one ran (a switch flipped mid-way): run once more when it ends.
+    private var refreshAgain = false
+    private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "TinyMe", category: "notifications")
     private var lastRefresh: Date?
     private var suspendTask = UIBackgroundTaskIdentifier.invalid
 
@@ -77,19 +90,61 @@ final class Notifier: NSObject, UNUserNotificationCenterDelegate {
 
     /// Rebuilds every schedule from the server. Old reminders stay when the server can't be reached.
     func refresh() async {
-        guard let api = api(), !isRefreshing else { return }
+        guard api() != nil else { return }
+        guard !isRefreshing else {
+            refreshAgain = true
+            return
+        }
         isRefreshing = true
         defer { isRefreshing = false }
+        repeat {
+            refreshAgain = false
+            await refreshOnce()
+        } while refreshAgain
+    }
+
+    private func refreshOnce() async {
+        guard let api = api() else { return }
         lastRefresh = .now
         await checkPermission()
         guard Self.allows(authorization) else {
+            log.info("refresh: notifications not allowed (\(self.authorization.rawValue))")
             await removeAll()
+            await loadScheduled()
             return
         }
         await schedulePlans(api: api)
         await scheduleJournal()
         await checkMail(api: api)
         scheduleBackgroundRefresh()
+        await loadScheduled()
+        log.info("refresh: \(self.scheduled.count) scheduled, plans=\(self.defaults.bool(forKey: Key.plans)) mail=\(self.defaults.bool(forKey: Key.mail)) journal=\(self.defaults.bool(forKey: Key.journal))")
+    }
+
+    /// Reads back what iOS holds, so Settings shows what will really ring.
+    private func loadScheduled() async {
+        scheduled = await center.pendingNotificationRequests().compactMap { request in
+            guard let trigger = request.trigger as? UNCalendarNotificationTrigger,
+                  let fire = trigger.nextTriggerDate() else { return nil }
+            return Scheduled(title: request.content.title, fireDate: fire)
+        }.sorted { $0.fireDate < $1.fireDate }
+    }
+
+    /// Settings' "Send a test": rings in five seconds, so you can see notifications reach this phone.
+    func sendTest() async -> Bool {
+        guard await requestPermission() else { return false }
+        let content = UNMutableNotificationContent()
+        content.title = "TinyMe notifications work"
+        content.body = "Reminders, Gmail news and the journal nudge will look like this."
+        content.sound = .default
+        let trigger = UNTimeIntervalNotificationTrigger(timeInterval: 5, repeats: false)
+        do {
+            try await center.add(UNNotificationRequest(identifier: "tinyme.test", content: content, trigger: trigger))
+            return true
+        } catch {
+            log.error("test notification failed: \(error.localizedDescription)")
+            return false
+        }
     }
 
     /// The app is going to the background: one more refresh, so what changed on screen rings at its new time.
@@ -123,8 +178,17 @@ final class Notifier: NSObject, UNUserNotificationCenterDelegate {
         }
         let now = Date.now
         let today = LocalDay.today()
-        guard let last = Calendar.current.date(byAdding: .day, value: 6, to: now).flatMap({ LocalDay(date: $0) }),
-              let upcoming: UpcomingDTO = try? await api.get(.upcoming(from: today, to: last)) else { return }
+        guard let last = Calendar.current.date(byAdding: .day, value: 6, to: now).flatMap({ LocalDay(date: $0) }) else { return }
+        let upcoming: UpcomingDTO
+        do {
+            upcoming = try await api.get(.upcoming(from: today, to: last))
+            problem = nil
+        } catch {
+            // Keep what was scheduled: the plans most likely haven't changed.
+            log.error("refresh: couldn't load plans: \(error.localizedDescription)")
+            problem = "Couldn't reach your server, so reminders may be out of date."
+            return
+        }
         await removePending(prefixes: [NotificationPlan.planPrefix, NotificationPlan.tasksPrefix])
         for planned in NotificationPlan.plans(upcoming, now: now) {
             await add(planned)
@@ -198,7 +262,11 @@ final class Notifier: NSObject, UNUserNotificationCenterDelegate {
             let parts = Calendar.current.dateComponents([.year, .month, .day, .hour, .minute], from: fire)
             trigger = UNCalendarNotificationTrigger(dateMatching: parts, repeats: false)
         }
-        try? await center.add(UNNotificationRequest(identifier: planned.id, content: content, trigger: trigger))
+        do {
+            try await center.add(UNNotificationRequest(identifier: planned.id, content: content, trigger: trigger))
+        } catch {
+            log.error("couldn't schedule \(planned.id): \(error.localizedDescription)")
+        }
     }
 
     private func removePending(prefixes: [String]) async {

@@ -11,6 +11,7 @@ struct NotificationSettingsSection: View {
     @AppStorage(Notifier.Key.journal) private var journal = false
     @AppStorage(Notifier.Key.journalMinutes) private var journalMinutes = Notifier.defaultJournalMinutes
     @State private var isDenied = false
+    @State private var testSent = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: Space.s2) {
@@ -41,6 +42,9 @@ struct NotificationSettingsSection: View {
                     .fill(Palette.surfaceRaised)
                     .cardShadow()
             )
+            if !isDenied, plans || mail || journal {
+                status
+            }
             if isDenied {
                 Button {
                     if let settings = URL(string: UIApplication.openSettingsURLString) {
@@ -60,7 +64,43 @@ struct NotificationSettingsSection: View {
         .task {
             await notifier.checkPermission()
             isDenied = notifier.authorization == .denied && (plans || mail || journal)
+            await notifier.refresh()   // so the line below shows what is really waiting
         }
+    }
+
+    /// What will ring next, so it's clear the switches did something, and a test to check this phone shows them.
+    private var status: some View {
+        HStack(alignment: .firstTextBaseline, spacing: Space.s2) {
+            Text(statusLine)
+                .textStyle(.caption)
+                .foregroundStyle(notifier.problem == nil ? Palette.inkMuted : Palette.accent)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            Button(testSent ? "Sent" : "Send a test") {
+                Task {
+                    testSent = await notifier.sendTest()
+                    isDenied = !testSent && notifier.authorization == .denied
+                    try? await Task.sleep(for: .seconds(6))
+                    testSent = false
+                }
+            }
+            .textStyle(.caption, weight: .semibold)
+            .foregroundStyle(Palette.brandStrong)
+            .disabled(testSent)
+        }
+        .padding(.horizontal, 4)
+    }
+
+    private var statusLine: String {
+        if let problem = notifier.problem { return problem }
+        guard let next = notifier.scheduled.first else {
+            return plans ? "Nothing to ring yet. Plans with a time in the next 7 days get a reminder."
+                         : "Nothing to ring yet."
+        }
+        let when = Calendar.current.isDateInToday(next.fireDate)
+            ? next.fireDate.formatted(.dateTime.hour().minute())
+            : next.fireDate.formatted(.dateTime.weekday(.abbreviated).hour().minute())
+        let count = notifier.scheduled.count
+        return "Next: \(next.title) at \(when)" + (count > 1 ? " · \(count) waiting" : "")
     }
 
     private func toggle(_ title: String, detail: String, isOn: Binding<Bool>) -> some View {
