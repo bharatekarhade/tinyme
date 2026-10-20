@@ -10,6 +10,7 @@ struct TinyMeApp: App {
         let environment = AppEnvironment()
         _environment = State(initialValue: environment)
         AppDependencyManager.shared.add(dependency: environment.intentRuntime)
+        environment.notifier.registerBackgroundRefresh()
         TinyMeShortcuts.updateAppShortcutParameters()
         Fonts.register()
     }

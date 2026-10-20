@@ -513,7 +513,7 @@ public class PlanService {
         return new PlanCalendar.PlanInput(plan.getId(), plan.getKind(), plan.getTitle(), plan.getNotes(), plan.getPlace(),
                 plan.getZone(), plan.getStartDay(), plan.getStartTime(), plan.getEndTime(), plan.getEndDay(),
                 plan.getRepeat(), habitKind, plan.getStatus(), plan.getCompletedAt(), plan.getSource(), personSnapshots,
-                plan.getExternalId());
+                plan.getExternalId(), plan.getRemindMinutes());
     }
 
     private static LocalDate requireOccurrenceDay(LocalDate day) {

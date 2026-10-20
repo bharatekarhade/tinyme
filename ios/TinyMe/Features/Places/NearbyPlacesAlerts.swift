@@ -6,7 +6,7 @@ import UserNotifications
 /// Opt-in geofence monitoring for the nearest saved places. Place names and coordinates stay on device.
 @MainActor
 @Observable
-final class NearbyPlacesAlerts: NSObject, @preconcurrency CLLocationManagerDelegate, @preconcurrency UNUserNotificationCenterDelegate {
+final class NearbyPlacesAlerts: NSObject, @preconcurrency CLLocationManagerDelegate {
     private static let enabledKey = "places.nearbyAlerts.enabled"
     private static let monitorName = "TinyMeNearbyPlaces"
     private static let cachedPlacesKey = "places.nearbyAlerts.cachedPlaces"
@@ -34,8 +34,7 @@ final class NearbyPlacesAlerts: NSObject, @preconcurrency CLLocationManagerDeleg
         super.init()
         manager.delegate = self
         manager.desiredAccuracy = kCLLocationAccuracyHundredMeters
-        // Notifications should still be visible when the user is currently in TinyMe.
-        UNUserNotificationCenter.current().delegate = self
+        // Notifier shows its notifications, these included, while TinyMe is open.
     }
 
     func enable(api: APIClient) async -> Bool {
@@ -269,11 +268,5 @@ final class NearbyPlacesAlerts: NSObject, @preconcurrency CLLocationManagerDeleg
         guard isEnabled, let api else { return }
         await startMonitorIfNeeded()
         await refresh(api: api)
-    }
-
-    nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter,
-                                            willPresent notification: UNNotification,
-                                            withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void) {
-        completionHandler([.banner, .sound])
     }
 }

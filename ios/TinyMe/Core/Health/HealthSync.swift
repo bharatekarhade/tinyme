@@ -25,6 +25,8 @@ final class HealthSync {
     private let api: () -> APIClient?
     /// Background wake-ups that arrived during another run. iOS completion handlers are returned immediately.
     private var waiting: [String: HealthMetric] = [:]
+    /// iOS woke TinyMe for new Health data; other background work can ride along.
+    var onBackgroundWake: () -> Void = {}
 
     init(settings: HealthSettingsStore, engine: HealthSyncEngine = HealthSyncEngine(),
          background: HealthBackground = HealthBackground(), api: @escaping () -> APIClient?) {
@@ -103,6 +105,7 @@ final class HealthSync {
         }
         waiting[metric.kind] = metric
         done()
+        if isInBackground() { onBackgroundWake() }
         guard !isSyncing else { return }
         isSyncing = true
         Task {

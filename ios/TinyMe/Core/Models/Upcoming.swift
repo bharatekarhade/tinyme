@@ -114,6 +114,8 @@ struct OccurrenceDTO: Decodable, Sendable, Hashable, Identifiable {
     /// Where it came from, for its small logo: gmail, linkedin, google_calendar; nil when made in TinyMe.
     let origin: String?
     let originUrl: String?
+    /// Minutes before it starts to remind you; nil means the app's default.
+    let remindMinutes: Int?
 
     var isTask: Bool { kind == "task" }
     var isDone: Bool { status == "done" }
@@ -171,5 +173,6 @@ struct OccurrenceDTO: Decodable, Sendable, Hashable, Identifiable {
         case gmailMessageId = "gmail_message_id"
         case origin
         case originUrl = "origin_url"
+        case remindMinutes = "remind_minutes"
     }
 }

@@ -9,14 +9,17 @@ import java.util.List;
 import java.util.Objects;
 import java.util.UUID;
 
-/** One computed calendar item. originalDay keeps a moved occurrence's ID stable. */
+/**
+ * One computed calendar item. originalDay keeps a moved occurrence's ID stable. remindMinutes is how long before it
+ * starts the phone should remind you; null means the app's default.
+ */
 public record PlanOccurrence(String id, UUID planId, LocalDate originalDay, LocalDate day,
                              LocalDate repeatStartDay,
                              LocalTime startTime, LocalTime endTime, LocalDate endDay,
                              Instant startsAt, Instant endsAt, boolean allDay, PlanKind kind,
                              String title, String notes, String place, List<PersonSnapshot> people,
                              OccurrenceStatus status, String habitKind, Repeat repeat, String source,
-                             String externalId) {
+                             String externalId, Integer remindMinutes) {
     public PlanOccurrence {
         Objects.requireNonNull(id, "id");
         Objects.requireNonNull(originalDay, "originalDay");

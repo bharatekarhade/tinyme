@@ -15,6 +15,8 @@ final class AppEnvironment {
     let health: HealthSettingsStore
     let healthSync: HealthSync
     let nearbyPlaceAlerts: NearbyPlacesAlerts
+    /// Plan reminders, what Gmail found, and the journal nudge.
+    let notifier: Notifier
 
     init(authStore: AuthStore = AuthStore(), outbox: OutboxWorker = .onDisk(), health: HealthSettingsStore = HealthSettingsStore()) {
         self.authStore = authStore
@@ -24,8 +26,13 @@ final class AppEnvironment {
         self.session = session
         self.intentRuntime = IntentRuntime(outbox: outbox)
         self.nearbyPlaceAlerts = NearbyPlacesAlerts()
+        let notifier = Notifier(api: { session.api })
+        self.notifier = notifier
+        session.onSignOut = { await notifier.removeAll() }
         // Created at launch, so background delivery is set up before anything else (guide §3.2).
         self.healthSync = HealthSync(settings: health, api: { session.api })
+        // A Health wake-up is a chance to bring reminders and Gmail news up to date too.
+        healthSync.onBackgroundWake = { Task { await notifier.refreshIfStale() } }
         Task { await outbox.startMonitoring() }
     }
 }

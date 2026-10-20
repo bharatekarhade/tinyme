@@ -149,6 +149,6 @@ class PlansToolTests {
         return new PlanOccurrence(id + ":" + day, id, day, day, day, time, null, null,
                 NOW, NOW.plusSeconds(3600), false, com.tinyme.domain.plans.model.PlanKind.EVENT,
                 "Lunch", null, null, List.of(), com.tinyme.domain.plans.model.OccurrenceStatus.UPCOMING,
-                null, null, "chat", null);
+                null, null, "chat", null, null);
     }
 }

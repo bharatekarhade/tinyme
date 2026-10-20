@@ -18,6 +18,8 @@ final class SessionModel {
     private(set) var state: State = .signedOut
     private(set) var loginError: String?
     private(set) var api: APIClient?
+    /// Clears what this account left on the phone outside the app, such as scheduled notifications.
+    var onSignOut: @MainActor () async -> Void = {}
     private(set) var stream: StreamClient?
 
     private let authStore: AuthStore
@@ -146,6 +148,7 @@ final class SessionModel {
     private func endSession() async {
         await authStore.clear()
         WidgetSnapshot.clearAndReload()   // the widget shouldn't keep showing this account's numbers
+        await onSignOut()   // nor should this account's reminders ring later
         api = nil
         stream = nil
         await outbox?.connect(nil)   // queued messages wait for the next sign-in
